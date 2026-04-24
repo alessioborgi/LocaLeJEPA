@@ -3,22 +3,19 @@
 #
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
-#
 
 import argparse
-
 import multiprocessing as mp
-
+import os
 import pprint
 import yaml
 
 from src.utils.distributed import init_distributed
-from src.train import main as app_main
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
     '--fname', type=str,
-    help='name of config file to load',
+    help='path to YAML config file',
     default='configs.yaml')
 parser.add_argument(
     '--devices', type=str, nargs='+', default=['cuda:0'],
@@ -26,29 +23,29 @@ parser.add_argument(
 
 
 def process_main(rank, fname, world_size, devices):
-    import os
+    import logging
+
     os.environ['CUDA_VISIBLE_DEVICES'] = str(devices[rank].split(':')[-1])
 
-    import logging
     logging.basicConfig()
     logger = logging.getLogger()
-    if rank == 0:
-        logger.setLevel(logging.INFO)
-    else:
-        logger.setLevel(logging.ERROR)
+    logger.setLevel(logging.INFO if rank == 0 else logging.ERROR)
+    logger.info('called-params %s', fname)
 
-    logger.info(f'called-params {fname}')
-
-    # -- load script params
-    params = None
-    with open(fname, 'r') as y_file:
+    with open(fname, 'r', encoding='utf-8') as y_file:
         params = yaml.load(y_file, Loader=yaml.FullLoader)
-        logger.info('loaded params...')
-        pp = pprint.PrettyPrinter(indent=4)
-        pp.pprint(params)
+    logger.info('loaded params...')
+    pprint.PrettyPrinter(indent=4).pprint(params)
 
     world_size, rank = init_distributed(rank_and_world_size=(rank, world_size))
-    logger.info(f'Running... (rank: {rank}/{world_size})')
+    logger.info('Running... (rank: %d/%d)', rank, world_size)
+
+    method = params.get('meta', {}).get('method', 'ijepa')
+    if method == 'lejepa':
+        from src.lejepa.train import main as app_main
+    else:
+        from src.ijepa.train import main as app_main
+
     app_main(args=params)
 
 

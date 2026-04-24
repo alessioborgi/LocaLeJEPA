@@ -1,0 +1,43 @@
+meta:
+  method: lejepa
+  use_bfloat16: true
+  model_name: vit_small_patch8_224
+  emb_dim: 512
+  proj_dim: 16
+  load_checkpoint: false
+  read_checkpoint: null
+  copy_data: false
+
+data:
+  dataset: imagenet1k
+  batch_size: 256
+  num_views: 4
+  num_workers: 8
+  pin_mem: true
+  root_path: /replace/with/your/dataset/path
+  image_folder: imagenet_full_size/
+  crop_size: 128
+  crop_scale:
+  - 0.08
+  - 1.0
+  use_gaussian_blur: true
+  use_horizontal_flip: true
+  use_color_distortion: true
+  color_jitter_strength: 0.8
+
+lejepa:
+  lamb: 0.02
+  num_classes: 1000
+
+optimization:
+  epochs: 800
+  warmup: 1
+  lr: 2.0e-3
+  weight_decay: 5.0e-2
+  probe_lr: 1.0e-3
+  probe_weight_decay: 1.0e-7
+
+logging:
+  folder: logs/lejepa_in1k/
+  write_tag: lejepa
+  use_wandb: false

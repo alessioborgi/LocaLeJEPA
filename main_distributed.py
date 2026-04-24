@@ -3,7 +3,6 @@
 #
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
-#
 
 import argparse
 import logging
@@ -13,8 +12,6 @@ import sys
 import yaml
 
 import submitit
-
-from src.train import main as app_main
 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 logger = logging.getLogger()
@@ -26,10 +23,10 @@ parser.add_argument(
     help='location to save submitit logs')
 parser.add_argument(
     '--batch-launch', action='store_true',
-    help='whether fname points to a file to batch-lauch several config files')
+    help='whether fname points to a file to batch-launch several config files')
 parser.add_argument(
     '--fname', type=str,
-    help='yaml file containing config file names to launch',
+    help='yaml config file (or list of config files if --batch-launch)',
     default='configs.yaml')
 parser.add_argument(
     '--partition', type=str,
@@ -39,7 +36,7 @@ parser.add_argument(
     help='num. nodes to request for job')
 parser.add_argument(
     '--tasks-per-node', type=int, default=1,
-    help='num. procs to per node')
+    help='num. procs per node')
 parser.add_argument(
     '--time', type=int, default=4300,
     help='time in minutes to run job')
@@ -54,17 +51,21 @@ class Trainer:
     def __call__(self):
         fname = self.fname
         load_model = self.load_model
-        logger.info(f'called-params {fname}')
+        logger.info('called-params %s', fname)
 
-        # -- load script params
-        params = None
-        with open(fname, 'r') as y_file:
+        with open(fname, 'r', encoding='utf-8') as y_file:
             params = yaml.load(y_file, Loader=yaml.FullLoader)
-            logger.info('loaded params...')
-            pp = pprint.PrettyPrinter(indent=4)
-            pp.pprint(params)
+        logger.info('loaded params...')
+        pprint.PrettyPrinter(indent=4).pprint(params)
 
         resume_preempt = False if load_model is None else load_model
+
+        method = params.get('meta', {}).get('method', 'ijepa')
+        if method == 'lejepa':
+            from src.lejepa.train import main as app_main
+        else:
+            from src.ijepa.train import main as app_main
+
         app_main(args=params, resume_preempt=resume_preempt)
 
     def checkpoint(self):
@@ -72,7 +73,7 @@ class Trainer:
         return submitit.helpers.DelayedSubmission(fb_trainer,)
 
 
-def launch():
+def launch(args):
     executor = submitit.AutoExecutor(
         folder=os.path.join(args.folder, 'job_%j'),
         slurm_max_num_timeout=20)
@@ -100,5 +101,4 @@ def launch():
 
 
 if __name__ == '__main__':
-    args = parser.parse_args()
-    launch()
+    launch(parser.parse_args())

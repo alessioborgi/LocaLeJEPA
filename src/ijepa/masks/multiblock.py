@@ -150,7 +150,7 @@ class MaskCollator(object):
             acceptable_regions = masks_C
             try:
                 if self.allow_overlap:
-                    acceptable_regions= None
+                    acceptable_regions = None
             except Exception as e:
                 logger.warning(f'Encountered exception in mask-generator {e}')
 

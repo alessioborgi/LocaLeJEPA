@@ -31,6 +31,7 @@ mask:
   - 0.15
   - 0.2
 meta:
+  method: ijepa
   copy_data: false
   load_checkpoint: false
   model_name: vit_huge

@@ -20,6 +20,10 @@ _GLOBAL_SEED = 0
 logger = getLogger()
 
 
+# ---------------------------------------------------------------------------
+# I-JEPA: single-view loader (used with mask collator)
+# ---------------------------------------------------------------------------
+
 def make_imagenet1k(
     transform,
     batch_size,
@@ -62,6 +66,77 @@ def make_imagenet1k(
 
     return dataset, data_loader, dist_sampler
 
+
+# ---------------------------------------------------------------------------
+# LeJEPA: multi-view train loader + single-view val loader (with labels)
+# ---------------------------------------------------------------------------
+
+def make_imagenet1k_lejepa(
+    train_transform,
+    val_transform,
+    batch_size,
+    pin_mem=True,
+    num_workers=8,
+    world_size=1,
+    rank=0,
+    root_path=None,
+    image_folder=None,
+    copy_data=False,
+    drop_last=True,
+    val_batch_size=256,
+):
+    """Returns (train_loader, val_loader, train_sampler) for LeJEPA.
+
+    train_transform should be a MultiViewTransform returning (V, C, H, W).
+    val_transform should be a MultiViewTransform with num_views=1, returning (1, C, H, W).
+    """
+    train_dataset = ImageNet(
+        root=root_path,
+        image_folder=image_folder,
+        transform=train_transform,
+        train=True,
+        copy_data=copy_data,
+        index_targets=False,
+    )
+    val_dataset = ImageNet(
+        root=root_path,
+        image_folder=image_folder,
+        transform=val_transform,
+        train=False,
+        copy_data=False,
+        index_targets=False,
+    )
+    logger.info('ImageNet (LeJEPA) datasets created')
+
+    train_sampler = torch.utils.data.distributed.DistributedSampler(
+        dataset=train_dataset,
+        num_replicas=world_size,
+        rank=rank,
+    )
+    train_loader = torch.utils.data.DataLoader(
+        train_dataset,
+        sampler=train_sampler,
+        batch_size=batch_size,
+        drop_last=drop_last,
+        pin_memory=pin_mem,
+        num_workers=num_workers,
+        persistent_workers=False,
+    )
+    val_loader = torch.utils.data.DataLoader(
+        val_dataset,
+        batch_size=val_batch_size,
+        pin_memory=pin_mem,
+        num_workers=num_workers,
+        persistent_workers=False,
+    )
+    logger.info('ImageNet (LeJEPA) data loaders created')
+
+    return train_loader, val_loader, train_sampler
+
+
+# ---------------------------------------------------------------------------
+# Dataset classes
+# ---------------------------------------------------------------------------
 
 class ImageNet(torchvision.datasets.ImageFolder):
 

@@ -29,8 +29,8 @@ import torch.multiprocessing as mp
 import torch.nn.functional as F
 from torch.nn.parallel import DistributedDataParallel
 
-from src.masks.multiblock import MaskCollator as MBMaskCollator
-from src.masks.utils import apply_masks
+from src.ijepa.masks.multiblock import MaskCollator as MBMaskCollator
+from src.ijepa.masks.utils import apply_masks
 from src.utils.distributed import (
     init_distributed,
     AllReduce
@@ -43,7 +43,7 @@ from src.utils.logging import (
 from src.utils.tensors import repeat_interleave_batch
 from src.datasets.imagenet1k import make_imagenet1k
 
-from src.helper import (
+from src.ijepa.helper import (
     load_checkpoint,
     init_model,
     init_opt)

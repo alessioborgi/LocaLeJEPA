@@ -10,7 +10,7 @@ import sys
 
 import torch
 
-import src.models.vision_transformer as vit
+import src.ijepa.models.vision_transformer as vit
 from src.utils.schedulers import (
     WarmupCosineSchedule,
     CosineWDSchedule)
