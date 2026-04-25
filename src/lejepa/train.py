@@ -47,11 +47,11 @@ def main(args, resume_preempt=False):
     batch_size           = data_cfg['batch_size']
     num_workers          = data_cfg['num_workers']
     pin_mem              = data_cfg['pin_mem']
-    crop_size            = data_cfg['crop_size']
-    use_gaussian_blur    = data_cfg['use_gaussian_blur']
-    use_horizontal_flip  = data_cfg['use_horizontal_flip']
-    use_color_distortion = data_cfg['use_color_distortion']
-    color_jitter         = data_cfg['color_jitter_strength']
+    crop_size            = data_cfg.get('crop_size', 32)
+    use_gaussian_blur    = data_cfg.get('use_gaussian_blur', True)
+    use_horizontal_flip  = data_cfg.get('use_horizontal_flip', True)
+    use_color_distortion = data_cfg.get('use_color_distortion', True)
+    color_jitter         = data_cfg.get('color_jitter_strength', 0.8)
     root_path            = data_cfg.get('root_path')
     image_folder         = data_cfg.get('image_folder')
     copy_data            = data_cfg.get('copy_data', False)
@@ -123,8 +123,11 @@ def main(args, resume_preempt=False):
         import wandb
         wandb.init(project='LeJEPA', config=args)
 
-    # -- transforms
-    if num_local_crops > 0:
+    # -- transforms (skipped for PhC — created inside the dataset block below)
+    if dataset in ('phc_blob', 'phc_gpm'):
+        train_transform = None   # set below
+        val_transform   = None
+    elif num_local_crops > 0:
         train_transform = make_multicrop_transforms(
             global_crop_size=crop_size,
             num_global_crops=num_global_crops,
@@ -181,9 +184,32 @@ def main(args, resume_preempt=False):
             world_size=world_size, rank=rank,
             data_root=data_cfg.get('root_path', './data'),
         )
+    elif dataset in ('phc_blob', 'phc_gpm'):
+        from src.phc.transforms import make_phc_transforms
+        from src.datasets.phc import make_phc_loaders
+        num_views_phc = num_global_crops + num_local_crops
+        train_transform = make_phc_transforms(
+            num_views=num_views_phc,
+            use_c4v=data_cfg.get('use_c4v', True),
+            use_mirror=data_cfg.get('use_mirror', False),
+            use_roll=data_cfg.get('use_roll', True),
+            use_refractive=data_cfg.get('use_refractive', True),
+            refractive_range=tuple(data_cfg.get('refractive_range', [0.8, 1.2])),
+        )
+        train_loader, val_loader, train_sampler = make_phc_loaders(
+            path=data_cfg['path'],
+            train_transform=train_transform,
+            test_transform=None,
+            batch_size=batch_size, pin_mem=pin_mem, num_workers=num_workers,
+            world_size=world_size, rank=rank,
+            train_frac=data_cfg.get('train_frac', 0.6),
+            seed=data_cfg.get('seed', 42),
+        )
+        # All PhC views are symmetric — no global/local asymmetry in the loss
+        num_global_crops = num_views_phc
     else:
         raise ValueError(f'Unknown dataset: {dataset!r}. '
-                         'Choose imagenet1k | imagenet100 | imagenette | stl10.')
+                         'Choose imagenet1k | imagenet100 | imagenette | stl10 | phc_blob | phc_gpm.')
 
     ipe          = len(train_loader)
     warmup_steps = ipe * warmup_epochs

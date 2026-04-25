@@ -1,0 +1,52 @@
+method: ijepa
+
+backbone:
+  name:         vit
+  in_chans:     1          # grayscale PhC images
+  vit_size:     vit_small
+  patch_size:   4          # 32/4 = 8 patches per side → 64 patches total
+  pred_depth:   6
+  pred_emb_dim: 384
+
+data:
+  dataset:    phc_blob
+  path:       /path/to/phc_blob.npz
+  batch_size: 512
+  num_workers: 4
+  pin_mem:    true
+  crop_size:  32
+
+  use_c4v:          true
+  use_mirror:       false
+  use_roll:         true
+  use_refractive:   true
+  refractive_range: [0.8, 1.2]
+  train_frac:       0.6
+  seed:             42
+
+ijepa:
+  allow_overlap:   false
+  aspect_ratio:    [0.75, 1.5]
+  enc_mask_scale:  [0.85, 1.0]
+  min_keep:        4
+  num_enc_masks:   1
+  num_pred_masks:  4
+  pred_mask_scale: [0.15, 0.4]
+
+optimization:
+  use_bfloat16:       true
+  epochs:             250
+  warmup:             10
+  lr:                 1.0e-3
+  start_lr:           2.0e-4
+  final_lr:           1.0e-6
+  weight_decay:       0.04
+  final_weight_decay: 0.4
+  ipe_scale:          1.0
+  ema: [0.996, 1.0]
+
+logging:
+  folder:          logs/ijepa_phc_blob/
+  write_tag:       ijepa_phc_blob
+  load_checkpoint: false
+  read_checkpoint: null

@@ -1,0 +1,43 @@
+method: lejepa
+
+backbone:
+  name:     phc    # PhCEncoder CNN (3 conv + 2 FC + projector)
+  emb_dim:  1024
+  proj_dim: 128
+
+data:
+  dataset:          phc_blob
+  path:             /path/to/phc_blob.npz   # (N, 32, 32) images + (N, 400) DOS
+  batch_size:       512
+  num_workers:      4
+  pin_mem:          true
+  num_global_crops: 2
+  num_local_crops:  0
+
+  use_c4v:          true    # 8 C4v symmetry ops
+  use_mirror:       false
+  use_roll:         true    # periodic toroidal translation
+  use_refractive:   true
+  refractive_range: [0.8, 1.2]
+  train_frac:       0.6
+  seed:             42
+
+lejepa:
+  lamb:        0.02
+  use_probe:   false   # PhC has no class labels
+
+optimization:
+  use_bfloat16: true
+  epochs:       250
+  warmup:       1
+  lr:           5.0e-4
+  weight_decay: 1.0e-4
+  probe_lr:           1.0e-3
+  probe_weight_decay: 1.0e-7
+
+logging:
+  folder:          logs/lejepa_phc_blob/
+  write_tag:       lejepa_phc_blob
+  load_checkpoint: false
+  read_checkpoint: null
+  use_wandb:       false

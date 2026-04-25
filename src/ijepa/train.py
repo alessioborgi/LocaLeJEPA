@@ -84,12 +84,12 @@ def main(args, resume_preempt=False):
     root_path            = data_cfg.get('root_path')
     image_folder         = data_cfg.get('image_folder')
     crop_size            = data_cfg['crop_size']
-    crop_scale           = data_cfg['crop_scale']
+    crop_scale           = data_cfg.get('crop_scale', [0.2, 1.0])
     copy_data            = data_cfg.get('copy_data', False)
-    use_gaussian_blur    = data_cfg['use_gaussian_blur']
-    use_horizontal_flip  = data_cfg['use_horizontal_flip']
-    use_color_distortion = data_cfg['use_color_distortion']
-    color_jitter         = data_cfg['color_jitter_strength']
+    use_gaussian_blur    = data_cfg.get('use_gaussian_blur', True)
+    use_horizontal_flip  = data_cfg.get('use_horizontal_flip', True)
+    use_color_distortion = data_cfg.get('use_color_distortion', True)
+    color_jitter         = data_cfg.get('color_jitter_strength', 0.8)
 
     # -- ijepa masking
     ijepa_cfg       = args['ijepa']
@@ -168,14 +168,24 @@ def main(args, resume_preempt=False):
         min_keep=min_keep,
     )
 
-    transform = make_transforms(
-        crop_size=crop_size,
-        crop_scale=crop_scale,
-        gaussian_blur=use_gaussian_blur,
-        horizontal_flip=use_horizontal_flip,
-        color_distortion=use_color_distortion,
-        color_jitter=color_jitter,
-    )
+    if dataset in ('phc_blob', 'phc_gpm'):
+        from src.phc.transforms import make_phc_single_transform
+        transform = make_phc_single_transform(
+            use_c4v=data_cfg.get('use_c4v', True),
+            use_mirror=data_cfg.get('use_mirror', False),
+            use_roll=data_cfg.get('use_roll', True),
+            use_refractive=data_cfg.get('use_refractive', True),
+            refractive_range=tuple(data_cfg.get('refractive_range', [0.8, 1.2])),
+        )
+    else:
+        transform = make_transforms(
+            crop_size=crop_size,
+            crop_scale=crop_scale,
+            gaussian_blur=use_gaussian_blur,
+            horizontal_flip=use_horizontal_flip,
+            color_distortion=use_color_distortion,
+            color_jitter=color_jitter,
+        )
 
     # -- dataset / data-loader
     if dataset == 'imagenet1k':
@@ -205,8 +215,23 @@ def main(args, resume_preempt=False):
             world_size=world_size,
             rank=rank,
         )
+    elif dataset in ('phc_blob', 'phc_gpm'):
+        from src.datasets.phc import make_phc_ijepa_loaders
+        _, unsupervised_loader, unsupervised_sampler = make_phc_ijepa_loaders(
+            path=data_cfg['path'],
+            train_transform=transform,
+            collator=mask_collator,
+            batch_size=batch_size,
+            pin_mem=pin_mem,
+            num_workers=num_workers,
+            world_size=world_size,
+            rank=rank,
+            train_frac=data_cfg.get('train_frac', 0.6),
+            seed=data_cfg.get('seed', 42),
+        )
     else:
-        raise ValueError(f'Unknown dataset: {dataset!r}. Choose "imagenet1k" or "imagenette".')
+        raise ValueError(f'Unknown dataset: {dataset!r}. '
+                         'Choose "imagenet1k", "imagenette", "phc_blob", or "phc_gpm".')
 
     ipe = len(unsupervised_loader)
 

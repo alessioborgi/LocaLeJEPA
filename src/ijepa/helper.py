@@ -63,7 +63,8 @@ def init_model(device, backbone_cfg, crop_size):
     pred_depth = backbone_cfg['pred_depth']
     pred_emb_dim = backbone_cfg['pred_emb_dim']
 
-    encoder = vit.__dict__[vit_size](img_size=[crop_size], patch_size=patch_size)
+    in_chans = backbone_cfg.get('in_chans', 3)
+    encoder = vit.__dict__[vit_size](img_size=[crop_size], patch_size=patch_size, in_chans=in_chans)
     predictor = vit.__dict__['vit_predictor'](
         num_patches=encoder.patch_embed.num_patches,
         embed_dim=encoder.embed_dim,

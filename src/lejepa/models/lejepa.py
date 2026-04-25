@@ -112,8 +112,11 @@ def build_encoder(backbone_cfg):
         )
     if name in ('resnet18', 'resnet50'):
         return ResNetEncoder(arch=name, emb_dim=emb_dim, proj_dim=proj_dim)
+    if name == 'phc':
+        from src.phc.models.phc_encoder import PhCEncoder
+        return PhCEncoder(emb_dim=emb_dim, proj_dim=proj_dim)
 
     raise ValueError(
         f'Unknown backbone {name!r}. '
-        'Supported choices: vit | resnet18 | resnet50'
+        'Supported choices: vit | resnet18 | resnet50 | phc'
     )
