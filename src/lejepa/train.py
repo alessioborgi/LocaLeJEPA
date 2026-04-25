@@ -10,7 +10,11 @@ from torch.amp import autocast
 
 from src.lejepa.models.lejepa import SIGReg
 from src.lejepa.helper import init_model, init_probe, init_opt, load_checkpoint
-from src.transforms import make_lejepa_transforms, make_lejepa_eval_transform
+from src.transforms import (
+    make_multicrop_transforms,
+    make_lejepa_transforms,
+    make_lejepa_eval_transform,
+)
 from src.utils.distributed import init_distributed
 from src.utils.logging import CSVLogger, AverageMeter
 
@@ -24,8 +28,8 @@ def main(args, resume_preempt=False):
 
     # -- backbone
     backbone_cfg  = args['backbone']
+    backbone_name = backbone_cfg['name']
     emb_dim       = backbone_cfg['emb_dim']
-    proj_dim      = backbone_cfg['proj_dim']
 
     # -- optimization
     opt_cfg            = args['optimization']
@@ -34,18 +38,16 @@ def main(args, resume_preempt=False):
     warmup_epochs      = opt_cfg['warmup']
     lr                 = opt_cfg['lr']
     weight_decay       = opt_cfg['weight_decay']
-    probe_lr           = opt_cfg['probe_lr']
-    probe_weight_decay = opt_cfg['probe_weight_decay']
+    probe_lr           = opt_cfg.get('probe_lr', lr)
+    probe_weight_decay = opt_cfg.get('probe_weight_decay', 1e-7)
 
     # -- data
     data_cfg             = args['data']
     dataset              = data_cfg['dataset']
     batch_size           = data_cfg['batch_size']
-    num_views            = data_cfg['num_views']
     num_workers          = data_cfg['num_workers']
     pin_mem              = data_cfg['pin_mem']
     crop_size            = data_cfg['crop_size']
-    crop_scale           = data_cfg['crop_scale']
     use_gaussian_blur    = data_cfg['use_gaussian_blur']
     use_horizontal_flip  = data_cfg['use_horizontal_flip']
     use_color_distortion = data_cfg['use_color_distortion']
@@ -53,11 +55,32 @@ def main(args, resume_preempt=False):
     root_path            = data_cfg.get('root_path')
     image_folder         = data_cfg.get('image_folder')
     copy_data            = data_cfg.get('copy_data', False)
+    class_subset_file    = data_cfg.get('class_subset_file')
+
+    # Multi-crop (DINO-style) vs legacy single-resolution multi-view
+    if 'num_global_crops' in data_cfg:
+        num_global_crops  = data_cfg['num_global_crops']
+        num_local_crops   = data_cfg.get('num_local_crops', 0)
+        global_crop_scale = data_cfg['global_crop_scale']
+        local_crop_scale  = data_cfg.get('local_crop_scale', [0.05, 0.3])
+    else:
+        # backward compat: treat all views as global
+        num_global_crops  = data_cfg['num_views']
+        num_local_crops   = 0
+        global_crop_scale = data_cfg['crop_scale']
+        local_crop_scale  = [0.05, 0.3]
+    num_views       = num_global_crops + num_local_crops
+    record_metadata = data_cfg.get('record_metadata', False)
+
+    # For non-ViT backbones all views are global anchors in the loss (no patch asymmetry)
+    if backbone_name in ('resnet18', 'resnet50'):
+        num_global_crops = num_views
 
     # -- lejepa
     lejepa_cfg  = args['lejepa']
     lamb        = lejepa_cfg['lamb']
-    num_classes = lejepa_cfg['num_classes']
+    num_classes = lejepa_cfg.get('num_classes', 1000)
+    use_probe   = lejepa_cfg.get('use_probe', True)
 
     # -- logging / checkpointing
     log_cfg         = args['logging']
@@ -101,11 +124,28 @@ def main(args, resume_preempt=False):
         wandb.init(project='LeJEPA', config=args)
 
     # -- transforms
-    train_transform = make_lejepa_transforms(
-        crop_size=crop_size, crop_scale=crop_scale, num_views=num_views,
-        gaussian_blur=use_gaussian_blur, horizontal_flip=use_horizontal_flip,
-        color_distortion=use_color_distortion, color_jitter=color_jitter,
-    )
+    if num_local_crops > 0:
+        train_transform = make_multicrop_transforms(
+            global_crop_size=crop_size,
+            num_global_crops=num_global_crops,
+            num_local_crops=num_local_crops,
+            global_crop_scale=global_crop_scale,
+            local_crop_scale=local_crop_scale,
+            use_color_distortion=use_color_distortion,
+            color_jitter=color_jitter,
+            use_gaussian_blur=use_gaussian_blur,
+            use_horizontal_flip=use_horizontal_flip,
+            record_metadata=record_metadata,
+        )
+    else:
+        train_transform = make_lejepa_transforms(
+            crop_size=crop_size, crop_scale=global_crop_scale,
+            num_views=num_global_crops,
+            gaussian_blur=use_gaussian_blur,
+            horizontal_flip=use_horizontal_flip,
+            color_distortion=use_color_distortion,
+            color_jitter=color_jitter,
+        )
     val_transform = make_lejepa_eval_transform(crop_size=crop_size)
 
     # -- dataset
@@ -117,6 +157,15 @@ def main(args, resume_preempt=False):
             world_size=world_size, rank=rank,
             root_path=root_path, image_folder=image_folder, copy_data=copy_data,
         )
+    elif dataset == 'imagenet100':
+        from src.datasets.imagenet1k import make_imagenet1k_lejepa
+        train_loader, val_loader, train_sampler = make_imagenet1k_lejepa(
+            train_transform=train_transform, val_transform=val_transform,
+            batch_size=batch_size, pin_mem=pin_mem, num_workers=num_workers,
+            world_size=world_size, rank=rank,
+            root_path=root_path, image_folder=image_folder, copy_data=copy_data,
+            class_subset_file=class_subset_file,
+        )
     elif dataset == 'imagenette':
         from src.datasets.imagenette import make_imagenette
         train_loader, val_loader, train_sampler = make_imagenette(
@@ -124,8 +173,17 @@ def main(args, resume_preempt=False):
             batch_size=batch_size, pin_mem=pin_mem, num_workers=num_workers,
             world_size=world_size, rank=rank,
         )
+    elif dataset == 'stl10':
+        from src.datasets.stl10 import make_stl10
+        train_loader, val_loader, train_sampler = make_stl10(
+            train_transform=train_transform, val_transform=val_transform,
+            batch_size=batch_size, pin_mem=pin_mem, num_workers=num_workers,
+            world_size=world_size, rank=rank,
+            data_root=data_cfg.get('root_path', './data'),
+        )
     else:
-        raise ValueError(f'Unknown dataset: {dataset!r}. Choose "imagenet1k" or "imagenette".')
+        raise ValueError(f'Unknown dataset: {dataset!r}. '
+                         'Choose imagenet1k | imagenet100 | imagenette | stl10.')
 
     ipe          = len(train_loader)
     warmup_steps = ipe * warmup_epochs
@@ -133,7 +191,7 @@ def main(args, resume_preempt=False):
 
     # -- model, probe, regularizer
     net    = init_model(device=device, backbone_cfg=backbone_cfg, crop_size=crop_size)
-    probe  = init_probe(device=device, emb_dim=emb_dim, num_classes=num_classes)
+    probe  = init_probe(device=device, emb_dim=emb_dim, num_classes=num_classes) if use_probe else None
     sigreg = SIGReg().to(device)
 
     opt, scheduler, scaler = init_opt(
@@ -156,7 +214,7 @@ def main(args, resume_preempt=False):
             return
         save_dict = {
             'net':        net.state_dict(),
-            'probe':      probe.state_dict(),
+            'probe':      probe.state_dict() if probe is not None else None,
             'opt':        opt.state_dict(),
             'scaler':     None if scaler is None else scaler.state_dict(),
             'epoch':      epoch,
@@ -177,24 +235,44 @@ def main(args, resume_preempt=False):
             train_sampler.set_epoch(epoch)
 
         net.train()
-        probe.train()
+        if probe is not None:
+            probe.train()
         lejepa_meter = AverageMeter()
         sigreg_meter = AverageMeter()
         inv_meter    = AverageMeter()
         probe_meter  = AverageMeter()
 
-        for itr, (vs, y) in enumerate(train_loader):
+        for itr, batch in enumerate(train_loader):
             with autocast('cuda', dtype=torch.bfloat16, enabled=use_bfloat16):
+                # When record_metadata=True the transform returns (views, meta)
+                # so the dataset yields ((views, meta), label) and the DataLoader
+                # collates to ((batch_views, batch_meta), batch_labels).
+                if isinstance(batch[0], (tuple, list)):
+                    (vs, crop_meta), y = batch
+                    crop_meta = crop_meta.to(device, non_blocking=True)
+                else:
+                    vs, y = batch
+                    crop_meta = None  # metadata not recorded this run
                 vs = vs.to(device, non_blocking=True)
                 y  = y.to(device, non_blocking=True)
 
-                emb, proj   = net(vs)
-                inv_loss    = (proj.mean(0) - proj).square().mean()
+                emb, proj = net(vs)
+                # proj: (V, N, proj_dim)
+                # Invariance loss: pull every view toward the mean of the
+                # global views.  For non-ViT backbones num_global_crops==num_views,
+                # so ref collapses to the full-view mean (no asymmetry).
+                ref         = proj[:num_global_crops].mean(0)  # (N, proj_dim)
+                inv_loss    = (proj - ref).square().mean()
                 sigreg_loss = sigreg(proj)
                 lejepa_loss = sigreg_loss * lamb + inv_loss * (1 - lamb)
-                y_rep       = y.repeat_interleave(num_views)
-                probe_loss  = F.cross_entropy(probe(emb.detach()), y_rep)
-                loss        = lejepa_loss + probe_loss
+
+                if use_probe:
+                    y_rep      = y.repeat_interleave(num_views)
+                    probe_loss = F.cross_entropy(probe(emb.detach()), y_rep)
+                    loss       = lejepa_loss + probe_loss
+                else:
+                    probe_loss = torch.zeros(1, device=device)
+                    loss       = lejepa_loss
 
             opt.zero_grad()
             if scaler is not None:
@@ -230,19 +308,21 @@ def main(args, resume_preempt=False):
 
         assert not np.isnan(lejepa_meter.avg), 'LeJEPA loss is NaN'
 
-        # -- evaluation
-        net.eval()
-        probe.eval()
-        correct, total = 0, 0
-        with torch.inference_mode():
-            for vs, y in val_loader:
-                vs = vs.to(device, non_blocking=True)
-                y  = y.to(device, non_blocking=True)
-                with autocast('cuda', dtype=torch.bfloat16, enabled=use_bfloat16):
-                    correct += (probe(net(vs)[0]).argmax(1) == y).sum().item()
-                    total   += y.size(0)
-        test_acc = correct / total if total > 0 else 0.0
-        logger.info('Epoch %d | test acc: %.4f', epoch + 1, test_acc)
+        # -- evaluation (online probe)
+        test_acc = 0.0
+        if use_probe:
+            net.eval()
+            probe.eval()
+            correct, total = 0, 0
+            with torch.inference_mode():
+                for vs, y in val_loader:
+                    vs = vs.to(device, non_blocking=True)
+                    y  = y.to(device, non_blocking=True)
+                    with autocast('cuda', dtype=torch.bfloat16, enabled=use_bfloat16):
+                        correct += (probe(net(vs)[0]).argmax(1) == y).sum().item()
+                        total   += y.size(0)
+            test_acc = correct / total if total > 0 else 0.0
+            logger.info('Epoch %d | test acc: %.4f', epoch + 1, test_acc)
 
         if use_wandb and rank == 0:
             import wandb

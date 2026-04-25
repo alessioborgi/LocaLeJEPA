@@ -58,13 +58,28 @@ data:
   use_color_distortion:  true
   color_jitter_strength: 0.8
 
-  # LeJEPA: number of augmented views stacked per image → (N, V, C, H, W)
-  num_views: 4
+  # ── Multi-crop (DINO-style, LeJEPA) ──────────────────────────────────────
+  # Global views: large crop scale, used as the reference in the inv loss.
+  # Local views:  tight crop scale (zoomed-in region), pulled toward global mean.
+  # For non-ViT backbones all views are treated as global (no asymmetry).
+  # Legacy single-resolution mode: set num_global_crops=V, num_local_crops=0
+  # and replace num_global_crops/global_crop_scale with num_views/crop_scale.
+  num_global_crops:  2
+  num_local_crops:   6
+  global_crop_scale: [0.3, 1.0]
+  local_crop_scale:  [0.05, 0.3]
 
-  # imagenet1k paths (ignored for imagenette)
-  root_path:    /path/to/datasets
-  image_folder: imagenet_full_size/
-  copy_data:    false   # copy dataset to local node storage before training
+  # Record crop box (top, left, height, width, scale) and flip state per view.
+  # When true, the DataLoader yields ((views, meta), label) where meta is
+  # (V, 6) float32 — all normalised to [0, 1].  Required for equivariance.
+  record_metadata: false
+
+  # imagenet1k / imagenet100 paths (ignored for imagenette / stl10)
+  root_path:         /path/to/datasets
+  image_folder:      imagenet_full_size/
+  copy_data:         false   # copy dataset to local node storage before training
+  # imagenet100 only: path to file listing 100 class synset folder names (one per line)
+  class_subset_file: null
 
 
 # ── I-JEPA masking ────────────────────────────────────────────────────────────
@@ -84,6 +99,7 @@ ijepa:
 lejepa:
   lamb:        0.02   # λ weighting SIGReg vs invariance (0=pure inv, 1=pure SIGReg)
   num_classes: 10     # output size of the online linear probe
+  use_probe:   true   # set false when training labels are unavailable (e.g. STL10 unlabeled)
 
 
 # ── Optimization ──────────────────────────────────────────────────────────────

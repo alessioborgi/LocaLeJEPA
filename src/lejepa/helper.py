@@ -43,10 +43,11 @@ def init_opt(
     total_steps,
     use_bfloat16=False,
 ):
-    param_groups = [
-        {"params": net.parameters(),   "lr": lr,       "weight_decay": weight_decay},
-        {"params": probe.parameters(), "lr": probe_lr, "weight_decay": probe_weight_decay},
-    ]
+    param_groups = [{"params": net.parameters(), "lr": lr, "weight_decay": weight_decay}]
+    if probe is not None:
+        param_groups.append(
+            {"params": probe.parameters(), "lr": probe_lr, "weight_decay": probe_weight_decay}
+        )
     opt = torch.optim.AdamW(param_groups)
 
     s1 = LinearLR(opt, start_factor=0.01, total_iters=warmup_steps)
@@ -63,8 +64,9 @@ def load_checkpoint(device, r_path, net, probe, opt, scaler):
         epoch = checkpoint['epoch']
         msg = net.load_state_dict(checkpoint['net'])
         logger.info('loaded net from epoch %d with msg: %s', epoch, msg)
-        msg = probe.load_state_dict(checkpoint['probe'])
-        logger.info('loaded probe from epoch %d with msg: %s', epoch, msg)
+        if probe is not None and checkpoint.get('probe') is not None:
+            msg = probe.load_state_dict(checkpoint['probe'])
+            logger.info('loaded probe from epoch %d with msg: %s', epoch, msg)
         opt.load_state_dict(checkpoint['opt'])
         if scaler is not None and checkpoint.get('scaler') is not None:
             scaler.load_state_dict(checkpoint['scaler'])

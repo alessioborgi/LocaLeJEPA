@@ -71,6 +71,23 @@ def make_imagenet1k(
 # LeJEPA: multi-view train loader + single-view val loader (with labels)
 # ---------------------------------------------------------------------------
 
+def _apply_class_subset(dataset, class_subset_file):
+    """Filter an ImageFolder dataset to the classes listed in *class_subset_file*.
+
+    The file should contain one synset folder name per line (e.g. ``n02869837``).
+    Targets are remapped to 0 … len(valid_classes)-1 in sorted order.
+    """
+    with open(class_subset_file) as f:
+        valid = {line.strip() for line in f if line.strip()}
+    sorted_valid = sorted(valid)
+    new_idx = {dataset.class_to_idx[c]: i for i, c in enumerate(sorted_valid)
+               if c in dataset.class_to_idx}
+    dataset.samples = [(p, new_idx[t]) for p, t in dataset.samples if t in new_idx]
+    dataset.targets = [t for _, t in dataset.samples]
+    logger.info('Class subset applied: %d classes, %d samples', len(sorted_valid), len(dataset.samples))
+    return dataset
+
+
 def make_imagenet1k_lejepa(
     train_transform,
     val_transform,
@@ -84,11 +101,13 @@ def make_imagenet1k_lejepa(
     copy_data=False,
     drop_last=True,
     val_batch_size=256,
+    class_subset_file=None,
 ):
     """Returns (train_loader, val_loader, train_sampler) for LeJEPA.
 
-    train_transform should be a MultiViewTransform returning (V, C, H, W).
-    val_transform should be a MultiViewTransform with num_views=1, returning (1, C, H, W).
+    train_transform should be a MultiCropTransform or MultiViewTransform.
+    val_transform should produce (1, C, H, W) per image for probe eval.
+    Pass *class_subset_file* to restrict to a subset of classes (e.g. ImageNet-100).
     """
     train_dataset = ImageNet(
         root=root_path,
@@ -106,6 +125,9 @@ def make_imagenet1k_lejepa(
         copy_data=False,
         index_targets=False,
     )
+    if class_subset_file is not None:
+        train_dataset = _apply_class_subset(train_dataset, class_subset_file)
+        val_dataset   = _apply_class_subset(val_dataset,   class_subset_file)
     logger.info('ImageNet (LeJEPA) datasets created')
 
     train_sampler = torch.utils.data.distributed.DistributedSampler(
