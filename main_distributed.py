@@ -60,7 +60,7 @@ class Trainer:
 
         resume_preempt = False if load_model is None else load_model
 
-        method = params.get('meta', {}).get('method', 'ijepa')
+        method = params.get('method', 'ijepa')
         if method == 'lejepa':
             from src.lejepa.train import main as app_main
         else:

@@ -6,20 +6,21 @@ import torch.nn as nn
 from torch.amp import GradScaler
 from torch.optim.lr_scheduler import LinearLR, CosineAnnealingLR, SequentialLR
 
-from src.lejepa.models.lejepa import ViTEncoder
+from src.lejepa.models.lejepa import build_encoder
 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 logger = logging.getLogger()
 
 
-def init_model(device, model_name, emb_dim, proj_dim, img_size, drop_path_rate=0.1):
-    net = ViTEncoder(
-        model_name=model_name,
-        emb_dim=emb_dim,
-        proj_dim=proj_dim,
-        img_size=img_size,
-        drop_path_rate=drop_path_rate,
-    )
+def init_model(device, backbone_cfg, crop_size):
+    """Build and move the LeJEPA encoder to *device*.
+
+    ``crop_size`` is passed as ``img_size`` for ViT backbones so the model's
+    positional embeddings match the training resolution.
+    """
+    cfg = dict(backbone_cfg)
+    cfg.setdefault('img_size', crop_size)
+    net = build_encoder(cfg)
     net.to(device)
     logger.info(net)
     return net
@@ -43,7 +44,7 @@ def init_opt(
     use_bfloat16=False,
 ):
     param_groups = [
-        {"params": net.parameters(), "lr": lr, "weight_decay": weight_decay},
+        {"params": net.parameters(),   "lr": lr,       "weight_decay": weight_decay},
         {"params": probe.parameters(), "lr": probe_lr, "weight_decay": probe_weight_decay},
     ]
     opt = torch.optim.AdamW(param_groups)
@@ -60,21 +61,16 @@ def load_checkpoint(device, r_path, net, probe, opt, scaler):
     try:
         checkpoint = torch.load(r_path, map_location=torch.device('cpu'))
         epoch = checkpoint['epoch']
-
         msg = net.load_state_dict(checkpoint['net'])
-        logger.info(f'loaded net from epoch {epoch} with msg: {msg}')
-
+        logger.info('loaded net from epoch %d with msg: %s', epoch, msg)
         msg = probe.load_state_dict(checkpoint['probe'])
-        logger.info(f'loaded probe from epoch {epoch} with msg: {msg}')
-
+        logger.info('loaded probe from epoch %d with msg: %s', epoch, msg)
         opt.load_state_dict(checkpoint['opt'])
         if scaler is not None and checkpoint.get('scaler') is not None:
             scaler.load_state_dict(checkpoint['scaler'])
-        logger.info(f'loaded optimizers from epoch {epoch}')
+        logger.info('loaded optimizers from epoch %d', epoch)
         del checkpoint
-
     except Exception as e:
-        logger.info(f'Encountered exception when loading checkpoint: {e}')
+        logger.info('Encountered exception when loading checkpoint: %s', e)
         epoch = 0
-
     return net, probe, opt, scaler, epoch

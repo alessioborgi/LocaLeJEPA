@@ -1,0 +1,115 @@
+# BundLeJEPA — unified configuration template
+#
+# Set 'method' to either 'ijepa' or 'lejepa'.
+# The backbone choice and all hyper-parameters are controlled from this file.
+#
+# Quick-start (no GPU cluster needed):
+#   method: lejepa, backbone.name: vit, data.dataset: imagenette
+
+method: lejepa   # ijepa | lejepa
+
+
+# ── Backbone ──────────────────────────────────────────────────────────────────
+#
+# name: vit | resnet18 | resnet50
+#
+#   vit + method=ijepa   → custom ViT in src/ijepa/models/vision_transformer.py
+#                          Requires: vit_size, patch_size, pred_depth, pred_emb_dim
+#
+#   vit + method=lejepa  → timm ViT (any model from timm.list_models)
+#                          Requires: vit_model, emb_dim, proj_dim
+#
+#   resnet18/resnet50    → torchvision ResNet (method=lejepa only)
+#                          Requires: emb_dim, proj_dim
+backbone:
+  name: vit
+
+  # ── I-JEPA ViT (ignored when method=lejepa) ───────────────────────────────
+  vit_size:     vit_small   # vit_tiny | vit_small | vit_base | vit_large | vit_huge | vit_giant
+  patch_size:   16          # ViT patch size; also used by the I-JEPA mask collator
+  pred_depth:   6           # predictor transformer depth
+  pred_emb_dim: 384         # predictor embedding dimension
+
+  # ── LeJEPA ViT (ignored when method=ijepa) ────────────────────────────────
+  vit_model:  vit_small_patch16_224   # any timm ViT model name
+  emb_dim:    512            # encoder output dimension (input to probe + proj head)
+  proj_dim:   128            # SIGReg projection head output dimension
+
+  # drop_path_rate applies to the timm ViT (LeJEPA) only
+  drop_path_rate: 0.1
+
+  # ── LeJEPA ResNet (only when name=resnet18 or resnet50) ───────────────────
+  # emb_dim and proj_dim are shared with the ViT keys above; no extra keys needed.
+
+
+# ── Data ──────────────────────────────────────────────────────────────────────
+data:
+  dataset: imagenette   # imagenet1k | imagenette
+
+  batch_size:  256
+  num_workers: 4
+  pin_mem:     true
+
+  crop_size:  128
+  crop_scale: [0.08, 1.0]
+
+  use_gaussian_blur:     true
+  use_horizontal_flip:   true
+  use_color_distortion:  true
+  color_jitter_strength: 0.8
+
+  # LeJEPA: number of augmented views stacked per image → (N, V, C, H, W)
+  num_views: 4
+
+  # imagenet1k paths (ignored for imagenette)
+  root_path:    /path/to/datasets
+  image_folder: imagenet_full_size/
+  copy_data:    false   # copy dataset to local node storage before training
+
+
+# ── I-JEPA masking ────────────────────────────────────────────────────────────
+# Only used when method=ijepa.
+ijepa:
+  allow_overlap:   false
+  aspect_ratio:    [0.75, 1.5]
+  enc_mask_scale:  [0.85, 1.0]
+  min_keep:        10
+  num_enc_masks:   1
+  num_pred_masks:  4
+  pred_mask_scale: [0.15, 0.2]
+
+
+# ── LeJEPA loss ───────────────────────────────────────────────────────────────
+# Only used when method=lejepa.
+lejepa:
+  lamb:        0.02   # λ weighting SIGReg vs invariance (0=pure inv, 1=pure SIGReg)
+  num_classes: 10     # output size of the online linear probe
+
+
+# ── Optimization ──────────────────────────────────────────────────────────────
+optimization:
+  use_bfloat16: true
+  epochs:  100
+  warmup:  10         # warmup epochs (I-JEPA) or warmup steps / ipe (LeJEPA)
+
+  # ── I-JEPA optimizer (AdamW + WarmupCosine + CosineWD) ───────────────────
+  lr:                   1.0e-3
+  start_lr:             2.0e-4
+  final_lr:             1.0e-6
+  weight_decay:         0.04
+  final_weight_decay:   0.4
+  ipe_scale:            1.0
+  ema: [0.996, 1.0]     # EMA momentum schedule [start, end] for target encoder
+
+  # ── LeJEPA optimizer (AdamW + LinearWarmup + CosineAnneal) ───────────────
+  probe_lr:            1.0e-3
+  probe_weight_decay:  1.0e-7
+
+
+# ── Logging & checkpointing ───────────────────────────────────────────────────
+logging:
+  folder:          logs/bundlejepa/
+  write_tag:       bundlejepa
+  load_checkpoint: false
+  read_checkpoint: null      # filename relative to folder, or null
+  use_wandb:       false     # Weights & Biases logging (LeJEPA only)

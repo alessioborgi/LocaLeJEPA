@@ -40,7 +40,7 @@ def process_main(rank, fname, world_size, devices):
     world_size, rank = init_distributed(rank_and_world_size=(rank, world_size))
     logger.info('Running... (rank: %d/%d)', rank, world_size)
 
-    method = params.get('meta', {}).get('method', 'ijepa')
+    method = params.get('method', 'ijepa')
     if method == 'lejepa':
         from src.lejepa.train import main as app_main
     else:

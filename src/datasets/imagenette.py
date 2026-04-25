@@ -33,6 +33,40 @@ class HFDataset(torch.utils.data.Dataset):
 # LeJEPA: multi-view train loader + single-view val loader (with labels)
 # ---------------------------------------------------------------------------
 
+def make_imagenette_ijepa(
+    transform,
+    batch_size=256,
+    collator=None,
+    pin_mem=True,
+    num_workers=4,
+    world_size=1,
+    rank=0,
+    drop_last=True,
+):
+    """Returns (dataset, train_loader, train_sampler) for I-JEPA (mask collator, no labels)."""
+    train_ds = HFDataset("train", transform=transform)
+    logger.info('Imagenette (I-JEPA) dataset created')
+
+    train_sampler = torch.utils.data.distributed.DistributedSampler(
+        dataset=train_ds,
+        num_replicas=world_size,
+        rank=rank,
+    )
+    train_loader = torch.utils.data.DataLoader(
+        train_ds,
+        collate_fn=collator,
+        sampler=train_sampler,
+        batch_size=batch_size,
+        drop_last=drop_last,
+        pin_memory=pin_mem,
+        num_workers=num_workers,
+        persistent_workers=num_workers > 0,
+    )
+    logger.info('Imagenette (I-JEPA) data loader created')
+
+    return train_ds, train_loader, train_sampler
+
+
 def make_imagenette(
     train_transform,
     val_transform,
