@@ -1,0 +1,20 @@
+# BundLeJEPA — VOC07+12 Faster R-CNN detection config
+#
+# Requires: detectron2 + ResNet-50 LeJEPA checkpoint
+# Usage: python eval_voc.py --config configs/eval_voc.yaml
+
+# ── Pretrained model ─────────────────────────────────────────────────────────
+checkpoint:      logs/lejepa_rn50_in100/lejepa-latest.pth.tar
+pretrain_config: logs/lejepa_rn50_in100/params-lejepa.yaml
+
+# ── VOC dataset ───────────────────────────────────────────────────────────────
+# Expected layout:
+#   <voc_root>/VOC2007/Annotations  ImageSets  JPEGImages
+#   <voc_root>/VOC2012/Annotations  ImageSets  JPEGImages
+voc_root: /path/to/VOCdevkit
+
+# ── Training ──────────────────────────────────────────────────────────────────
+output_dir:  logs/voc_detection/
+base_lr:     0.02
+max_iter:    18000   # with LR steps at 12k and 16k
+batch_size:  16
