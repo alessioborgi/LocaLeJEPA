@@ -1,3 +1,9 @@
+# Copyright (c) 2025 Alessio Borgioli
+# All rights reserved.
+#
+# This source code is licensed under the license found in the
+# LICENSE file in the root directory of this source tree.
+
 import os
 import logging
 import sys
@@ -8,7 +14,7 @@ import torch
 import torch.nn.functional as F
 from torch.amp import autocast
 
-from src.lejepa.models.lejepa import SIGReg
+from src.losses import invariance_loss, sigreg_loss
 from src.lejepa.helper import init_model, init_probe, init_opt, load_checkpoint
 from src.transforms import (
     make_multicrop_transforms,
@@ -216,9 +222,8 @@ def main(args, resume_preempt=False):
     total_steps  = ipe * num_epochs
 
     # -- model, probe, regularizer
-    net    = init_model(device=device, backbone_cfg=backbone_cfg, crop_size=crop_size)
-    probe  = init_probe(device=device, emb_dim=emb_dim, num_classes=num_classes) if use_probe else None
-    sigreg = SIGReg().to(device)
+    net   = init_model(device=device, backbone_cfg=backbone_cfg, crop_size=crop_size)
+    probe = init_probe(device=device, emb_dim=emb_dim, num_classes=num_classes) if use_probe else None
 
     opt, scheduler, scaler = init_opt(
         net=net, probe=probe,
@@ -284,13 +289,9 @@ def main(args, resume_preempt=False):
 
                 emb, proj = net(vs)
                 # proj: (V, N, proj_dim)
-                # Invariance loss: pull every view toward the mean of the
-                # global views.  For non-ViT backbones num_global_crops==num_views,
-                # so ref collapses to the full-view mean (no asymmetry).
-                ref         = proj[:num_global_crops].mean(0)  # (N, proj_dim)
-                inv_loss    = (proj - ref).square().mean()
-                sigreg_loss = sigreg(proj)
-                lejepa_loss = sigreg_loss * lamb + inv_loss * (1 - lamb)
+                l_inv       = invariance_loss(proj, num_global_crops)
+                l_sig       = sigreg_loss(proj)
+                lejepa_loss = l_sig * lamb + l_inv * (1 - lamb)
 
                 if use_probe:
                     y_rep      = y.repeat_interleave(num_views)
@@ -311,8 +312,8 @@ def main(args, resume_preempt=False):
             scheduler.step()
 
             lejepa_meter.update(lejepa_loss.item())
-            sigreg_meter.update(sigreg_loss.item())
-            inv_meter.update(inv_loss.item())
+            sigreg_meter.update(l_sig.item())
+            inv_meter.update(l_inv.item())
             probe_meter.update(probe_loss.item())
 
             if itr % 10 == 0:
@@ -327,8 +328,8 @@ def main(args, resume_preempt=False):
                 import wandb
                 wandb.log({
                     'train/lejepa': lejepa_loss.item(),
-                    'train/sigreg': sigreg_loss.item(),
-                    'train/inv':    inv_loss.item(),
+                    'train/sigreg': l_sig.item(),
+                    'train/inv':    l_inv.item(),
                     'train/probe':  probe_loss.item(),
                 })
 

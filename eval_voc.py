@@ -1,3 +1,9 @@
+# Copyright (c) 2025 Alessio Borgioli
+# All rights reserved.
+#
+# This source code is licensed under the license found in the
+# LICENSE file in the root directory of this source tree.
+
 """VOC07+12 detection evaluation entry point.
 
 Usage
@@ -38,9 +44,10 @@ if __name__ == '__main__':
         output_dir=cfg['output_dir'],
         checkpoint_path=cfg['checkpoint'],
         pretrain_config=cfg['pretrain_config'],
-        base_lr=cfg.get('base_lr',   0.02),
-        max_iter=cfg.get('max_iter', 18_000),
+        base_lr=cfg.get('base_lr',       0.1),
+        max_iter=cfg.get('max_iter',     24_000),
         batch_size=cfg.get('batch_size', 16),
+        warmup_iters=cfg.get('warmup_iters', 1_000),
     )
 
     train_voc(d2_cfg, checkpoint_path=cfg['checkpoint'])

@@ -1,3 +1,9 @@
+# Copyright (c) 2025 Alessio Borgioli
+# All rights reserved.
+#
+# This source code is licensed under the license found in the
+# LICENSE file in the root directory of this source tree.
+
 """11 downstream dataset loaders for linear evaluation.
 
 All datasets use the standard ImageNet center-crop eval transform:

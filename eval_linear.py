@@ -1,3 +1,9 @@
+# Copyright (c) 2025 Alessio Borgioli
+# All rights reserved.
+#
+# This source code is licensed under the license found in the
+# LICENSE file in the root directory of this source tree.
+
 """Linear evaluation entry point for BundLeJEPA.
 
 Usage
@@ -93,7 +99,8 @@ def main(cfg: dict) -> None:
         acc, lam = run_probe(
             X_train, y_train, X_test, y_test,
             n_reg=cfg.get('n_reg', 45),
-            max_iter=cfg.get('max_iter', 1000),
+            max_iter=cfg.get('max_iter', 5000),
+            val_frac=cfg.get('val_frac', 0.2),
         )
         results[name] = acc
         logger.info('%s  acc=%.4f  (best λ=%.2e)', name, acc, lam)

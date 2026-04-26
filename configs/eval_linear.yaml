@@ -48,7 +48,8 @@ device:      cuda:0
 
 # L-BFGS probe sweep
 n_reg:    45      # number of log-spaced λ values in [1e-6, 1e5]
-max_iter: 1000    # max L-BFGS iterations per fit
+max_iter: 5000    # max L-BFGS iterations per fit (plan §3.2: max 5000)
+val_frac: 0.2     # fraction of train set used for λ selection; retrain on full train
 
 # ── Output ────────────────────────────────────────────────────────────────────
 output_folder: logs/eval/

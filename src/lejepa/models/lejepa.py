@@ -1,41 +1,13 @@
-import torch
+# Copyright (c) 2025 Alessio Borgioli
+# All rights reserved.
+#
+# This source code is licensed under the license found in the
+# LICENSE file in the root directory of this source tree.
+
 import torch.nn as nn
 import timm
 import torchvision.models as tvmodels
 from torchvision.ops import MLP
-
-
-# ---------------------------------------------------------------------------
-# SIGReg regularizer (shared across all backbone choices)
-# ---------------------------------------------------------------------------
-
-class SIGReg(nn.Module):
-    """Sketched Isotropic Gaussian Regularization.
-
-    Enforces an isotropic Gaussian distribution on projection embeddings via
-    the Epps-Pulley characteristic function test along random 1-D projections.
-    Integrates on [0, t_max] and doubles weights to exploit ECF symmetry.
-    """
-
-    def __init__(self, knots=17):
-        super().__init__()
-        t = torch.linspace(0, 3, knots, dtype=torch.float32)
-        dt = 3 / (knots - 1)
-        weights = torch.full((knots,), 2 * dt, dtype=torch.float32)
-        weights[[0, -1]] = dt
-        window = torch.exp(-t.square() / 2.0)
-        self.register_buffer("t", t)
-        self.register_buffer("phi", window)
-        self.register_buffer("weights", weights * window)
-
-    def forward(self, proj):
-        device = proj.device
-        A = torch.randn(proj.size(-1), 256, device=device)
-        A = A.div_(A.norm(p=2, dim=0))
-        x_t = (proj @ A).unsqueeze(-1) * self.t
-        err = (x_t.cos().mean(-3) - self.phi).square() + x_t.sin().mean(-3).square()
-        statistic = (err @ self.weights) * proj.size(-2)
-        return statistic.mean()
 
 
 # ---------------------------------------------------------------------------

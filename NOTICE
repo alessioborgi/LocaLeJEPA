@@ -1,0 +1,28 @@
+BundLeJEPA
+Copyright (c) 2025 Alessio Borgioli
+
+This product includes software developed by third parties:
+
+────────────────────────────────────────────────────────────────────────────────
+I-JEPA (Image Joint-Embedding Predictive Architecture)
+  Copyright (c) Meta Platforms, Inc. and affiliates.
+  Source: https://github.com/facebookresearch/ijepa
+  Files:  src/ijepa/
+          src/utils/distributed.py
+          src/utils/logging.py
+          src/utils/schedulers.py
+          src/utils/tensors.py
+          src/datasets/imagenet1k.py
+          src/transforms.py  (base augmentation pipeline; extended by Alessio Borgioli)
+          main.py            (base entry point; extended by Alessio Borgioli)
+          main_distributed.py (base entry point; extended by Alessio Borgioli)
+
+────────────────────────────────────────────────────────────────────────────────
+LeJEPA (galilai-group/lejepa)
+  Architecture and training protocol adapted for this codebase.
+  Source: https://github.com/galilai-group/lejepa
+
+────────────────────────────────────────────────────────────────────────────────
+Photonic crystal experimental setup
+  Follows: Dangovski et al., "Equivariant Self-Supervised Learning", ICLR 2022.
+  Source:  https://arxiv.org/abs/2111.00899

@@ -1,4 +1,4 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
+# Copyright (c) 2025 Alessio Borgioli
 # All rights reserved.
 #
 # This source code is licensed under the license found in the
@@ -43,6 +43,10 @@ def process_main(rank, fname, world_size, devices):
     method = params.get('method', 'ijepa')
     if method == 'lejepa':
         from src.lejepa.train import main as app_main
+    elif method == 'simclr':
+        from src.baselines.simclr.train import main as app_main
+    elif method == 'phc_supervised':
+        from src.baselines.phc_supervised import main as app_main
     else:
         from src.ijepa.train import main as app_main
 

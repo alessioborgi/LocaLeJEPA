@@ -1,3 +1,9 @@
+# Copyright (c) 2025 Alessio Borgioli
+# All rights reserved.
+#
+# This source code is licensed under the license found in the
+# LICENSE file in the root directory of this source tree.
+
 """VOC07+12 object detection with Faster R-CNN (detectron2).
 
 Requirements
@@ -15,14 +21,14 @@ Dataset layout
 Training protocol
 -----------------
   • Train on VOC2007 trainval + VOC2012 trainval
-  • Evaluate on VOC2007 test (AP50 / mAP)
+  • Evaluate on VOC2007 test (AP_all, AP50, AP75)
   • Faster R-CNN with C4 ResNet backbone initialised from the pretrained checkpoint
   • For ViT backbones, use ViTDet (requires additional setup beyond this script)
 
-Key hyper-parameters (from SSL literature defaults)
-----------------------------------------------------
-  base_lr  = 0.02   max_iter = 18 000   batch_size = 16
-  LR steps at 12 000 and 16 000
+Key hyper-parameters (from LeJEPA implementation plan §3.4)
+------------------------------------------------------------
+  base_lr = 0.1   max_iter = 24 000   batch_size = 16
+  LR steps at 18 000 and 22 000   linear warmup for 1 000 steps
 """
 
 import logging
@@ -91,9 +97,10 @@ def build_voc_cfg(
     output_dir:      str,
     checkpoint_path: str,
     pretrain_config: str,
-    base_lr:         float = 0.02,
-    max_iter:        int   = 18_000,
+    base_lr:         float = 0.1,
+    max_iter:        int   = 24_000,
     batch_size:      int   = 16,
+    warmup_iters:    int   = 1_000,
 ):
     """Build a detectron2 CfgNode for Faster R-CNN on VOC07+12.
 
@@ -129,11 +136,14 @@ def build_voc_cfg(
     cfg.MODEL.WEIGHTS             = ''   # loaded manually below
     cfg.MODEL.ROI_HEADS.NUM_CLASSES = 20
 
-    cfg.SOLVER.BASE_LR       = base_lr
-    cfg.SOLVER.MAX_ITER      = max_iter
-    cfg.SOLVER.IMS_PER_BATCH = batch_size
-    cfg.SOLVER.STEPS         = (12_000, 16_000)
-    cfg.SOLVER.CHECKPOINT_PERIOD = 5_000
+    cfg.SOLVER.BASE_LR            = base_lr
+    cfg.SOLVER.MAX_ITER           = max_iter
+    cfg.SOLVER.IMS_PER_BATCH      = batch_size
+    cfg.SOLVER.STEPS              = (18_000, 22_000)
+    cfg.SOLVER.CHECKPOINT_PERIOD  = 5_000
+    cfg.SOLVER.WARMUP_ITERS       = warmup_iters
+    cfg.SOLVER.WARMUP_METHOD      = 'linear'
+    cfg.SOLVER.WARMUP_FACTOR      = 1.0 / warmup_iters
 
     cfg.INPUT.MIN_SIZE_TRAIN = (480, 512, 544, 576, 608, 640, 672, 704, 736, 768, 800)
     cfg.INPUT.MIN_SIZE_TEST  = 800
