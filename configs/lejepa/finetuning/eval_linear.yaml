@@ -1,0 +1,48 @@
+# LeJEPA — linear evaluation config
+#
+# Workflow:
+#   1. Point checkpoint + pretrain_config to a trained run's log folder.
+#   2. Set datasets_root (and per-dataset overrides if needed).
+#   3. Run: python eval_linear.py --config configs/lejepa/finetuning/eval_linear.yaml
+
+# ── Pretrained model ─────────────────────────────────────────────────────────
+checkpoint:      logs/lejepa/vits16_in100_ep500/lejepa-latest.pth.tar
+pretrain_config: logs/lejepa/vits16_in100_ep500/params-lejepa.yaml
+
+# ── Feature caching ──────────────────────────────────────────────────────────
+cache_dir:  eval_cache/
+use_cache:  true
+
+# ── Datasets ─────────────────────────────────────────────────────────────────
+datasets_root: /path/to/datasets
+
+datasets:
+  - cifar10
+  - cifar100
+  - food101
+  - mit67
+  - pets
+  - flowers102
+  - caltech101
+  - cars
+  - aircraft
+  - dtd
+  - sun397
+
+dataset_roots:
+  mit67:  /path/to/mit67
+  sun397: /path/to/sun397
+  cars:   /path/to/cars
+
+# ── Evaluation settings ───────────────────────────────────────────────────────
+crop_size:   224
+batch_size:  256
+num_workers: 8
+device:      cuda:0
+
+n_reg:    45
+max_iter: 5000
+val_frac: 0.2
+
+# ── Output ────────────────────────────────────────────────────────────────────
+output_folder: logs/lejepa/eval_linear/

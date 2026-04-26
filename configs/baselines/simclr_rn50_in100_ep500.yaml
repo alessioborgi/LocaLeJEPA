@@ -1,0 +1,38 @@
+# SimCLR baseline — ResNet-50, ImageNet-100, 500 epochs
+# Usage: python main.py --fname configs/baselines/simclr_rn50_in100_ep500.yaml
+
+method: simclr
+
+simclr:
+  proj_dim: 128
+
+data:
+  dataset:               imagenet100
+  root_path:             /path/to/imagenet
+  image_folder:          train
+  class_subset_file:     /path/to/imagenet100_classes.txt
+  batch_size:            256
+  num_workers:           8
+  pin_mem:               true
+  copy_data:             false
+  crop_size:             224
+  crop_scale:            [0.2, 1.0]
+  use_gaussian_blur:     true
+  use_horizontal_flip:   true
+  use_color_distortion:  true
+  color_jitter_strength: 0.5
+
+optimization:
+  epochs:        500
+  warmup:        10
+  lr:            0.03
+  weight_decay:  1.0e-4
+  use_bfloat16:  true
+  temperature:   0.07
+
+logging:
+  folder:           logs/baselines/simclr_rn50_in100/
+  write_tag:        simclr-rn50-in100
+  load_checkpoint:  false
+  read_checkpoint:  ~
+  use_wandb:        false

@@ -24,16 +24,16 @@ lejepa:
   num_classes: 10
 
 optimization:
-  use_bfloat16:      true
-  epochs:            800
-  warmup:            1
-  lr:                2.0e-3
-  weight_decay:      5.0e-2
-  probe_lr:          1.0e-3
+  use_bfloat16:       true
+  epochs:             800
+  warmup:             1
+  lr:                 2.0e-3
+  weight_decay:       5.0e-2
+  probe_lr:           1.0e-3
   probe_weight_decay: 1.0e-7
 
 logging:
-  folder:          logs/lejepa_imagenette/
+  folder:          logs/lejepa/vits8_imagenette_ep800/
   write_tag:       lejepa
   load_checkpoint: false
   read_checkpoint: null

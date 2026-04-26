@@ -47,7 +47,7 @@ optimization:
   ema:                [0.996, 1.0]
 
 logging:
-  folder:          $replace_this_with_path_for_experiment_logs/in22k_vith14.224-bs.2048-ep.66/
+  folder:          logs/jepa/vith14_in22k_ep66/
   write_tag:       jepa
   load_checkpoint: false
   read_checkpoint: null

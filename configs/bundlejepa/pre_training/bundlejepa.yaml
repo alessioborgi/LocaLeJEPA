@@ -32,11 +32,10 @@ backbone:
 
   # ── LeJEPA ViT (ignored when method=ijepa) ────────────────────────────────
   vit_model:  vit_small_patch16_224   # any timm ViT model name
-  emb_dim:    512            # encoder output dimension (input to probe + proj head)
-  proj_dim:   128            # SIGReg projection head output dimension
+  emb_dim:    512
+  proj_dim:   128
 
-  # drop_path_rate applies to the timm ViT (LeJEPA) only
-  drop_path_rate: 0.1
+  drop_path_rate: 0.1   # timm ViT (LeJEPA) only
 
   # ── LeJEPA ResNet (only when name=resnet18 or resnet50) ───────────────────
   # emb_dim and proj_dim are shared with the ViT keys above; no extra keys needed.
@@ -44,7 +43,7 @@ backbone:
 
 # ── Data ──────────────────────────────────────────────────────────────────────
 data:
-  dataset: imagenette   # imagenet1k | imagenette
+  dataset: imagenette   # imagenet1k | imagenet100 | imagenette | stl10 | phc_blob | phc_gpm
 
   batch_size:  256
   num_workers: 4
@@ -59,31 +58,21 @@ data:
   color_jitter_strength: 0.8
 
   # ── Multi-crop (DINO-style, LeJEPA) ──────────────────────────────────────
-  # Global views: large crop scale, used as the reference in the inv loss.
-  # Local views:  tight crop scale (zoomed-in region), pulled toward global mean.
-  # For non-ViT backbones all views are treated as global (no asymmetry).
-  # Legacy single-resolution mode: set num_global_crops=V, num_local_crops=0
-  # and replace num_global_crops/global_crop_scale with num_views/crop_scale.
   num_global_crops:  2
   num_local_crops:   6
   global_crop_scale: [0.3, 1.0]
   local_crop_scale:  [0.05, 0.3]
 
-  # Record crop box (top, left, height, width, scale) and flip state per view.
-  # When true, the DataLoader yields ((views, meta), label) where meta is
-  # (V, 6) float32 — all normalised to [0, 1].  Required for equivariance.
   record_metadata: false
 
-  # imagenet1k / imagenet100 paths (ignored for imagenette / stl10)
+  # imagenet1k / imagenet100 paths (ignored for imagenette / stl10 / phc)
   root_path:         /path/to/datasets
   image_folder:      imagenet_full_size/
-  copy_data:         false   # copy dataset to local node storage before training
-  # imagenet100 only: path to file listing 100 class synset folder names (one per line)
-  class_subset_file: null
+  copy_data:         false
+  class_subset_file: null   # imagenet100 only
 
 
 # ── I-JEPA masking ────────────────────────────────────────────────────────────
-# Only used when method=ijepa.
 ijepa:
   allow_overlap:   false
   aspect_ratio:    [0.75, 1.5]
@@ -95,29 +84,28 @@ ijepa:
 
 
 # ── LeJEPA loss ───────────────────────────────────────────────────────────────
-# Only used when method=lejepa.
 lejepa:
-  lamb:        0.02   # λ weighting SIGReg vs invariance (0=pure inv, 1=pure SIGReg)
-  num_classes: 10     # output size of the online linear probe
-  use_probe:   true   # set false when training labels are unavailable (e.g. STL10 unlabeled)
+  lamb:        0.02   # λ weighting SIGReg vs invariance
+  num_classes: 10
+  use_probe:   true
 
 
 # ── Optimization ──────────────────────────────────────────────────────────────
 optimization:
   use_bfloat16: true
   epochs:  100
-  warmup:  10         # warmup epochs (I-JEPA) or warmup steps / ipe (LeJEPA)
+  warmup:  10
 
-  # ── I-JEPA optimizer (AdamW + WarmupCosine + CosineWD) ───────────────────
+  # ── I-JEPA optimizer ─────────────────────────────────────────────────────
   lr:                   1.0e-3
   start_lr:             2.0e-4
   final_lr:             1.0e-6
   weight_decay:         0.04
   final_weight_decay:   0.4
   ipe_scale:            1.0
-  ema: [0.996, 1.0]     # EMA momentum schedule [start, end] for target encoder
+  ema: [0.996, 1.0]
 
-  # ── LeJEPA optimizer (AdamW + LinearWarmup + CosineAnneal) ───────────────
+  # ── LeJEPA optimizer ─────────────────────────────────────────────────────
   probe_lr:            1.0e-3
   probe_weight_decay:  1.0e-7
 
@@ -127,5 +115,5 @@ logging:
   folder:          logs/bundlejepa/
   write_tag:       bundlejepa
   load_checkpoint: false
-  read_checkpoint: null      # filename relative to folder, or null
-  use_wandb:       false     # Weights & Biases logging (LeJEPA only)
+  read_checkpoint: null
+  use_wandb:       false

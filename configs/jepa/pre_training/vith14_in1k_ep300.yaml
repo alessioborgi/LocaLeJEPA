@@ -3,18 +3,18 @@ method: ijepa
 backbone:
   name:         vit
   vit_size:     vit_huge
-  patch_size:   16
+  patch_size:   14
   pred_depth:   12
   pred_emb_dim: 384
 
 data:
   dataset:               imagenet1k
-  batch_size:            16
+  batch_size:            128
   num_workers:           10
   pin_mem:               true
   root_path:             $replace_this_with_absolute_path_to_your_datasets_directory
   image_folder:          imagenet_full_size/061417/
-  crop_size:             448
+  crop_size:             224
   crop_scale:            [0.3, 1.0]
   copy_data:             false
   use_gaussian_blur:     false
@@ -44,7 +44,7 @@ optimization:
   ema:                [0.996, 1.0]
 
 logging:
-  folder:          $replace_this_with_path_for_experiment_logs/vith16.448-bs.2048-ep.300/
+  folder:          logs/jepa/vith14_in1k_ep300/
   write_tag:       jepa
   load_checkpoint: false
   read_checkpoint: null

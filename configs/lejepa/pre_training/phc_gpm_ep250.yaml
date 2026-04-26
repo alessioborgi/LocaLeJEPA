@@ -14,7 +14,7 @@ data:
   num_global_crops: 2
   num_local_crops:  0
 
-  use_c4v:          true    # 8 C4v symmetry ops
+  use_c4v:          true
   use_mirror:       true    # extra mirror symmetries present in Gpm crystals
   use_roll:         true
   use_refractive:   true
@@ -23,20 +23,20 @@ data:
   seed:             42
 
 lejepa:
-  lamb:        0.02
-  use_probe:   false   # PhC has no class labels
+  lamb:      0.02
+  use_probe: false   # PhC has no class labels
 
 optimization:
-  use_bfloat16: true
-  epochs:       250
-  warmup:       1
-  lr:           5.0e-4
-  weight_decay: 1.0e-4
+  use_bfloat16:       true
+  epochs:             250
+  warmup:             1
+  lr:                 5.0e-4
+  weight_decay:       1.0e-4
   probe_lr:           1.0e-3
   probe_weight_decay: 1.0e-7
 
 logging:
-  folder:          logs/lejepa_phc_gpm/
+  folder:          logs/lejepa/phc_gpm_ep250/
   write_tag:       lejepa_phc_gpm
   load_checkpoint: false
   read_checkpoint: null

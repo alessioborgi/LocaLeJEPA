@@ -11,12 +11,12 @@ data:
   batch_size:            256
   num_workers:           8
   pin_mem:               true
-  crop_size:             224             # global crop size; local crops resized to same
+  crop_size:             224
   num_global_crops:      2
   num_local_crops:       6
   global_crop_scale:     [0.3, 1.0]
   local_crop_scale:      [0.05, 0.3]
-  record_metadata:       true          # stores crop box + flip per view for future equivariance
+  record_metadata:       true
   use_gaussian_blur:     true
   use_horizontal_flip:   true
   use_color_distortion:  true
@@ -27,16 +27,16 @@ lejepa:
   use_probe: false         # STL10 unlabeled split has no labels
 
 optimization:
-  use_bfloat16: true
-  epochs:       500
-  warmup:       1
-  lr:           5.0e-4
-  weight_decay: 5.0e-4    # ResNet WD from plan
+  use_bfloat16:       true
+  epochs:             500
+  warmup:             1
+  lr:                 5.0e-4
+  weight_decay:       5.0e-4
   probe_lr:           1.0e-3
   probe_weight_decay: 1.0e-7
 
 logging:
-  folder:          logs/lejepa_rn18_stl10/
+  folder:          logs/lejepa/rn18_stl10_ep500/
   write_tag:       lejepa
   load_checkpoint: false
   read_checkpoint: null

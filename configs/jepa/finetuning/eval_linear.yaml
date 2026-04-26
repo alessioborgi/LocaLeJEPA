@@ -1,24 +1,19 @@
-# BundLeJEPA — linear evaluation config
+# I-JEPA — linear evaluation config
 #
 # Workflow:
 #   1. Point checkpoint + pretrain_config to a trained run's log folder.
 #   2. Set datasets_root (and per-dataset overrides if needed).
-#   3. Run: python eval_linear.py --config configs/eval_linear.yaml
+#   3. Run: python eval_linear.py --config configs/jepa/finetuning/eval_linear.yaml
 
 # ── Pretrained model ─────────────────────────────────────────────────────────
-checkpoint:      logs/lejepa_imagenette/lejepa-latest.pth.tar
-pretrain_config: logs/lejepa_imagenette/params-lejepa.yaml
+checkpoint:      logs/jepa/vith14_in1k_ep300/jepa-latest.pth.tar
+pretrain_config: logs/jepa/vith14_in1k_ep300/params-ijepa.yaml
 
 # ── Feature caching ──────────────────────────────────────────────────────────
-# Extracted features are cached per (checkpoint, dataset, split) so that
-# re-running with different probe hyper-parameters is fast.
 cache_dir:  eval_cache/
 use_cache:  true
 
 # ── Datasets ─────────────────────────────────────────────────────────────────
-# Each dataset is downloaded to <datasets_root>/<name>/ (where supported).
-# MIT-67 and SUN397 require manual download; StanfordCars download is broken
-# in newer torchvision — download manually and place under datasets_root/cars/.
 datasets_root: /path/to/datasets
 
 datasets:
@@ -34,11 +29,10 @@ datasets:
   - dtd
   - sun397
 
-# Per-dataset root overrides (optional; defaults to datasets_root/<name>)
 dataset_roots:
-  mit67:  /path/to/mit67    # ImageFolder layout: train/ and test/ subdirs
-  sun397: /path/to/sun397   # manual download from vision.princeton.edu
-  cars:   /path/to/cars     # manual download from ai.stanford.edu/~jkrause
+  mit67:  /path/to/mit67
+  sun397: /path/to/sun397
+  cars:   /path/to/cars
 
 # ── Evaluation settings ───────────────────────────────────────────────────────
 crop_size:   224
@@ -46,10 +40,9 @@ batch_size:  256
 num_workers: 8
 device:      cuda:0
 
-# L-BFGS probe sweep
-n_reg:    45      # number of log-spaced λ values in [1e-6, 1e5]
-max_iter: 5000    # max L-BFGS iterations per fit (plan §3.2: max 5000)
-val_frac: 0.2     # fraction of train set used for λ selection; retrain on full train
+n_reg:    45
+max_iter: 5000
+val_frac: 0.2
 
 # ── Output ────────────────────────────────────────────────────────────────────
-output_folder: logs/eval/
+output_folder: logs/jepa/eval_linear/

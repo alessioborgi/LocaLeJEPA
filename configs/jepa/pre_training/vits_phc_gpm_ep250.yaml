@@ -46,7 +46,7 @@ optimization:
   ema: [0.996, 1.0]
 
 logging:
-  folder:          logs/ijepa_phc_gpm/
-  write_tag:       ijepa_phc_gpm
+  folder:          logs/jepa/vits_phc_gpm_ep250/
+  write_tag:       jepa_phc_gpm
   load_checkpoint: false
   read_checkpoint: null
