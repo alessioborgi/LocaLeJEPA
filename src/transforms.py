@@ -321,8 +321,8 @@ class GaussianBlur(object):
         self.radius_max = radius_max
 
     def __call__(self, img):
-        if torch.bernoulli(torch.tensor(self.prob)) == 0:
+        if torch.rand(1).item() >= self.prob:
             return img
 
-        radius = self.radius_min + torch.rand(1) * (self.radius_max - self.radius_min)
+        radius = self.radius_min + torch.rand(1).item() * (self.radius_max - self.radius_min)
         return img.filter(ImageFilter.GaussianBlur(radius=radius))

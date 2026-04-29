@@ -1,0 +1,6 @@
+defaults:
+  - default
+
+accelerator: gpu
+devices: 1
+precision: bf16-mixed # to mimic LeJEPA

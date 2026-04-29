@@ -1,0 +1,30 @@
+_target_: src.data.imagenette_datamodule.ImagenetteDataModule
+
+data_dir: ${paths.data_dir}/imagenette
+variant: 160px
+
+train_split: train
+val_split: validation
+
+batch_size: 256 # global batch size; must be divisible by trainer.world_size
+val_batch_size: null
+num_workers: 4
+pin_memory: true
+persistent_workers: null
+drop_last: true
+
+crop_size: 128
+crop_scale: [0.08, 1.0]
+num_views: 4
+
+# Set num_global_crops to enable DINO-style multi-crop instead of uniform views.
+num_global_crops: null
+num_local_crops: 0
+global_crop_scale: [0.3, 1.0]
+local_crop_scale: [0.05, 0.3]
+
+record_metadata: false
+use_gaussian_blur: true
+use_horizontal_flip: true
+use_color_distortion: true
+color_jitter_strength: 0.8

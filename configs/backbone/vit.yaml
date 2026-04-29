@@ -1,0 +1,7 @@
+_target_: timm.create_model
+
+model_name: vit_small_patch8_224
+pretrained: false
+num_classes: ${model.embedding_dim}
+img_size: ${data.crop_size}
+drop_path_rate: 0.1
