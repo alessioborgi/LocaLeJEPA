@@ -1,0 +1,23 @@
+defaults:
+  - transform/image@train_transform: lejepa_train
+  - transform/image@eval_transform: lejepa_eval
+  - _self_
+
+_target_: src.data.imagenet1k_datamodule.ImageNet1KDataModule
+has_test_data: true
+
+data_dir: ${paths.data_dir}/imagenet
+image_folder: imagenet_full_size/
+tar_file: imagenet_full_size-061417.tar.gz
+
+batch_size: 256
+val_batch_size: null
+num_workers: 8
+pin_memory: true
+persistent_workers: false
+drop_last: true
+
+copy_data: false
+class_subset_file: ???
+
+crop_size: 224
