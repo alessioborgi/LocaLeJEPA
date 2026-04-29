@@ -1,4 +1,10 @@
+defaults:
+  - transform/image@train_transform: lejepa_train
+  - transform/image@eval_transform: lejepa_eval
+  - _self_
+
 _target_: src.data.imagenette_datamodule.ImagenetteDataModule
+has_test_data: true
 
 data_dir: ${paths.data_dir}/imagenette
 variant: 160px
@@ -14,17 +20,3 @@ persistent_workers: null
 drop_last: true
 
 crop_size: 128
-crop_scale: [0.08, 1.0]
-num_views: 4
-
-# Set num_global_crops to enable DINO-style multi-crop instead of uniform views.
-num_global_crops: null
-num_local_crops: 0
-global_crop_scale: [0.3, 1.0]
-local_crop_scale: [0.05, 0.3]
-
-record_metadata: false
-use_gaussian_blur: true
-use_horizontal_flip: true
-use_color_distortion: true
-color_jitter_strength: 0.8

@@ -5,7 +5,7 @@ import lightning as L
 import rootutils
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
-from omegaconf import DictConfig
+from omegaconf import DictConfig, open_dict
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 # ------------------------------------------------------------------------------------ #
@@ -53,8 +53,12 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     if cfg.get("seed"):
         L.seed_everything(cfg.seed, workers=True)
 
-    log.info(f"Instantiating datamodule <{cfg.data._target_}>")
-    datamodule: LightningDataModule = hydra.utils.instantiate(cfg.data)
+    data_cfg = cfg.data.copy()
+    with open_dict(data_cfg):
+        has_test_data = data_cfg.pop("has_test_data", True)
+
+    log.info(f"Instantiating datamodule <{data_cfg._target_}>")
+    datamodule: LightningDataModule = hydra.utils.instantiate(data_cfg)
 
     log.info(f"Instantiating model <{cfg.model._target_}>")
     model: LightningModule = hydra.utils.instantiate(cfg.model)
@@ -87,14 +91,16 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     train_metrics = trainer.callback_metrics
 
-    if cfg.get("test"):
+    if cfg.get("test") and has_test_data:
         log.info("Starting testing!")
-        ckpt_path = trainer.checkpoint_callback.best_model_path  # type: ignore
+        ckpt_path = trainer.checkpoint_callback.best_model_path if trainer.checkpoint_callback is not None else None
         if ckpt_path == "":
             log.warning("Best ckpt not found! Using current weights for testing...")
             ckpt_path = None
         trainer.test(model=model, datamodule=datamodule, ckpt_path=ckpt_path)
         log.info(f"Best ckpt path: {ckpt_path}")
+    elif cfg.get("test"):
+        log.info("Skipping testing because data.has_test_data is false.")
 
     test_metrics = trainer.callback_metrics
 

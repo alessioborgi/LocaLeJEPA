@@ -121,7 +121,7 @@ class LeJEPAModule(LightningModule):
         return emb, metrics
 
     def training_step(self, batch: Any, batch_idx: int) -> torch.Tensor:
-        views, labels = batch
+        views, labels, _ = self._unpack_batch(batch)
         emb, metrics = self.model_step(views)
 
         self.log("train/lejepa_loss", metrics["lejepa_loss"], sync_dist=True, on_step=True, on_epoch=True)
@@ -144,7 +144,7 @@ class LeJEPAModule(LightningModule):
 
     def validation_step(self, batch: Any, batch_idx: int) -> None:
         if self.online_probe is not None:
-            views, labels = batch
+            views, labels, _ = self._unpack_batch(batch)
             emb = self.encode(views)
             labels = labels.to(emb.device, non_blocking=True)
             y_hat = self.online_probe(emb)
@@ -154,7 +154,7 @@ class LeJEPAModule(LightningModule):
 
     def test_step(self, batch: Any, batch_idx: int) -> None:
         if self.online_probe is not None:
-            views, labels = batch
+            views, labels, _ = self._unpack_batch(batch)
             emb = self.encode(views)
             labels = labels.to(emb.device, non_blocking=True)
             y_hat = self.online_probe(emb)
@@ -168,6 +168,13 @@ class LeJEPAModule(LightningModule):
             self.projector = torch.compile(self.projector)
             if self.online_probe is not None:
                 self.online_probe = torch.compile(self.online_probe)
+
+    def _unpack_batch(self, batch: Any) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
+        views, labels = batch
+        crop_metadata = None
+        if isinstance(views, (tuple, list)):
+            views, crop_metadata = views
+        return views, labels, crop_metadata
 
     def configure_optimizers(self) -> dict[str, Any]:
         param_groups: list[dict[str, Any]] = [

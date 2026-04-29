@@ -1,5 +1,5 @@
 defaults:
-  - backbone: vit
+  - backbone: resnet18 #vit
   - _self_
 
 _target_: src.models.lejepa_module.LeJEPAModule

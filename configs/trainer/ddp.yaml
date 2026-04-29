@@ -8,3 +8,4 @@ devices: 4
 num_nodes: 1
 sync_batchnorm: True
 precision: bf16-mixed # to mimic LeJEPA
+use_distributed_sampler: true

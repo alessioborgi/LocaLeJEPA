@@ -364,14 +364,14 @@ Normalised Temperature-scaled Cross Entropy (SimCLR, Chen et al. 2020).  Require
 
 | Dataset | Module | Notes |
 |---|---|---|
-| ImageNet-1k | `src/datasets/imagenet1k.py` | Full ImageNet; `class_subset_file` enables ImageNet-100 |
+| ImageNet-1k | `src/data/imagenet1k_datamodule.py` | Full ImageNet; `class_subset_file` enables ImageNet-100 |
 | ImageNet-100 | same | 100-class subset from Tian et al. (CMC, ECCV 2020) |
-| STL10 | `src/datasets/stl10.py` | Unlabeled split (105 000 images) used for LeJEPA |
-| Imagenette | `src/datasets/imagenette.py` | 10-class ImageNet subset; auto-downloaded |
+| STL10 | `src/data/stl10_datamodule.py` | Unlabeled split (105 000 images) used for LeJEPA |
+| Imagenette | `src/data/imagenette_datamodule.py` | 10-class ImageNet subset; auto-downloaded |
 
-Each module exposes a `make_<dataset>_lejepa(train_transform, val_transform, ...)` function that returns `(train_loader, val_loader, train_sampler)`.  All loaders use `DistributedSampler` by default.
+Each Lightning datamodule can be selected through `configs/data/*.yaml`. Compatibility factories such as `make_<dataset>_lejepa(train_transform, val_transform, ...)` remain in the datamodule files for the legacy manual training loops and return `(train_loader, val_loader, train_sampler)`.
 
-### Photonic crystal datasets (`src/datasets/phc.py`)
+### Photonic crystal datasets (`src/data/phc_datamodule.py`)
 
 **PhCDataset**:
 
