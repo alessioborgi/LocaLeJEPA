@@ -4,7 +4,7 @@ defaults:
   - override /data: stl10
   - override /data/transform/image@data.train_transform: lejepa_multicrop
   - override /model: lejepa
-  - override /model/backbone: resnet18
+  - override /model/encoder: resnet18
   - override /optimizer: adamw
   - override /trainer: gpu
   - _self_

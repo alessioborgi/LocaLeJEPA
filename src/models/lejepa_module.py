@@ -19,14 +19,14 @@ from src.losses import invariance_loss, sigreg_loss
 class LeJEPAModule(LightningModule):
     """LightningModule for LeJEPA pretraining.
 
-    The module composes a Hydra-instantiated image backbone with a projector head.
-    The backbone can be any ``nn.Module`` as long as it maps flattened image views
+    The module composes a Hydra-instantiated image encoder with a projector head.
+    The encoder can be any ``nn.Module`` as long as it maps flattened image views
     ``(N * V, C, H, W)`` to embeddings ``(N * V, embedding_dim)``.
     """
 
     def __init__(
         self,
-        backbone: nn.Module,
+        encoder: nn.Module,
         projector: nn.Module,
         optimizer: Callable[..., torch.optim.Optimizer],
         online_probe: nn.Module | None = None,
@@ -43,12 +43,12 @@ class LeJEPAModule(LightningModule):
     ) -> None:
         super().__init__()
 
-        self.save_hyperparameters(ignore=["backbone", "projector", "online_probe"], logger=False)
+        self.save_hyperparameters(ignore=["encoder", "projector", "online_probe"], logger=False)
 
-        self.backbone = backbone
+        self.encoder = encoder
         self.projector = projector
         self.online_probe = online_probe if use_online_probe else None
-        self.optimizer_factory = optimizer
+        self.optimizer_fn = optimizer
 
         self.embedding_dim = embedding_dim
         self.projection_dim = projection_dim
@@ -76,7 +76,7 @@ class LeJEPAModule(LightningModule):
         batch_size, num_views = views.shape[:2]
         flat_views = views.flatten(0, 1)
 
-        emb = self.backbone(flat_views)
+        emb = self.encoder(flat_views)
 
         expected_shape = (batch_size * num_views, self.embedding_dim)
         if emb.shape != expected_shape:
@@ -172,21 +172,21 @@ class LeJEPAModule(LightningModule):
 
     def setup(self, stage: str | None = None) -> None:
         if self.compile_model and stage == "fit":
-            self.backbone = torch.compile(self.backbone)
+            self.encoder = torch.compile(self.encoder)
             self.projector = torch.compile(self.projector)
             if self.online_probe is not None:
                 self.online_probe = torch.compile(self.online_probe)
 
     def configure_optimizers(self) -> dict[str, Any]:
         param_groups: list[dict[str, Any]] = [
-            {"params": list(self.backbone.parameters()) + list(self.projector.parameters())},
+            {"params": list(self.encoder.parameters()) + list(self.projector.parameters())},
         ] + (
             [{"params": self.online_probe.parameters(), "lr": self.probe_lr, "weight_decay": self.probe_weight_decay}]
             if self.online_probe is not None
             else []
         )
 
-        optimizer = self.optimizer_factory(params=param_groups)
+        optimizer = self.optimizer_fn(params=param_groups)
         scheduler = self._build_scheduler(optimizer)  # TODO: this should be configurable as well
         return {
             "optimizer": optimizer,
@@ -212,4 +212,4 @@ class LeJEPAModule(LightningModule):
 
 
 if __name__ == "__main__":
-    _ = LeJEPAModule(backbone=nn.Identity(), projector=nn.Identity(), optimizer=torch.optim.AdamW, online_probe=nn.Identity())
+    _ = LeJEPAModule(encoder=nn.Identity(), projector=nn.Identity(), optimizer=torch.optim.AdamW, online_probe=nn.Identity())

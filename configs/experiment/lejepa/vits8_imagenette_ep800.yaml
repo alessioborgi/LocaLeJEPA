@@ -3,7 +3,7 @@
 defaults:
   - override /data: imagenette
   - override /model: lejepa
-  - override /model/backbone: vit
+  - override /model/encoder: timm_vit
   - override /optimizer: adamw
   - override /trainer: gpu
   - _self_
@@ -31,7 +31,7 @@ model:
       - 2048
       - 2048
       - ${model.projection_dim}
-  backbone:
+  encoder:
     model_name: vit_small_patch8_224
 
 optimizer:
