@@ -1,4 +1,4 @@
-_target_: src.data.transforms.transforms.MultiViewTransform
+_target_: src.data.transforms.image.MultiViewTransform
 num_views: 4
 
 base_transform:

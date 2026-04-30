@@ -1,4 +1,4 @@
-_target_: src.data.transforms.transforms.MultiCropTransform
+_target_: src.data.transforms.image.MultiCropTransform
 num_global_crops: 2
 num_local_crops: 6
 
