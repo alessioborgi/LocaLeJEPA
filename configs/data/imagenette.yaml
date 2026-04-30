@@ -10,7 +10,7 @@ data_dir: ${paths.data_dir}/imagenette
 variant: 160px
 
 train_split: train
-val_split: validation
+val_split: val
 
 batch_size: 256 # global batch size; must be divisible by trainer.world_size
 val_batch_size: null

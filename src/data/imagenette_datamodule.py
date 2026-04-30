@@ -26,7 +26,7 @@ class ImagenetteDataset(Dataset):
     """
 
     def __init__(self, root: str | Path, split: str, transform: Callable[[Any], Any]):
-        self.dataset = ImageFolder(root=Path(root) / _split_dir(split), transform=transform)
+        self.dataset = ImageFolder(root=Path(root) / split, transform=transform)
 
     def __getitem__(self, index: int):
         return self.dataset[index]
@@ -65,6 +65,10 @@ class ImagenetteDataModule(LightningDataModule):
         val_batch_size = val_batch_size if val_batch_size is not None else batch_size
         test_split = test_split if test_split is not None else val_split
         persistent_workers = num_workers > 0 if persistent_workers is None else persistent_workers
+
+        for split in (train_split, val_split, test_split):
+            if split is not None and split not in {"train", "val"}:
+                raise ValueError(f"Unknown Imagenette split {split!r}. Choose 'train' or 'val'.")
 
         self.save_hyperparameters(ignore=["train_transform", "eval_transform", "collator"], logger=False)
 
@@ -176,14 +180,6 @@ class ImagenetteDataModule(LightningDataModule):
             raise ValueError(f"Unknown Imagenette variant {self.variant!r}. Choose one of: {options}.") from error
 
 
-def _split_dir(split: str) -> str:
-    if split == "validation":
-        return "val"
-    if split in {"train", "val"}:
-        return split
-    raise ValueError(f"Unknown Imagenette split {split!r}. Choose 'train', 'val', or 'validation'.")
-
-
 if __name__ == "__main__":
-    _ = ImagenetteDataModule(train_transform=lambda x: x, eval_transform=lambda x: x, val_split="validation")
+    _ = ImagenetteDataModule(train_transform=lambda x: x, eval_transform=lambda x: x, val_split="val")
     print("ImagenetteDataModule successfully initialized.")

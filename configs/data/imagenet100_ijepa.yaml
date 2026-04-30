@@ -16,7 +16,7 @@ persistent_workers: false
 drop_last: true
 
 copy_data: false
-class_subset_file: ???
+class_subset_file: ${paths.class_subset_dir}/imagenet100_hobbitlong.txt
 
 crop_size: 224
 

@@ -32,8 +32,12 @@ class LeJEPAModule(LightningModule):
         online_probe: nn.Module | None = None,
         embedding_dim: int = 512,
         projection_dim: int = 128,
+        num_classes: int = 10,
         lamb: float = 0.02,
         num_global_crops: int | None = None,
+        use_online_probe: bool = True,
+        probe_lr: float = 1e-3,
+        probe_weight_decay: float = 1e-7,
         warmup_epochs: int = 0,
         compile: bool = False,
     ) -> None:
@@ -43,13 +47,17 @@ class LeJEPAModule(LightningModule):
 
         self.backbone = backbone
         self.projector = projector
-        self.online_probe = online_probe
+        self.online_probe = online_probe if use_online_probe else None
         self.optimizer_factory = optimizer
 
         self.embedding_dim = embedding_dim
         self.projection_dim = projection_dim
+        self.num_classes = num_classes
         self.lamb = lamb
         self.num_global_crops = num_global_crops
+        self.use_online_probe = use_online_probe
+        self.probe_lr = probe_lr
+        self.probe_weight_decay = probe_weight_decay
         self.warmup_epochs = warmup_epochs
         self.compile_model = compile
 
@@ -121,7 +129,7 @@ class LeJEPAModule(LightningModule):
         return emb, metrics
 
     def training_step(self, batch: Any, batch_idx: int) -> torch.Tensor:
-        views, labels, _ = self._unpack_batch(batch)
+        views, labels = batch
         emb, metrics = self.model_step(views)
 
         self.log("train/lejepa_loss", metrics["lejepa_loss"], sync_dist=True, on_step=True, on_epoch=True)
@@ -144,7 +152,7 @@ class LeJEPAModule(LightningModule):
 
     def validation_step(self, batch: Any, batch_idx: int) -> None:
         if self.online_probe is not None:
-            views, labels, _ = self._unpack_batch(batch)
+            views, labels = batch
             emb = self.encode(views)
             labels = labels.to(emb.device, non_blocking=True)
             y_hat = self.online_probe(emb)
@@ -154,7 +162,7 @@ class LeJEPAModule(LightningModule):
 
     def test_step(self, batch: Any, batch_idx: int) -> None:
         if self.online_probe is not None:
-            views, labels, _ = self._unpack_batch(batch)
+            views, labels = batch
             emb = self.encode(views)
             labels = labels.to(emb.device, non_blocking=True)
             y_hat = self.online_probe(emb)
@@ -169,17 +177,14 @@ class LeJEPAModule(LightningModule):
             if self.online_probe is not None:
                 self.online_probe = torch.compile(self.online_probe)
 
-    def _unpack_batch(self, batch: Any) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
-        views, labels = batch
-        crop_metadata = None
-        if isinstance(views, (tuple, list)):
-            views, crop_metadata = views
-        return views, labels, crop_metadata
-
     def configure_optimizers(self) -> dict[str, Any]:
         param_groups: list[dict[str, Any]] = [
             {"params": list(self.backbone.parameters()) + list(self.projector.parameters())},
-        ] + ([{"params": self.online_probe.parameters(), "lr": 1e-3, "weight_decay": 1e-7}] if self.online_probe is not None else [])
+        ] + (
+            [{"params": self.online_probe.parameters(), "lr": self.probe_lr, "weight_decay": self.probe_weight_decay}]
+            if self.online_probe is not None
+            else []
+        )
 
         optimizer = self.optimizer_factory(params=param_groups)
         scheduler = self._build_scheduler(optimizer)  # TODO: this should be configurable as well

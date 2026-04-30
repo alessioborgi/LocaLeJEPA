@@ -6,9 +6,13 @@ _target_: src.models.lejepa_module.LeJEPAModule
 
 embedding_dim: 128 #512
 projection_dim: 16
+num_classes: 10
 
 lamb: 0.02
 num_global_crops: null
+use_online_probe: true
+probe_lr: 1e-3
+probe_weight_decay: 1e-7
 warmup_epochs: 1
 
 optimizer: ${optimizer}
@@ -31,6 +35,6 @@ online_probe:
       normalized_shape: ${model.embedding_dim}
     - _target_: torch.nn.Linear
       in_features: ${model.embedding_dim}
-      out_features: 10
+      out_features: ${model.num_classes}
 
 compile: false

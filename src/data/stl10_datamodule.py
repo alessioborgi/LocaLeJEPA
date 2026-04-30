@@ -43,6 +43,10 @@ class STL10DataModule(LightningDataModule):
         test_split = test_split if test_split is not None else val_split
         persistent_workers = num_workers > 0 if persistent_workers is None else persistent_workers
 
+        for split in (train_split, val_split, test_split):
+            if split is not None and split not in {"train", "test", "unlabeled", "train+unlabeled"}:
+                raise ValueError(f"Unknown STL10 split {split!r}.")
+
         self.save_hyperparameters(ignore=["train_transform", "eval_transform", "collator"], logger=False)
 
         self.train_transform = train_transform
