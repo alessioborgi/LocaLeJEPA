@@ -153,3 +153,6 @@ configs/local/default.yaml
 /logs/
 outputs/
 .env
+
+# old files
+old/

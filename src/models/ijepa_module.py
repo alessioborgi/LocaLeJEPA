@@ -13,9 +13,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from lightning import LightningModule
+from torch.nn.init import trunc_normal_
 
-from src.ijepa.masks.utils import apply_masks
-from src.utils.tensors import repeat_interleave_batch, trunc_normal_
+from src.models.components.tensor_ops import apply_masks, repeat_interleave_batch
 
 
 class IJEPAModule(LightningModule):
