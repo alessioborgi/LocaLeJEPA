@@ -18,7 +18,6 @@ trainer:
 data:
   batch_size: 512
   num_workers: 4
-  crop_size: 32
   train_transform:
     num_views: 2
 

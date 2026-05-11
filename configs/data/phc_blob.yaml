@@ -5,18 +5,11 @@ defaults:
 _target_: src.data.phc_datamodule.PhCDataModule
 has_test_data: false
 
-path: ???
+dataset: blob
+target_mode: unlabeled
+data_dir: ${paths.data_dir}/phc
 
 batch_size: 512
-val_batch_size: null
 num_workers: 4
 pin_memory: true
-persistent_workers: null
 drop_last: true
-
-train_frac: 0.6
-seed: 42
-eps_min: 1.0
-eps_max: 20.0
-crop_size: 32
-eval_transform: null
