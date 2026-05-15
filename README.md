@@ -62,7 +62,6 @@ L = (1 - λ) · L_inv  +  λ · L_SIGReg
 
 The goal of this repository is to implement **Bundle LeJEPA**, which extends LeJEPA with fibre-bundle geometry.  Instead of learning a single invariant representation, Bundle LeJEPA will learn a *section* of a principal bundle: a representation that transforms predictably (equivariantly) under the symmetry group of the data.  The groundwork for this is already laid:
 
-- **record_metadata=True** records per-view crop box and flip state during pretraining (phase 1), so the transformation applied to each view is known.
 - **Domain-specific PhC transforms** (RandomC4v, RandomMirror, RandomRoll, RandomRefractiveScaling) are individually composable and labelled, making it possible to later split them into invariant vs. equivariant groups.
 - The loss is factored into two clean standalone functions (`invariance_loss`, `sigreg_loss`) that are easy to extend with equivariant terms.
 
@@ -364,14 +363,14 @@ Normalised Temperature-scaled Cross Entropy (SimCLR, Chen et al. 2020).  Require
 
 | Dataset | Module | Notes |
 |---|---|---|
-| ImageNet-1k | `src/datasets/imagenet1k.py` | Full ImageNet; `class_subset_file` enables ImageNet-100 |
+| ImageNet-1k | `src/data/imagenet1k_datamodule.py` | Full ImageNet; `class_subset_file` enables ImageNet-100 |
 | ImageNet-100 | same | 100-class subset from Tian et al. (CMC, ECCV 2020) |
-| STL10 | `src/datasets/stl10.py` | Unlabeled split (105 000 images) used for LeJEPA |
-| Imagenette | `src/datasets/imagenette.py` | 10-class ImageNet subset; auto-downloaded |
+| STL10 | `src/data/stl10_datamodule.py` | Unlabeled split (105 000 images) used for LeJEPA |
+| Imagenette | `src/data/imagenette_datamodule.py` | 10-class ImageNet subset; auto-downloaded |
 
-Each module exposes a `make_<dataset>_lejepa(train_transform, val_transform, ...)` function that returns `(train_loader, val_loader, train_sampler)`.  All loaders use `DistributedSampler` by default.
+Each Lightning datamodule can be selected through `configs/data/*.yaml`. Compatibility factories such as `make_<dataset>_lejepa(train_transform, val_transform, ...)` remain in the datamodule files for the legacy manual training loops and return `(train_loader, val_loader, train_sampler)`.
 
-### Photonic crystal datasets (`src/datasets/phc.py`)
+### Photonic crystal datasets (`src/data/phc_datamodule.py`)
 
 **PhCDataset**:
 
@@ -424,8 +423,6 @@ All use the same evaluation transform: `Resize(256, BICUBIC) → CenterCrop(crop
 - **Local crops** (6 views, scale 0.05–0.3, output 224×224 — same size, tighter crop for zoom-in semantics)
 - Photometric augmentations applied to all views: ColorJitter, RandomGrayscale, GaussianBlur (p=0.5), RandomSolarize (p=0.2), RandomHorizontalFlip
 - All views in a batch stack to `(N, V=8, C, H, W)` — single contiguous tensor
-
-**Transformation metadata recording** (for future equivariance): when `record_metadata=True`, each call returns `(views, meta)` where `meta: (V, 6)` stores per-view `[top, left, height, width, scale, flipped]` in [0, 1].  The DataLoader then yields `((batch_views, batch_meta), batch_labels)`.
 
 ### Vision: Legacy uniform multi-view (`src/transforms.py`)
 
@@ -560,8 +557,6 @@ data:
   batch_size:       256
   num_global_crops: 2
   num_local_crops:  6
-  record_metadata:  true      # store crop/flip metadata for equivariance
-
 lejepa:
   lamb:        0.02           # SIGReg weight
   num_classes: 100
@@ -708,13 +703,12 @@ In the photonic crystal domain, the relevant groups are C4v (Blob dataset) and t
 
 1. Decompose the projection head into *invariant* and *equivariant* branches.
 2. Modify the invariance loss into a group-equivariance consistency loss: instead of collapsing all views to the same point, require `f(g·x) = ρ(g) · f(x)` where `ρ` is a known linear representation of `g`.
-3. Use the **transformation metadata** already recorded during pretraining (the `(V, 6)` crop/flip tensors) to pair views with their known transformations.
+3. Add an explicit metadata path for image or PhC transforms when equivariant supervision needs known transformations.
 4. Use the **composable PhC transforms** to annotate which symmetry operation was applied to each view.
 
 The existing codebase is designed to make this extension minimally invasive:
 
 - Loss functions are standalone callables in `src/losses.py` — add the equivariance term there.
-- Transformation metadata is already collated into the batch under `record_metadata=True`.
 - PhC transforms are individually named classes that can be split into invariant vs. equivariant groups by inspection.
 - All encoders share the same `(emb, proj)` forward interface — projector heads can be replaced without touching the backbone.
 

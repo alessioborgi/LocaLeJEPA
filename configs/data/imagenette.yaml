@@ -1,0 +1,22 @@
+defaults:
+  - transform/image@train_transform: lejepa_train
+  - transform/image@eval_transform: lejepa_eval
+  - _self_
+
+_target_: src.data.imagenette_datamodule.ImagenetteDataModule
+has_test_data: true
+
+data_dir: ${paths.data_dir}/imagenette
+variant: 160px
+
+train_split: train
+val_split: val
+
+batch_size: 256 # global batch size; must be divisible by trainer.world_size
+val_batch_size: null
+num_workers: 4
+pin_memory: true
+persistent_workers: null
+drop_last: true
+
+crop_size: 128

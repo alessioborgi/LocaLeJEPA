@@ -1,0 +1,6 @@
+_target_: src.data.transforms.phc.PhCMultiViewTransform
+num_views: 2
+base_transform:
+  _target_: torchvision.transforms.Compose
+  transforms:
+    - _target_: src.data.transforms.phc.RandomC4v
