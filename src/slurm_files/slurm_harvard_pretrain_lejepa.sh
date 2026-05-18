@@ -123,7 +123,7 @@ if [[ -n "$WANDB_RUN_NAME" ]]; then
   echo "Using W&B run name: ${WANDB_RUN_NAME}"
 fi
 
-RUN_CMD=(python -m src.train experiment="lejepa/${RUN_MODE}" logger=wandb)
+RUN_CMD=(python src/train.py experiment="lejepa/${RUN_MODE}" logger=wandb)
 HYDRA_OVERRIDES=("${DEFAULT_PRETRAIN_HYDRA_OVERRIDES[@]}")
 
 if [[ -z "$WANDB_RUN_NAME" ]]; then
