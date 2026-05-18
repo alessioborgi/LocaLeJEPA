@@ -1,4 +1,4 @@
-# Copyright (c) 2025 Alessio Borgioli
+# Copyright (c) 2025 Alessio Borgi, Pavel Snopov
 # All rights reserved.
 #
 # This source code is licensed under the license found in the
