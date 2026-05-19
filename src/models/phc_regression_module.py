@@ -33,7 +33,7 @@ class PhCRegressionModule(LightningModule):
     ) -> None:
         super().__init__()
 
-        self.save_hyperparameters(ignore=["encoder", "predictor"], logger=False)
+        self.save_hyperparameters(ignore=["encoder", "predictor", "optimizer", "scheduler"], logger=False)
 
         self.encoder = encoder
         self.predictor = predictor
@@ -139,7 +139,7 @@ class PhCRegressionModule(LightningModule):
 
     def _load_pretrained_encoder(self) -> None:
         ckpt_path = Path(self.pretrained_ckpt_path).expanduser()
-        checkpoint = torch.load(ckpt_path, map_location="cpu")
+        checkpoint = torch.load(ckpt_path, map_location="cpu", weights_only=False)
         state_dict = checkpoint["state_dict"] if isinstance(checkpoint, dict) and "state_dict" in checkpoint else checkpoint
 
         encoder_state = {key.removeprefix("encoder."): value for key, value in state_dict.items() if key.startswith("encoder.")}

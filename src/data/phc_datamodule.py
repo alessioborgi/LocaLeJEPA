@@ -330,9 +330,9 @@ class PhCDataModule(LightningDataModule):
             drop_last=self.drop_last,
         )
 
-    def val_dataloader(self) -> Optional[DataLoader[Any]]:
+    def val_dataloader(self) -> DataLoader[Any] | list[DataLoader[Any]]:
         if self.data_val is None:
-            return None
+            return []
         return DataLoader(
             dataset=self.data_val,
             batch_size=self.val_batch_size_per_device,
@@ -343,9 +343,9 @@ class PhCDataModule(LightningDataModule):
             drop_last=False,
         )
 
-    def test_dataloader(self) -> Optional[DataLoader[Any]]:
+    def test_dataloader(self) -> DataLoader[Any] | list[DataLoader[Any]]:
         if self.data_test is None:
-            return None
+            return []
         return DataLoader(
             dataset=self.data_test,
             batch_size=self.val_batch_size_per_device,

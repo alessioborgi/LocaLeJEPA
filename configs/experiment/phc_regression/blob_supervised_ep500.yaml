@@ -15,6 +15,7 @@ tags: ["phc", "blob", "regression", "supervised"]
 trainer:
   max_epochs: 500
   num_sanity_val_steps: 0
+  limit_val_batches: 0
 
 model:
   scheduler: ${scheduler}

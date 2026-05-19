@@ -42,7 +42,7 @@ class IJEPAModule(LightningModule):
     ) -> None:
         super().__init__()
 
-        self.save_hyperparameters(ignore=["encoder", "predictor"], logger=False)
+        self.save_hyperparameters(ignore=["encoder", "predictor", "optimizer"], logger=False)
 
         self.encoder = encoder
         self.predictor = predictor

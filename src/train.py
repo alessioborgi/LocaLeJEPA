@@ -1,3 +1,4 @@
+import pickle
 from typing import Any, Dict, List, Optional, Tuple
 
 import hydra
@@ -97,7 +98,13 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         if ckpt_path == "":
             log.warning("Best ckpt not found! Using current weights for testing...")
             ckpt_path = None
-        trainer.test(model=model, datamodule=datamodule, ckpt_path=ckpt_path)
+        try:
+            trainer.test(model=model, datamodule=datamodule, ckpt_path=ckpt_path)
+        except pickle.UnpicklingError:
+            if ckpt_path is None:
+                raise
+            log.warning("Checkpoint reload failed during testing. Falling back to current in-memory weights.")
+            trainer.test(model=model, datamodule=datamodule, ckpt_path=None)
         log.info(f"Best ckpt path: {ckpt_path}")
     elif cfg.get("test"):
         log.info("Skipping testing because data.has_test_data is false.")

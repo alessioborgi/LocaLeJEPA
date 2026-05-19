@@ -43,7 +43,7 @@ class LeJEPAModule(LightningModule):
     ) -> None:
         super().__init__()
 
-        self.save_hyperparameters(ignore=["encoder", "projector", "online_probe"], logger=False)
+        self.save_hyperparameters(ignore=["encoder", "projector", "online_probe", "optimizer"], logger=False)
 
         self.encoder = encoder
         self.projector = projector
@@ -198,11 +198,18 @@ class LeJEPAModule(LightningModule):
         }
 
     def _build_scheduler(self, optimizer: torch.optim.Optimizer) -> torch.optim.lr_scheduler.LRScheduler:
-        total_steps = int(self.trainer.estimated_stepping_batches)
-        steps_per_epoch = total_steps // self.trainer.max_epochs  # type: ignore
-        warmup_steps = steps_per_epoch * self.warmup_epochs
+        total_steps = max(1, int(self.trainer.estimated_stepping_batches))
+        max_epochs = int(self.trainer.max_epochs) if self.trainer.max_epochs is not None else 1
+        steps_per_epoch = max(1, total_steps // max_epochs)
+        warmup_steps = min(total_steps, steps_per_epoch * self.warmup_epochs)
+
+        if warmup_steps <= 0:
+            return CosineAnnealingLR(optimizer, T_max=total_steps, eta_min=1e-3)
 
         warmup = LinearLR(optimizer, start_factor=0.01, total_iters=warmup_steps)
+        if warmup_steps >= total_steps:
+            return warmup
+
         cosine = CosineAnnealingLR(
             optimizer,
             T_max=total_steps - warmup_steps,
