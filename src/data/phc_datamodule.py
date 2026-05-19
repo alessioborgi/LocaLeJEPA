@@ -18,10 +18,6 @@ EPS_MIN = 1.0
 EPS_MAX = 20.0
 
 
-def _numeric_key(value: str) -> tuple[int, str]:
-    return (int(value), value) if value.isdigit() else (10**12, value)
-
-
 class PhCDataset(Dataset):
     """Photonic crystal dataset loaded from an ESSL/SIB-CL ``.h5`` archive.
 
@@ -44,6 +40,7 @@ class PhCDataset(Dataset):
         "gpm": {
             "labeled": {
                 "train": "mf1-sg3-tm.h5",
+                "test": "mf1-sg3-tm.h5",
             },
             "unlabeled": {
                 "train": "mf1-sg3-25k-ul-s99-tm.h5",
@@ -56,10 +53,10 @@ class PhCDataset(Dataset):
         path: str | Path,
         dataset: str,
         split: str,
+        train_size: int,
         target_mode: str = "unlabeled",
-        train_size: Optional[int] = None,
         valid_size: int = 0,
-        test_size: Optional[int] = None,
+        test_size: int = 2000,
         ldos: int = 0,
         udos: int = 400,
         transform: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
@@ -76,9 +73,7 @@ class PhCDataset(Dataset):
 
         with h5py.File(path, "r") as handle:
             image_group = handle["unitcell/mpbepsimage"]
-            sample_ids = sorted(image_group.keys(), key=_numeric_key)
             sample_ids = self._select_sample_ids(
-                sample_ids=sample_ids,
                 dataset=dataset,
                 split=split,
                 train_size=train_size,
@@ -92,20 +87,8 @@ class PhCDataset(Dataset):
             dos = []
 
             for sample_id in sample_ids:
-                image = image_group[sample_id][()].astype(np.float32)
-                if image.max() > 1.0 or image.min() < 0.0:
-                    image = (image - EPS_MIN) / (EPS_MAX - EPS_MIN)
-                if image.min() < 0.0 or image.max() > 1.0:
-                    raise ValueError("PhC images must be normalized to [0, 1] or raw permittivity values in [1, 20].")
-                images.append(image)
-
-                if dos_group is not None and sample_id in dos_group:
-                    epsavg = np.asarray(epsavg_group[sample_id][()], dtype=np.float32)
-                    dos.append((dos_group[sample_id][()][ldos:udos] / np.sqrt(epsavg)).astype(np.float32))
-                elif target_mode == "labeled":
-                    raise KeyError(f"PhC file {path} does not contain DOS labels for sample {sample_id}.")
-                else:
-                    dos.append(np.zeros(udos - ldos, dtype=np.float32))
+                images.append(self._load_image(image_group, sample_id))  # type: ignore
+                dos.append(self._load_target(dos_group, epsavg_group, sample_id, target_mode, ldos, udos))  # type: ignore
 
         images = np.stack(images).astype(np.float32)
         dos = np.stack(dos).astype(np.float32)
@@ -124,32 +107,57 @@ class PhCDataset(Dataset):
         return image, self.dos[index]
 
     @staticmethod
+    def _load_image(image_group: h5py.Group, sample_id: str) -> np.ndarray:
+        image = image_group[sample_id][()].astype(np.float32)  # type: ignore
+        image_min = float(image.min())
+        image_max = float(image.max())
+
+        if 0.0 <= image_min and image_max <= 1.0:
+            return image  # type: ignore
+        if EPS_MIN <= image_min and image_max <= EPS_MAX:
+            return (image - EPS_MIN) / (EPS_MAX - EPS_MIN)  # type: ignore
+        raise ValueError("PhC images must be normalized to [0, 1] or raw permittivity values in [1, 20].")
+
+    @staticmethod
+    def _load_target(
+        dos_group: h5py.Group | None,
+        epsavg_group: h5py.Group,
+        sample_id: str,
+        target_mode: str,
+        ldos: int,
+        udos: int,
+    ) -> np.ndarray:
+        if target_mode == "unlabeled":
+            return np.zeros(udos - ldos, dtype=np.float32)
+        if dos_group is None:
+            raise KeyError("PhC labeled data requires an mpbcal/DOS group.")
+
+        epsavg = np.asarray(epsavg_group[sample_id][()], dtype=np.float32)  # type: ignore
+        return (dos_group[sample_id][()][ldos:udos] / np.sqrt(epsavg)).astype(np.float32)  # type: ignore
+
+    @staticmethod
     def _select_sample_ids(
-        sample_ids: list[str],
         dataset: str,
         split: str,
-        train_size: Optional[int],
+        train_size: int,
         valid_size: int,
-        test_size: Optional[int],
+        test_size: int,
     ) -> list[str]:
-        if train_size is None:
-            if split == "train" or dataset == "blob" and split == "test":
-                return sample_ids if test_size is None else sample_ids[:test_size]
-            raise ValueError(f"PhC split {split!r} requires train_size to reproduce E-SSL index ranges.")
-
         start = 1
         if split == "train":
-            stop = start + train_size
+            end = start + train_size
         elif split == "valid":
             start += train_size
-            stop = start + valid_size
-        elif dataset == "blob":
-            stop = start + (test_size if test_size is not None else len(sample_ids))
+            end = start + valid_size
         else:
             start += train_size + valid_size
-            stop = start + (test_size if test_size is not None else len(sample_ids))
+            end = start + test_size
 
-        selected_ids = [str(index) for index in range(start, stop)]
+        # Mirror the original E-SSL blob test.
+        if dataset == "blob" and split == "test":
+            selected_ids = [str(index) for index in range(1, 2000)]
+        else:
+            selected_ids = [str(index) for index in range(start, end)]
         if not selected_ids:
             raise ValueError(f"Selected empty PhC split {split!r}.")
         return selected_ids
@@ -163,6 +171,7 @@ class PhCDataModule(LightningDataModule):
         dataset: str,
         target_mode: str,
         data_dir: str,
+        train_size: int,
         train_transform: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
         eval_transform: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
         train_split: str = "train",
@@ -174,9 +183,8 @@ class PhCDataModule(LightningDataModule):
         pin_memory: bool = True,
         persistent_workers: Optional[bool] = None,
         drop_last: bool = True,
-        train_size: Optional[int] = None,
         valid_size: int = 0,
-        test_size: Optional[int] = None,
+        test_size: int = 2000,
         ldos: int = 0,
         udos: int = 400,
     ) -> None:
@@ -189,6 +197,13 @@ class PhCDataModule(LightningDataModule):
         for split in (train_split, val_split, test_split):
             if split is not None and split not in {"train", "valid", "test"}:
                 raise ValueError(f"Unknown PhC split {split!r}. Choose 'train', 'valid', or 'test'.")
+
+        if train_size <= 0:
+            raise ValueError(f"Expected train_size > 0, got {train_size}.")
+        if valid_size < 0:
+            raise ValueError(f"Expected valid_size >= 0, got {valid_size}.")
+        if test_size <= 0:
+            raise ValueError(f"Expected test_size > 0, got {test_size}.")
 
         val_batch_size = val_batch_size if val_batch_size is not None else batch_size
         persistent_workers = num_workers > 0 if persistent_workers is None else persistent_workers
@@ -353,5 +368,5 @@ class PhCDataModule(LightningDataModule):
 
 
 if __name__ == "__main__":
-    _ = PhCDataModule(dataset="blob", target_mode="unlabeled", data_dir="data/phc", train_transform=lambda x: x)
+    _ = PhCDataModule(dataset="blob", target_mode="unlabeled", data_dir="data/phc", train_size=100, train_transform=lambda x: x)
     print("PhCDataModule successfully initialized.")
