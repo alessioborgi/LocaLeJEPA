@@ -27,7 +27,7 @@ class PhCEncoder(nn.Module):
             nn.ReLU(inplace=True),
             nn.MaxPool2d(2, 2),
         )
-        self.head = nn.Sequential(
+        self.fc_head = nn.Sequential(
             nn.Linear(4 * 4 * 256, 1024),
             nn.ReLU(inplace=True),
             nn.Linear(1024, emb_dim),
@@ -36,4 +36,30 @@ class PhCEncoder(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if x.ndim != 4:
             raise RuntimeError(f"Expected PhC input with shape (N, 1, H, W), got {tuple(x.shape)}")
-        return self.head(self.cnn(x).flatten(1))
+        return self.fc_head(self.cnn(x).flatten(1))
+
+
+class DOSPredictor(nn.Module):
+    """Dense DOS regression head used for downstream photonics evaluation.
+
+    The architecture follows the E-SSL photonics setup:
+    ``emb_dim -> 1024 -> 1024 -> 512 -> out_dim`` with ReLU activations after
+    each hidden layer.
+    """
+
+    def __init__(self, emb_dim: int = 1024, out_dim: int = 400) -> None:
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(emb_dim, 1024),
+            nn.ReLU(inplace=True),
+            nn.Linear(1024, 1024),
+            nn.ReLU(inplace=True),
+            nn.Linear(1024, 512),
+            nn.ReLU(inplace=True),
+            nn.Linear(512, out_dim),
+        )
+
+    def forward(self, emb: torch.Tensor) -> torch.Tensor:
+        if emb.ndim != 2:
+            raise RuntimeError(f"Expected embeddings with shape (N, D), got {tuple(emb.shape)}")
+        return self.net(emb)
