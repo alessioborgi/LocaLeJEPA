@@ -16,13 +16,15 @@
 # Each mode maps to a config under configs/experiment/lejepa/.
 #
 # Available run modes and their dataset / backbone:
-#   rn18_stl10_ep500      : ResNet-18    on STL-10         (500 epochs)
-#   rn50_in100_ep500      : ResNet-50    on ImageNet-100   (500 epochs)
-#   vits16_in100_ep500    : ViT-S/16     on ImageNet-100   (500 epochs)
-#   vits8_imagenette_ep800: ViT-S/8      on Imagenette     (800 epochs)
-#   vits8_in1k_ep800      : ViT-S/8      on ImageNet-1K    (800 epochs)
-#   phc_blob_ep250        : PHC encoder  on PHC-Blob       (250 epochs)
-#   phc_gpm_ep250         : PHC encoder  on PHC-GPM        (250 epochs)
+#   rn18_stl10_ep500         : ResNet-18      on STL-10         (500 epochs)
+#   rn50_in100_ep500         : ResNet-50      on ImageNet-100   (500 epochs)
+#   vits16_in100_ep500       : ViT-S/16       on ImageNet-100   (500 epochs)
+#   vits8_imagenette_ep800   : ViT-S/8        on Imagenette     (800 epochs)
+#   vits8_in1k_ep800         : ViT-S/8        on ImageNet-1K    (800 epochs)
+#   svits16_in100_ep500      : SphericalViT-S/16 on ImageNet-100   (500 epochs)
+#   svits8_imagenette_ep800  : SphericalViT-S/8  on Imagenette     (800 epochs)
+#   phc_blob_ep250           : PHC encoder    on PHC-Blob       (250 epochs)
+#   phc_gpm_ep250            : PHC encoder    on PHC-GPM        (250 epochs)
 #
 # Override at submission time with:
 #   sbatch --export=ALL,RUN_MODE=vits8_imagenette_ep800 slurm_files/slurm_harvard_pretrain_lejepa.sh
@@ -39,8 +41,12 @@ DEFAULT_PRETRAIN_WANDB_RUN_NAME=""  # Leave empty to auto-name as: PreTrain_LeJE
 #   configs/data/class_subsets/imagenet100.txt  (for rn50_in100_ep500, vits16_in100_ep500)
 DEFAULT_CLASS_SUBSET_FILE=""
 
+# Lambda (model.lamb) override. Leave empty to use the config default.
+# Override at submission time with:
+#   sbatch --export=ALL,LAMB=0.02 slurm_files/slurm_harvard_pretrain_lejepa.sh
+DEFAULT_PRETRAIN_LAMB=""
+
 DEFAULT_PRETRAIN_HYDRA_OVERRIDES=(
-  # "model.lamb=0.02"
   # "trainer.max_epochs=300"
 )
 
@@ -81,13 +87,15 @@ if [[ -z "$RUN_MODE" ]]; then
   echo "or pass it at submission: sbatch --export=ALL,RUN_MODE=rn18_stl10_ep500 slurm_files/slurm_harvard_pretrain_lejepa.sh"
   echo ""
   echo "Available run modes:"
-  echo "  rn18_stl10_ep500       ResNet-18  on STL-10        (500 ep)"
-  echo "  rn50_in100_ep500       ResNet-50  on ImageNet-100  (500 ep)"
-  echo "  vits16_in100_ep500     ViT-S/16   on ImageNet-100  (500 ep)"
-  echo "  vits8_imagenette_ep800 ViT-S/8    on Imagenette    (800 ep)"
-  echo "  vits8_in1k_ep800       ViT-S/8    on ImageNet-1K   (800 ep)"
-  echo "  phc_blob_ep250         PHC        on PHC-Blob      (250 ep)"
-  echo "  phc_gpm_ep250          PHC        on PHC-GPM       (250 ep)"
+  echo "  rn18_stl10_ep500          ResNet-18         on STL-10        (500 ep)"
+  echo "  rn50_in100_ep500          ResNet-50         on ImageNet-100  (500 ep)"
+  echo "  vits16_in100_ep500        ViT-S/16          on ImageNet-100  (500 ep)"
+  echo "  vits8_imagenette_ep800    ViT-S/8           on Imagenette    (800 ep)"
+  echo "  vits8_in1k_ep800          ViT-S/8           on ImageNet-1K   (800 ep)"
+  echo "  svits16_in100_ep500       SphericalViT-S/16 on ImageNet-100  (500 ep)"
+  echo "  svits8_imagenette_ep800   SphericalViT-S/8  on Imagenette    (800 ep)"
+  echo "  phc_blob_ep250            PHC               on PHC-Blob      (250 ep)"
+  echo "  phc_gpm_ep250             PHC               on PHC-GPM       (250 ep)"
   exit 1
 fi
 
@@ -98,12 +106,14 @@ case "$RUN_MODE" in
   vits16_in100_ep500|\
   vits8_imagenette_ep800|\
   vits8_in1k_ep800|\
+  svits16_in100_ep500|\
+  svits8_imagenette_ep800|\
   phc_blob_ep250|\
   phc_gpm_ep250)
     ;;
   *)
     echo "Unsupported RUN_MODE: $RUN_MODE"
-    echo "Valid options: rn18_stl10_ep500 | rn50_in100_ep500 | vits16_in100_ep500 | vits8_imagenette_ep800 | vits8_in1k_ep800 | phc_blob_ep250 | phc_gpm_ep250"
+    echo "Valid options: rn18_stl10_ep500 | rn50_in100_ep500 | vits16_in100_ep500 | vits8_imagenette_ep800 | vits8_in1k_ep800 | svits16_in100_ep500 | svits8_imagenette_ep800 | phc_blob_ep250 | phc_gpm_ep250"
     exit 1
     ;;
 esac
@@ -140,6 +150,13 @@ if [[ -n "$CLASS_SUBSET_FILE" ]]; then
   echo "Using class subset file: ${CLASS_SUBSET_FILE}"
 fi
 
+LAMB="${LAMB:-${DEFAULT_PRETRAIN_LAMB:-}}"
+LAMB_OVERRIDE=()
+if [[ -n "$LAMB" ]]; then
+  LAMB_OVERRIDE=("model.lamb=${LAMB}")
+  echo "Using lambda: ${LAMB}"
+fi
+
 RUN_CMD=(python src/train.py experiment="lejepa/${RUN_MODE}" logger=wandb)
 HYDRA_OVERRIDES=("${DEFAULT_PRETRAIN_HYDRA_OVERRIDES[@]}")
 
@@ -148,7 +165,8 @@ HYDRA_OVERRIDES=("${DEFAULT_PRETRAIN_HYDRA_OVERRIDES[@]}")
 # with 8 crops = 2048 images through ResNet50 simultaneously overflows an 80 GB A100.
 # Use batch_size=64 + accumulate_grad_batches=4 to keep the effective batch at 256.
 case "$RUN_MODE" in
-  rn50_in100_ep500|vits16_in100_ep500|vits8_in1k_ep800|vits8_imagenette_ep800)
+  rn50_in100_ep500|vits16_in100_ep500|vits8_in1k_ep800|vits8_imagenette_ep800|\
+  svits16_in100_ep500)
     HYDRA_OVERRIDES+=("data.image_folder=.")
     HYDRA_OVERRIDES+=("data.batch_size=64")
     HYDRA_OVERRIDES+=("+trainer.accumulate_grad_batches=4")
@@ -164,6 +182,7 @@ fi
 RUN_CMD+=("${WANDB_TAGS_OVERRIDE[@]}")
 RUN_CMD+=("${WANDB_RUN_NAME_OVERRIDE[@]}")
 RUN_CMD+=("${CLASS_SUBSET_FILE_OVERRIDE[@]}")
+RUN_CMD+=("${LAMB_OVERRIDE[@]}")
 RUN_CMD+=("${HYDRA_OVERRIDES[@]}")
 
 echo "Run mode  : ${RUN_MODE}"
