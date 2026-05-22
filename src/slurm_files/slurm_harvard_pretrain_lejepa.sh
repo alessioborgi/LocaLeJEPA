@@ -5,6 +5,7 @@
 #SBATCH -t 1-00:00
 #SBATCH --mem=64000
 #SBATCH --gres=gpu:1
+#SBATCH --constraint=a100
 #SBATCH -o logs/BundLeJEPA_%j.out
 #SBATCH -e logs/BundLeJEPA_%j.err
 
@@ -26,10 +27,17 @@
 # Override at submission time with:
 #   sbatch --export=ALL,RUN_MODE=vits8_imagenette_ep800 slurm_files/slurm_harvard_pretrain_lejepa.sh
 
-DEFAULT_PRETRAIN_RUN_MODE="rn18_stl10_ep500"
-DEFAULT_PRETRAIN_LABEL="Pretrained_LeJEPA_rn18_stl10"
-DEFAULT_PRETRAIN_WANDB_TAGS="pretraining;lejepa;stl10;resnet18"
+DEFAULT_PRETRAIN_RUN_MODE="phc_gpm_ep250"
+DEFAULT_PRETRAIN_LABEL="Pretrained_LeJEPA_phc_gpm_ep250"
+DEFAULT_PRETRAIN_WANDB_TAGS="pretraining;lejepa;phc;gpm"
 DEFAULT_PRETRAIN_WANDB_RUN_NAME=""  # Leave empty to auto-name as: PreTrain_LeJEPA_${RUN_MODE}
+
+# Path to a class-subset file passed as data.class_subset_file (for in100 modes).
+# Leave empty to skip the override. Override at submission time with:
+#   sbatch --export=ALL,CLASS_SUBSET_FILE=configs/data/class_subsets/imagenet100.txt ...
+# Example values:
+#   configs/data/class_subsets/imagenet100.txt  (for rn50_in100_ep500, vits16_in100_ep500)
+DEFAULT_CLASS_SUBSET_FILE=""
 
 DEFAULT_PRETRAIN_HYDRA_OVERRIDES=(
   # "model.lamb=0.02"
@@ -44,14 +52,16 @@ cd "$SLURM_SUBMIT_DIR"
 mkdir -p logs
 
 module purge
-module load python/3.10.9-fasrc01
 
 # Activate the project's Conda environment.
-source "$(conda info --base)/etc/profile.d/conda.sh"
+# Hardcode the Mambaforge base so module loads don't influence conda info --base.
+source /n/sw/Mambaforge-22.11.1-4/etc/profile.d/conda.sh
 conda activate topo-jepa
 
 wandb login
 export WANDB_START_METHOD=thread
+export WANDB__SERVICE_WAIT=300
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 echo "Launching W&B Agent..."
 echo "Python: $(which python)"
 python -c "import sys; print('Python version:', sys.version)"
@@ -123,8 +133,27 @@ if [[ -n "$WANDB_RUN_NAME" ]]; then
   echo "Using W&B run name: ${WANDB_RUN_NAME}"
 fi
 
+CLASS_SUBSET_FILE="${CLASS_SUBSET_FILE:-${DEFAULT_CLASS_SUBSET_FILE:-}}"
+CLASS_SUBSET_FILE_OVERRIDE=()
+if [[ -n "$CLASS_SUBSET_FILE" ]]; then
+  CLASS_SUBSET_FILE_OVERRIDE=("data.class_subset_file=${CLASS_SUBSET_FILE}")
+  echo "Using class subset file: ${CLASS_SUBSET_FILE}"
+fi
+
 RUN_CMD=(python src/train.py experiment="lejepa/${RUN_MODE}" logger=wandb)
 HYDRA_OVERRIDES=("${DEFAULT_PRETRAIN_HYDRA_OVERRIDES[@]}")
+
+# On this cluster ImageNet lives directly under imagenet/{train,val} — no imagenet_full_size/ subfolder.
+# encode() flattens all views into one tensor (batch * num_views images at once), so batch_size=256
+# with 8 crops = 2048 images through ResNet50 simultaneously overflows an 80 GB A100.
+# Use batch_size=64 + accumulate_grad_batches=4 to keep the effective batch at 256.
+case "$RUN_MODE" in
+  rn50_in100_ep500|vits16_in100_ep500|vits8_in1k_ep800|vits8_imagenette_ep800)
+    HYDRA_OVERRIDES+=("data.image_folder=.")
+    HYDRA_OVERRIDES+=("data.batch_size=64")
+    HYDRA_OVERRIDES+=("+trainer.accumulate_grad_batches=4")
+    ;;
+esac
 
 if [[ -z "$WANDB_RUN_NAME" ]]; then
   _AUTO_RUN_NAME="PreTrain_LeJEPA_${RUN_MODE}"
@@ -134,6 +163,7 @@ fi
 
 RUN_CMD+=("${WANDB_TAGS_OVERRIDE[@]}")
 RUN_CMD+=("${WANDB_RUN_NAME_OVERRIDE[@]}")
+RUN_CMD+=("${CLASS_SUBSET_FILE_OVERRIDE[@]}")
 RUN_CMD+=("${HYDRA_OVERRIDES[@]}")
 
 echo "Run mode  : ${RUN_MODE}"
