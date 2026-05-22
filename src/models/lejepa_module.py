@@ -119,11 +119,33 @@ class LeJEPAModule(LightningModule):
         sigreg = sigreg_loss(proj)
         lejepa_loss = sigreg * self.lamb + inv_loss * (1.0 - self.lamb)
 
+        with torch.no_grad():
+            z_all = proj.flatten(0, 1)  # (N*V, D)
+            std_mean = z_all.std(dim=0).mean()
+            norm_mean = z_all.norm(dim=1).mean()
+            mean = z_all.mean(dim=0)
+            z_centered = z_all - mean
+            cov = z_centered.T @ z_centered / (z_all.size(0) - 1)  # (D, D)
+            cov_diag = torch.diag(cov)
+            cov_offdiag = cov - torch.diag(cov_diag)
+            mean_abs = mean.abs().mean()
+            cov_diag_mean = cov_diag.mean()
+            cov_offdiag_mean = cov_offdiag.abs().mean()
+            cov_offdiag_sq_mean = cov_offdiag.square().mean()
+
         metrics = {
             "loss": lejepa_loss,
             "lejepa_loss": lejepa_loss,
             "invariance_loss": inv_loss,
             "sigreg_loss": sigreg,
+            "inv_contrib": inv_loss * (1.0 - self.lamb),
+            "sigreg_contrib": sigreg * self.lamb,
+            "std_mean": std_mean,
+            "norm_mean": norm_mean,
+            "mean_abs": mean_abs,
+            "cov_diag_mean": cov_diag_mean,
+            "cov_offdiag_mean": cov_offdiag_mean,
+            "cov_offdiag_sq_mean": cov_offdiag_sq_mean,
         }
 
         return emb, metrics
@@ -136,6 +158,14 @@ class LeJEPAModule(LightningModule):
         self.log("train/sigreg_loss", metrics["sigreg_loss"], sync_dist=True, on_step=True, on_epoch=True)
         self.log("train/invariance_loss", metrics["invariance_loss"], sync_dist=True, on_step=True, on_epoch=True)
         self.log("train/loss", metrics["loss"], prog_bar=True, sync_dist=True, on_step=True, on_epoch=True)
+        self.log("train/inv_contrib", metrics["inv_contrib"], sync_dist=True, on_step=True, on_epoch=True)
+        self.log("train/sigreg_contrib", metrics["sigreg_contrib"], sync_dist=True, on_step=True, on_epoch=True)
+        self.log("train/std_mean", metrics["std_mean"], sync_dist=True, on_step=True, on_epoch=True)
+        self.log("train/norm_mean", metrics["norm_mean"], sync_dist=True, on_step=True, on_epoch=True)
+        self.log("train/mean_abs", metrics["mean_abs"], sync_dist=True, on_step=True, on_epoch=True)
+        self.log("train/cov_diag_mean", metrics["cov_diag_mean"], sync_dist=True, on_step=True, on_epoch=True)
+        self.log("train/cov_offdiag_mean", metrics["cov_offdiag_mean"], sync_dist=True, on_step=True, on_epoch=True)
+        self.log("train/cov_offdiag_sq_mean", metrics["cov_offdiag_sq_mean"], sync_dist=True, on_step=True, on_epoch=True)
 
         loss = metrics["loss"]
 
