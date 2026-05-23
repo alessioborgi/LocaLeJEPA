@@ -207,6 +207,12 @@ class LeJEPAModule(LightningModule):
             if self.online_probe is not None:
                 self.online_probe = torch.compile(self.online_probe)
 
+    def optimizer_step(self, *args: Any, **kwargs: Any) -> None:
+        super().optimizer_step(*args, **kwargs)
+        # nGPT: snap NormLinear weight rows back to S^{d-1} after every optimiser update
+        if hasattr(self.encoder, "norm_weights_"):
+            self.encoder.norm_weights_()
+
     def configure_optimizers(self) -> dict[str, Any]:
         param_groups: list[dict[str, Any]] = [
             {"params": list(self.encoder.parameters()) + list(self.projector.parameters())},

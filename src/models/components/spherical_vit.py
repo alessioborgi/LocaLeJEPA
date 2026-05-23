@@ -4,60 +4,104 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-"""SphericalViT — Vision Transformer with spherical harmonic positional encoding
-and optional spherical relative position bias (RPB).
+"""SphericalViT — nGPT-style Vision Transformer where token representations live
+on the unit hypersphere S^{d-1} throughout the network.
+
+Combines:
+  • Spherical harmonic positional encoding: real spherical harmonics Y_l^m
+    evaluated at each patch centre, projected to embed_dim.  The harmonic
+    features are fixed buffers; only the linear projection is learned.
+  • Great-circle distance relative position bias (RPB): every attention layer
+    adds a per-head learnable bias indexed by the angular distance bin between
+    query and key patch centres.
+  • nGPT architecture (Loshchilov et al., ICLR 2025): all weight matrices use
+    L2-normalised rows (NormLinear), attention queries and keys are per-head
+    L2-normalised with a learnable per-head scale (QK-norm), the MLP uses
+    SwiGLU with multiplicative scaling factors, and every residual update is a
+    spherical LERP followed by re-normalisation so that hidden states remain on
+    S^{d-1} at every layer.
+
+Training notes:
+  • Call ``model.norm_weights_()`` after each optimiser step to snap NormLinear
+    weight rows back to unit norm and avoid drift from the parametrised view.
+  • Set weight decay to 0 — the unit-norm constraint renders it redundant.
+  • Higher learning rates than standard ViT are safe (nGPT reports 4–20× faster
+    convergence in step count).
 
 Drop-in replacement for VisionTransformer / timm ViT in LeJEPA and I-JEPA.
-
-Key differences from standard ViT:
-  • Positional encoding: real spherical harmonics Y_l^m evaluated at each patch's
-    (θ, φ) on the unit sphere, projected to embed_dim via a learned linear layer,
-    instead of fixed 2-D sinusoidal encoding.  The harmonic features are fixed;
-    only the linear projection is learned.
-  • Spherical RPB (optional): each attention layer adds a per-head learnable bias
-    indexed by the great-circle distance bin between query and key patches.
-  • num_classes interface matching timm ViT: when num_classes > 0, a GAP + linear
-    head produces (B, num_classes) for LeJEPA.  When num_classes == 0 the raw token
-    sequence (B, num_patches, embed_dim) is returned for I-JEPA compatibility.
 """
 
 import math
-from collections.abc import Callable, Sequence
-from functools import partial
+from collections.abc import Sequence
 
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.nn.init import trunc_normal_
+import torch.nn.functional as F
 
 from src.models.components.tensor_ops import apply_masks
-from src.models.components.vision_transformer import DropPath, MLP, PatchEmbed, _to_2tuple
+from src.models.components.vision_transformer import PatchEmbed, _to_2tuple
 
 
-# ---------------------------------------------------------------------------
-# Spherical harmonic helpers (pure NumPy, runs once at model construction)
-# ---------------------------------------------------------------------------
+def l2norm(x: torch.Tensor) -> torch.Tensor:
+    """Normalise the last dimension of *x* to unit norm."""
+    return F.normalize(x, dim=-1)
+
+
+class NormLinear(nn.Module):
+    """Linear layer whose weight rows are constrained to the unit hypersphere.
+
+    Normalisation is applied on every forward pass.  Call ``norm_weights_()``
+    after each optimiser step to keep the stored weight tensor on the sphere
+    and avoid drift between the live normalised view and the stored original.
+    No bias term: the nGPT spherical formulation does not use them.
+    """
+
+    def __init__(self, in_features: int, out_features: int) -> None:
+        super().__init__()
+        self.weight = nn.Parameter(torch.empty(out_features, in_features))
+        # Step 1: random initialisation followed by immediate projection onto S^{d-1}
+        nn.init.normal_(self.weight)
+        with torch.no_grad():
+            self.weight.copy_(F.normalize(self.weight, dim=-1))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Every matrix–vector product is a cosine similarity, so outputs are bounded in [-1, 1]
+        return F.linear(x, F.normalize(self.weight, dim=-1))
+
+    def norm_weights_(self) -> None:
+        """Snap weight rows to unit norm (call after each optimiser step)."""
+        with torch.no_grad():
+            self.weight.copy_(F.normalize(self.weight, dim=-1))
+
 
 def _associated_legendre(l_max: int, x: np.ndarray) -> dict[tuple[int, int], np.ndarray]:
     """Associated Legendre polynomials P_l^m(x), 0 ≤ m ≤ l ≤ l_max.
 
-    Uses the standard three-term recurrences without Condon–Shortley phase,
-    matching the real-spherical-harmonic convention adopted below.
+    Uses three standard recurrences without Condon–Shortley phase, matching
+    the real-spherical-harmonic convention adopted in ``_real_sh_matrix``:
+
+      Diagonal:     P_m^m     = (2m-1) · sin_θ · P_{m-1}^{m-1}
+      Sub-diagonal: P_{m+1}^m = (2m+1) · x · P_m^m
+      General:      P_l^m     = ((2l-1)·x·P_{l-1}^m − (l+m-1)·P_{l-2}^m) / (l−m)
     """
     Plm: dict[tuple[int, int], np.ndarray] = {}
+
+    # Step 1: derive sin θ from the input cos θ, clamping to avoid NaN from float rounding
     sin_t = np.sqrt(np.maximum(1.0 - x**2, 0.0))
 
+    # Step 2: seed the recurrence with the trivial base case P_0^0 = 1
     Plm[(0, 0)] = np.ones_like(x)
 
-    # Diagonal: P_m^m = (2m-1) * sin_theta * P_{m-1}^{m-1}
+    # Step 3: fill the diagonal entries P_m^m using the sin θ recurrence
     for m in range(1, l_max + 1):
         Plm[(m, m)] = (2 * m - 1) * sin_t * Plm[(m - 1, m - 1)]
 
-    # Sub-diagonal: P_{m+1}^m = (2m+1) * x * P_m^m
+    # Step 4: fill the sub-diagonal entries P_{m+1}^m
     for m in range(l_max):
         Plm[(m + 1, m)] = (2 * m + 1) * x * Plm[(m, m)]
 
-    # General three-term recurrence for the remaining entries
+    # Step 5: fill all remaining entries with the general three-term recurrence
     for l in range(2, l_max + 1):
         for m in range(0, l - 1):
             Plm[(l, m)] = (
@@ -80,29 +124,34 @@ def _real_sh_matrix(H: int, W: int, max_degree: int) -> np.ndarray:
         as ``[(l=0,m=0), (l=1,m=-1), (l=1,m=0), (l=1,m=1), (l=2,m=-2), ...]``.
     """
     N = H * W
-    # Patch centres in spherical coordinates
-    theta = np.pi * (np.arange(H, dtype=np.float64) + 0.5) / H   # (H,)  colatitude
-    phi   = 2.0 * np.pi * (np.arange(W, dtype=np.float64) + 0.5) / W  # (W,)  azimuth
-    theta_flat = np.repeat(theta, W)  # (N,)
-    phi_flat   = np.tile(phi, H)      # (N,)
-    cos_theta  = np.cos(theta_flat)   # (N,)
 
+    # Step 1: place patch centres uniformly on the sphere using pixel-centre convention
+    theta = np.pi * (np.arange(H, dtype=np.float64) + 0.5) / H       # colatitude ∈ (0, π)
+    phi   = 2.0 * np.pi * (np.arange(W, dtype=np.float64) + 0.5) / W  # azimuth    ∈ (0, 2π)
+    theta_flat = np.repeat(theta, W)   # (N,)
+    phi_flat   = np.tile(phi, H)       # (N,)
+    cos_theta  = np.cos(theta_flat)    # argument expected by the Legendre recurrence
+
+    # Step 2: compute all required associated Legendre polynomials
     Plm = _associated_legendre(max_degree, cos_theta)
 
+    # Step 3: assemble the real spherical harmonics column by column
     num_harmonics = (max_degree + 1) ** 2
     sh = np.zeros((N, num_harmonics), dtype=np.float64)
     col = 0
     for l in range(max_degree + 1):
         for m in range(-l, l + 1):
             abs_m = abs(m)
-            # Orthonormal normalisation constant K_l^m
+            # orthonormal prefactor shared by all three cases
             fact_ratio = math.factorial(l - abs_m) / math.factorial(l + abs_m)
             K = math.sqrt((2 * l + 1) / (4.0 * math.pi) * fact_ratio)
             if m == 0:
                 sh[:, col] = K * Plm[(l, 0)]
             elif m > 0:
+                # cosine harmonic — real part of the complex Y_l^m
                 sh[:, col] = math.sqrt(2.0) * K * Plm[(l, m)] * np.cos(m * phi_flat)
             else:
+                # sine harmonic — imaginary part of the complex Y_l^{|m|}
                 sh[:, col] = math.sqrt(2.0) * K * Plm[(l, abs_m)] * np.sin(abs_m * phi_flat)
             col += 1
 
@@ -115,26 +164,26 @@ def _dist_bins(H: int, W: int, num_bins: int) -> np.ndarray:
     Returns:
         Integer array of shape ``(H*W, H*W)`` with bin indices in ``[0, num_bins)``.
     """
+    # Step 1: place patch centres on the sphere (same grid as in _real_sh_matrix)
     theta = np.pi * (np.arange(H, dtype=np.float64) + 0.5) / H
     phi   = 2.0 * np.pi * (np.arange(W, dtype=np.float64) + 0.5) / W
-    theta_flat = np.repeat(theta, W)   # (N,)
-    phi_flat   = np.tile(phi, H)       # (N,)
+    theta_flat = np.repeat(theta, W)
+    phi_flat   = np.tile(phi, H)
 
     cos_t = np.cos(theta_flat)
     sin_t = np.sin(theta_flat)
-    # cos(angular distance) = sin_t_i*sin_t_j*cos(phi_i-phi_j) + cos_t_i*cos_t_j
-    cos_dp   = np.cos(phi_flat[:, None] - phi_flat[None, :])  # (N, N)
-    cos_dist = sin_t[:, None] * sin_t[None, :] * cos_dp + cos_t[:, None] * cos_t[None, :]
-    cos_dist = np.clip(cos_dist, -1.0, 1.0)
-    dist = np.arccos(cos_dist)  # (N, N)  in [0, pi]
 
+    # Step 2: compute pairwise great-circle distance via the spherical law of cosines
+    cos_dp   = np.cos(phi_flat[:, None] - phi_flat[None, :])
+    cos_dist = sin_t[:, None] * sin_t[None, :] * cos_dp + cos_t[:, None] * cos_t[None, :]
+    # Step 3: clamp to [-1, 1] before arccos to guard against float rounding outside the domain
+    cos_dist = np.clip(cos_dist, -1.0, 1.0)
+    dist = np.arccos(cos_dist)   # great-circle angle in [0, π]
+
+    # Step 4: discretise distances into uniform bins and clip to valid range
     bins = np.floor(dist / math.pi * (num_bins - 1)).astype(np.int32)
     return np.clip(bins, 0, num_bins - 1)
 
-
-# ---------------------------------------------------------------------------
-# SphericalHarmonicPE
-# ---------------------------------------------------------------------------
 
 class SphericalHarmonicPE(nn.Module):
     """Positional encoding from real spherical harmonics projected to embed_dim.
@@ -145,7 +194,8 @@ class SphericalHarmonicPE(nn.Module):
     def __init__(self, H: int, W: int, embed_dim: int, max_degree: int = 8) -> None:
         super().__init__()
         sh = _real_sh_matrix(H, W, max_degree)
-        self.register_buffer("sh_feats", torch.from_numpy(sh))  # (N, K)
+        # register as buffer so it moves to the right device but is not a trainable parameter
+        self.register_buffer("sh_feats", torch.from_numpy(sh))
         self.proj = nn.Linear((max_degree + 1) ** 2, embed_dim, bias=False)
         self._H = H
         self._W = W
@@ -160,27 +210,64 @@ class SphericalHarmonicPE(nn.Module):
         sh = torch.from_numpy(_real_sh_matrix(H, W, self._max_degree)).to(
             device=self.sh_feats.device, dtype=self.sh_feats.dtype
         )
-        return self.proj(sh).unsqueeze(0)  # (1, H*W, D)
+        return self.proj(sh).unsqueeze(0)
 
 
-# ---------------------------------------------------------------------------
-# SphericalAttention
-# ---------------------------------------------------------------------------
+class SwiGLUMLP(nn.Module):
+    """SwiGLU feedforward block with NormLinear projections.
+
+    Hidden dimension is ``int(dim * mlp_ratio * 2/3)`` so that total parameter
+    count matches a standard GELU MLP with the same ``mlp_ratio``.
+
+    The gate projection *v* is rescaled by ``sqrt(dim)`` (nGPT section 2.4) to keep
+    inputs to SiLU in the non-linear regime when activations are bounded in
+    [-1, 1] from the normalised representation.
+    """
+
+    def __init__(self, dim: int, mlp_ratio: float = 4.0, drop: float = 0.0) -> None:
+        super().__init__()
+        # 2/3 factor compensates for the extra gate branch so param count equals a GELU MLP
+        hidden = int(dim * mlp_ratio * 2 / 3)
+        self.Wu = NormLinear(dim, hidden)   # value branch
+        self.Wv = NormLinear(dim, hidden)   # gate branch
+        self.Wo = NormLinear(hidden, dim)   # output projection back to embed_dim
+        # per-neuron learnable scales: su for value, sv for gate
+        self.su = nn.Parameter(torch.ones(hidden))
+        self.sv = nn.Parameter(torch.ones(hidden))
+        # precompute √dim: multiplying sv by this rescales the gate so SiLU stays non-linear
+        self._dim_sqrt = math.sqrt(dim)
+        self.drop = nn.Dropout(drop)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Step 1: compute scaled value and gate projections
+        u = self.Wu(x) * self.su
+        v = self.Wv(x) * (self.sv * self._dim_sqrt)
+        # Step 2: apply SwiGLU gating (element-wise product of value and activated gate)
+        return self.drop(self.Wo(u * F.silu(v)))
+
 
 class SphericalAttention(nn.Module):
-    """Multi-head self-attention with an optional learnable spherical RPB.
+    """Multi-head self-attention on the hypersphere with optional spherical RPB.
 
-    The RPB adds a per-head scalar bias to each logit based on the great-circle
-    distance bin between the two patch positions.  It is silently skipped when
-    the sequence length does not match the stored grid (e.g. after masking).
+    Key differences from standard MHSA:
+
+    * All projection matrices use :class:`NormLinear` (unit-norm weight rows).
+    * Queries and keys are per-head L2-normalised then element-wise scaled by a
+      learnable per-head vector ``sqk`` (QK-norm, nGPT section 2.3).  ``sqk`` is
+      stored at ``1/√head_dim`` and restored by ``×√head_dim`` each forward pass
+      so the effective initial value is 1 and Adam sees gradients of the right
+      magnitude.  This bounds every attention logit as a weighted cosine similarity.
+    * Attention logits are scaled by ``sqrt(head_dim)`` (nGPT convention) rather
+      than ``1/sqrt(head_dim)``; the learnable ``sqk`` absorbs the initial scale.
+    * Spherical RPB: great-circle distance bin bias added before softmax (silently
+      skipped when the sequence length does not match the stored grid, e.g. after
+      masking).
     """
 
     def __init__(
         self,
         dim: int,
         num_heads: int = 8,
-        qkv_bias: bool = False,
-        qk_scale: float | None = None,
         attn_drop: float = 0.0,
         proj_drop: float = 0.0,
         H: int | None = None,
@@ -190,36 +277,56 @@ class SphericalAttention(nn.Module):
     ) -> None:
         super().__init__()
         self.num_heads = num_heads
-        head_dim = dim // num_heads
-        self.scale = qk_scale or head_dim ** -0.5
-        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+        self.head_dim = dim // num_heads
+
+        # separate Q/K/V/O projections so each matrix has independent NormLinear rows
+        self.Wq = NormLinear(dim, dim)
+        self.Wk = NormLinear(dim, dim)
+        self.Wv = NormLinear(dim, dim)
+        self.Wo = NormLinear(dim, dim)
+
         self.attn_drop = nn.Dropout(attn_drop)
-        self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
+
+        # sqk is stored at 1/√head_dim and multiplied by √head_dim in forward,
+        # so the effective initial value is 1 while Adam operates on a unit-scale parameter
+        self._sqk_restore = self.head_dim ** 0.5
+        self.sqk = nn.Parameter(
+            torch.full((num_heads, 1, self.head_dim), self.head_dim ** -0.5)
+        )
 
         self._full_N = (H * W) if (H is not None and W is not None) else None
         self.use_sph_attn_bias = use_sph_attn_bias and self._full_N is not None
         if self.use_sph_attn_bias:
             bins = _dist_bins(H, W, num_bins)  # type: ignore[arg-type]
-            self.register_buffer("dist_bins", torch.from_numpy(bins).long())  # (N, N)
+            # store bin indices as a non-trainable buffer; bias values are the learned parameters
+            self.register_buffer("dist_bins", torch.from_numpy(bins).long())
             self.bias_table = nn.Parameter(torch.zeros(num_heads, num_bins))
 
     def _rpb(self, n: int) -> torch.Tensor | None:
         if not self.use_sph_attn_bias or n != self._full_N:
+            # skip RPB when the sequence has been masked to a non-standard length
             return None
-        # bias_table: (H, num_bins), dist_bins: (N, N) → index → (H, N, N) → (1, H, N, N)
         return self.bias_table[:, self.dist_bins].unsqueeze(0)  # type: ignore[index]
 
     def forward(self, x: torch.Tensor, return_attention: bool = False) -> torch.Tensor:
         B, N, C = x.shape
-        qkv = (
-            self.qkv(x)
-            .reshape(B, N, 3, self.num_heads, C // self.num_heads)
-            .permute(2, 0, 3, 1, 4)
-        )
-        q, k, v = qkv[0], qkv[1], qkv[2]
+        H, D = self.num_heads, self.head_dim
 
-        attn = (q @ k.transpose(-2, -1)) * self.scale
+        # Step 1: project tokens into Q, K, V and split into per-head tensors (B, H, N, D)
+        q = self.Wq(x).reshape(B, N, H, D).transpose(1, 2)
+        k = self.Wk(x).reshape(B, N, H, D).transpose(1, 2)
+        v = self.Wv(x).reshape(B, N, H, D).transpose(1, 2)
+
+        # Step 2: QK-norm — L2-normalise each head's Q and K, then scale by restored sqk
+        sqk = self.sqk * self._sqk_restore
+        q = l2norm(q) * sqk
+        k = l2norm(k) * sqk
+
+        # Step 3: compute attention scores; scale by √head_dim (not 1/√) because Q/K are unit-norm
+        attn = (q @ k.transpose(-2, -1)) * self._sqk_restore
+
+        # Step 4: add great-circle distance bias before softmax (skipped if sequence is masked)
         rpb = self._rpb(N)
         if rpb is not None:
             attn = attn + rpb
@@ -229,42 +336,41 @@ class SphericalAttention(nn.Module):
         if return_attention:
             return attn
 
+        # Step 5: aggregate values and project back to embed_dim
         x = (attn @ v).transpose(1, 2).reshape(B, N, C)
-        x = self.proj(x)
-        return self.proj_drop(x)
+        return self.proj_drop(self.Wo(x))
 
-
-# ---------------------------------------------------------------------------
-# SphericalBlock
-# ---------------------------------------------------------------------------
 
 class SphericalBlock(nn.Module):
-    """Transformer block backed by SphericalAttention."""
+    """Transformer block with nGPT spherical residuals.
+
+    Each sub-layer update keeps the hidden state on S^{d-1}::
+
+        h_sub = l2norm(sub(h))
+        h     = l2norm(lerp(h, h_sub, alpha))
+
+    The per-dimension eigen learning rates ``alpha_A`` / ``alpha_M`` are
+    stored at ``alpha_init / sqrt(dim)`` and restored to ``alpha_init`` during
+    the forward pass, following the nGPT scale trick for Adam compatibility.
+    """
 
     def __init__(
         self,
         dim: int,
         num_heads: int,
         mlp_ratio: float = 4.0,
-        qkv_bias: bool = False,
-        qk_scale: float | None = None,
-        drop: float = 0.0,
         attn_drop: float = 0.0,
-        drop_path: float = 0.0,
-        act_layer: type[nn.Module] = nn.GELU,
-        norm_layer: Callable[..., nn.Module] = nn.LayerNorm,
+        drop: float = 0.0,
         H: int | None = None,
         W: int | None = None,
         num_bins: int = 64,
         use_sph_attn_bias: bool = True,
+        alpha_init: float = 0.05,
     ) -> None:
         super().__init__()
-        self.norm1 = norm_layer(dim)
         self.attn = SphericalAttention(
             dim,
             num_heads=num_heads,
-            qkv_bias=qkv_bias,
-            qk_scale=qk_scale,
             attn_drop=attn_drop,
             proj_drop=drop,
             H=H,
@@ -272,55 +378,67 @@ class SphericalBlock(nn.Module):
             num_bins=num_bins,
             use_sph_attn_bias=use_sph_attn_bias,
         )
-        self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
-        self.norm2 = norm_layer(dim)
-        self.mlp = MLP(
-            in_features=dim,
-            hidden_features=int(dim * mlp_ratio),
-            act_layer=act_layer,
-            drop=drop,
-        )
+        self.mlp = SwiGLUMLP(dim, mlp_ratio=mlp_ratio, drop=drop)
+
+        # eigen learning rates stored at alpha_init/√dim so Adam gradient magnitudes are
+        # comparable across different embed_dim values; restored by ×√dim in forward
+        alpha_scale = alpha_init / math.sqrt(dim)
+        self._alpha_restore = math.sqrt(dim)
+        self.alpha_A = nn.Parameter(torch.full((dim,), alpha_scale))  # one rate per dim, attention
+        self.alpha_M = nn.Parameter(torch.full((dim,), alpha_scale))  # one rate per dim, MLP
 
     def forward(self, x: torch.Tensor, return_attention: bool = False) -> torch.Tensor:
-        attn = self.attn(self.norm1(x), return_attention=return_attention)
+        attn_out = self.attn(x, return_attention=return_attention)
         if return_attention:
-            return attn
-        x = x + self.drop_path(attn)
-        return x + self.drop_path(self.mlp(self.norm2(x)))
+            return attn_out
 
+        # Step 1: spherical residual for the attention sub-layer
+        # restore the effective eigen learning rate, then LERP on S^{d-1} and re-normalise
+        alpha_A = self.alpha_A * self._alpha_restore
+        x = l2norm(x.lerp(l2norm(attn_out), alpha_A))
 
-# ---------------------------------------------------------------------------
-# SphericalViT
-# ---------------------------------------------------------------------------
+        # Step 2: spherical residual for the MLP sub-layer (same pattern)
+        alpha_M = self.alpha_M * self._alpha_restore
+        x = l2norm(x.lerp(l2norm(self.mlp(x)), alpha_M))
+
+        return x
+
 
 class SphericalViT(nn.Module):
-    """Vision Transformer with spherical harmonic positional encoding.
+    """nGPT Vision Transformer with spherical harmonic positional encoding.
 
-    Drop-in replacement for VisionTransformer and timm ViT backbones in both
-    LeJEPA (num_classes > 0) and I-JEPA (num_classes == 0) training pipelines.
+    All token representations live on the unit hypersphere S^{d-1} at every
+    layer.  See the module docstring for full architecture details.
+
+    **Training recipe:**
+
+    1. Set ``weight_decay = 0`` — unit-norm constraints replace regularisation.
+    2. After each optimiser step call ``model.norm_weights_()`` to keep
+       :class:`NormLinear` weight rows on the sphere.
+    3. Higher learning rates (3–5×) are safe compared with a standard ViT.
 
     Args:
-        img_size: Input image size (square assumed).
-        patch_size: Patch size in pixels.
+        img_size: Input image resolution (square assumed).
+        patch_size: Patch side length in pixels.
         in_chans: Number of input channels.
-        embed_dim: Transformer embedding dimension.
-        depth: Number of transformer blocks.
+        embed_dim: Transformer embedding dimension *d*.
+        depth: Number of transformer blocks *L*.
         num_heads: Number of attention heads.
-        mlp_ratio: MLP hidden-dim expansion factor.
-        qkv_bias: Add bias to QKV projections.
-        qk_scale: Override default QK scale (head_dim**-0.5).
-        drop_rate: Dropout applied inside MLP.
+        mlp_ratio: FFN hidden-dim expansion; actual width is
+            ``int(embed_dim × mlp_ratio × 2/3)`` (SwiGLU convention).
+        drop_rate: Dropout inside MLP and attention projection.
         attn_drop_rate: Dropout applied to attention weights.
-        drop_path_rate: Stochastic depth rate (linearly scaled across blocks).
-        norm_layer: Normalisation layer factory.
-        init_std: Standard deviation for weight initialisation.
-        num_classes: If > 0, add GAP + linear head → output (B, num_classes).
-            Set to ``${model.embedding_dim}`` in Hydra configs for LeJEPA.
-            Set to 0 to return raw token sequence (B, num_patches, embed_dim) for I-JEPA.
-        sh_max_degree: Maximum spherical harmonic degree L.  Produces (L+1)² features
-            per patch that are projected to embed_dim.  Default 8 → 81 harmonics.
-        use_sph_attn_bias: Add a great-circle-distance RPB to every attention layer.
+        num_classes: If > 0, add GAP + NormLinear head → ``(B, num_classes)``
+            for LeJEPA.  Set to 0 to return ``(B, num_patches, embed_dim)``
+            for I-JEPA.
+        sh_max_degree: Maximum spherical harmonic degree *L*;
+            produces ``(L+1)²`` features projected to embed_dim.
+        use_sph_attn_bias: Add great-circle-distance RPB to every attention layer.
         sph_attn_num_bins: Number of distance bins for the RPB lookup table.
+        alpha_init: Initial effective eigen learning rate for spherical residuals.
+            Defaults to ``1/depth`` (nGPT recommendation).
+        qkv_bias, qk_scale, drop_path_rate, norm_layer, init_std: Accepted for
+            config compatibility; unused in the nGPT formulation.
     """
 
     def __init__(
@@ -332,17 +450,18 @@ class SphericalViT(nn.Module):
         depth: int = 12,
         num_heads: int = 6,
         mlp_ratio: float = 4.0,
-        qkv_bias: bool = True,
-        qk_scale: float | None = None,
         drop_rate: float = 0.0,
         attn_drop_rate: float = 0.0,
-        drop_path_rate: float = 0.0,
-        norm_layer: Callable[..., nn.Module] = partial(nn.LayerNorm, eps=1e-6),
-        init_std: float = 0.02,
         num_classes: int = 0,
         sh_max_degree: int = 8,
         use_sph_attn_bias: bool = True,
         sph_attn_num_bins: int = 64,
+        alpha_init: float | None = None,
+        qkv_bias: bool = True,
+        qk_scale: float | None = None,
+        drop_path_rate: float = 0.0,
+        norm_layer: object = None,
+        init_std: float = 0.02,
     ) -> None:
         super().__init__()
         self.num_features = self.embed_dim = embed_dim
@@ -360,77 +479,63 @@ class SphericalViT(nn.Module):
 
         self.pos_encoding = SphericalHarmonicPE(H_p, W_p, embed_dim, max_degree=sh_max_degree)
 
-        dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]
+        # nGPT default: spread the total angular budget of 1 radian evenly across all layers
+        _alpha = (1.0 / depth) if alpha_init is None else alpha_init
         self.blocks = nn.ModuleList(
             [
                 SphericalBlock(
                     dim=embed_dim,
                     num_heads=num_heads,
                     mlp_ratio=mlp_ratio,
-                    qkv_bias=qkv_bias,
-                    qk_scale=qk_scale,
-                    drop=drop_rate,
                     attn_drop=attn_drop_rate,
-                    drop_path=dpr[i],
-                    norm_layer=norm_layer,
+                    drop=drop_rate,
                     H=H_p,
                     W=W_p,
                     num_bins=sph_attn_num_bins,
                     use_sph_attn_bias=use_sph_attn_bias,
+                    alpha_init=_alpha,
                 )
-                for i in range(depth)
+                for _ in range(depth)
             ]
         )
-        self.norm = norm_layer(embed_dim)
 
-        # Classification head for LeJEPA mode (GAP + linear, matching timm ViT interface)
-        self.head = nn.Linear(embed_dim, num_classes) if num_classes > 0 else None
+        if num_classes > 0:
+            # LeJEPA mode: GAP + NormLinear head with a learnable per-class temperature
+            self.head = NormLinear(embed_dim, num_classes)
+            # logit_scale stored at 1/√num_classes, restored by ×√num_classes in forward;
+            # this temperature is necessary because dot products of unit vectors are in [-1, 1],
+            # which would otherwise produce a near-uniform softmax without rescaling
+            self._sz_restore = math.sqrt(num_classes)
+            self.logit_scale = nn.Parameter(
+                torch.full((num_classes,), num_classes ** -0.5)
+            )
+        else:
+            # I-JEPA mode: return the raw token sequence (already unit-norm)
+            self.head = None
+            self.logit_scale = None
+            self._sz_restore = 1.0
 
-        self.init_std = init_std
-        self.apply(self._init_weights)
-        self.fix_init_weight()
+    def norm_weights_(self) -> None:
+        """Snap all NormLinear weight rows back to unit norm.
 
-    # ------------------------------------------------------------------
-    # Weight initialisation (identical to VisionTransformer)
-    # ------------------------------------------------------------------
-
-    def fix_init_weight(self) -> None:
-        def rescale(param: torch.Tensor, layer_id: int) -> None:
-            param.div_(math.sqrt(2.0 * layer_id))
-
-        for layer_id, layer in enumerate(self.blocks):
-            rescale(layer.attn.proj.weight.data, layer_id + 1)
-            rescale(layer.mlp.fc2.weight.data, layer_id + 1)
-
-    def _init_weights(self, module: nn.Module) -> None:
-        if isinstance(module, nn.Linear):
-            trunc_normal_(module.weight, std=self.init_std)
-            if module.bias is not None:
-                nn.init.constant_(module.bias, 0)
-        elif isinstance(module, nn.LayerNorm):
-            nn.init.constant_(module.bias, 0)
-            nn.init.constant_(module.weight, 1.0)
-        elif isinstance(module, nn.Conv2d):
-            trunc_normal_(module.weight, std=self.init_std)
-            if module.bias is not None:
-                nn.init.constant_(module.bias, 0)
-
-    # ------------------------------------------------------------------
-    # Positional encoding with variable-size support
-    # ------------------------------------------------------------------
+        Call after every optimiser step.  NormLinear normalises its weights
+        live in ``forward``, but the stored ``weight`` tensor drifts from the
+        unit sphere as the optimiser accumulates updates.  This method re-snaps
+        those rows so the stored and live views stay consistent, which matters
+        for weight-based operations (saving checkpoints, computing norms, etc.).
+        """
+        for m in self.modules():
+            if isinstance(m, NormLinear):
+                m.norm_weights_()
 
     def _get_pos_encoding(self, x: torch.Tensor) -> torch.Tensor:
-        """Return PE for the current token grid, recomputing analytically if needed."""
+        """Return PE for the current token count, recomputing for non-standard grids."""
         N = x.shape[1]
         if N == self._H_p * self._W_p:
             return self.pos_encoding()
-        # Non-default crop size: derive grid from N assuming square
+        # variable-resolution input: recompute harmonics on a square grid of the same token count
         side = int(math.isqrt(N))
         return self.pos_encoding.recompute(side, side)
-
-    # ------------------------------------------------------------------
-    # Forward
-    # ------------------------------------------------------------------
 
     def forward(
         self,
@@ -445,23 +550,26 @@ class SphericalViT(nn.Module):
         Returns:
             ``(B, num_classes)`` when ``num_classes > 0`` (LeJEPA mode), or
             ``(B, num_patches, embed_dim)`` when ``num_classes == 0`` (I-JEPA mode).
+            Output tokens are unit-norm vectors on S^{d-1}.
         """
         if masks is not None and not isinstance(masks, list):
             masks = [masks]
 
+        # Step 1: extract patch tokens and add spherical harmonic PE, then project onto S^{d-1}
         x = self.patch_embed(x)
-        x = x + self._get_pos_encoding(x)
+        x = l2norm(x + self._get_pos_encoding(x))
 
+        # Step 2: (optional) keep only the context or target token subsets for I-JEPA masking
         if masks is not None:
             x = apply_masks(x, masks)
 
+        # Step 3: pass through all transformer blocks; each block keeps tokens on S^{d-1}
         for block in self.blocks:
             x = block(x)
 
-        x = self.norm(x)
-
         if self.head is not None:
-            x = x.mean(dim=1)   # GAP over patch tokens
-            x = self.head(x)
+            # Step 4 (LeJEPA): global average pool, re-normalise, apply head with temperature
+            x = l2norm(x.mean(dim=1))
+            x = self.head(x) * (self.logit_scale * self._sz_restore)
 
         return x

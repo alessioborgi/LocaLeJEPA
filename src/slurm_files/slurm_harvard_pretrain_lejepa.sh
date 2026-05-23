@@ -23,15 +23,17 @@
 #   vits8_in1k_ep800         : ViT-S/8        on ImageNet-1K    (800 epochs)
 #   svits16_in100_ep500      : SphericalViT-S/16 on ImageNet-100   (500 epochs)
 #   svits8_imagenette_ep800  : SphericalViT-S/8  on Imagenette     (800 epochs)
+#   svits8_in1k_ep800        : SphericalViT-S/8  on ImageNet-1K    (800 epochs)
 #   phc_blob_ep250           : PHC encoder    on PHC-Blob       (250 epochs)
 #   phc_gpm_ep250            : PHC encoder    on PHC-GPM        (250 epochs)
 #
 # Override at submission time with:
 #   sbatch --export=ALL,RUN_MODE=vits8_imagenette_ep800 slurm_files/slurm_harvard_pretrain_lejepa.sh
 
-DEFAULT_PRETRAIN_RUN_MODE="phc_gpm_ep250"
-DEFAULT_PRETRAIN_LABEL="Pretrained_LeJEPA_phc_gpm_ep250"
-DEFAULT_PRETRAIN_WANDB_TAGS="pretraining;lejepa;phc;gpm"
+DEFAULT_PRETRAIN_RUN_MODE="svits16_in100_ep500"
+DEFAULT_PRETRAIN_LABEL="Pretrained_LeJEPA_svits16_in100_ep500"
+DEFAULT_PRETRAIN_WANDB_TAGS="pretraining;lejepa;imagenet100;svits16"
+DEFAULT_CLASS_SUBSET_FILE=""
 DEFAULT_PRETRAIN_WANDB_RUN_NAME=""  # Leave empty to auto-name as: PreTrain_LeJEPA_${RUN_MODE}
 
 # Path to a class-subset file passed as data.class_subset_file (for in100 modes).
@@ -39,7 +41,7 @@ DEFAULT_PRETRAIN_WANDB_RUN_NAME=""  # Leave empty to auto-name as: PreTrain_LeJE
 #   sbatch --export=ALL,CLASS_SUBSET_FILE=configs/data/class_subsets/imagenet100.txt ...
 # Example values:
 #   configs/data/class_subsets/imagenet100.txt  (for rn50_in100_ep500, vits16_in100_ep500)
-DEFAULT_CLASS_SUBSET_FILE=""
+# DEFAULT_CLASS_SUBSET_FILE=""
 
 # Lambda (model.lamb) override. Leave empty to use the config default.
 # Override at submission time with:
@@ -94,6 +96,7 @@ if [[ -z "$RUN_MODE" ]]; then
   echo "  vits8_in1k_ep800          ViT-S/8           on ImageNet-1K   (800 ep)"
   echo "  svits16_in100_ep500       SphericalViT-S/16 on ImageNet-100  (500 ep)"
   echo "  svits8_imagenette_ep800   SphericalViT-S/8  on Imagenette    (800 ep)"
+  echo "  svits8_in1k_ep800         SphericalViT-S/8  on ImageNet-1K   (800 ep)"
   echo "  phc_blob_ep250            PHC               on PHC-Blob      (250 ep)"
   echo "  phc_gpm_ep250             PHC               on PHC-GPM       (250 ep)"
   exit 1
@@ -108,12 +111,13 @@ case "$RUN_MODE" in
   vits8_in1k_ep800|\
   svits16_in100_ep500|\
   svits8_imagenette_ep800|\
+  svits8_in1k_ep800|\
   phc_blob_ep250|\
   phc_gpm_ep250)
     ;;
   *)
     echo "Unsupported RUN_MODE: $RUN_MODE"
-    echo "Valid options: rn18_stl10_ep500 | rn50_in100_ep500 | vits16_in100_ep500 | vits8_imagenette_ep800 | vits8_in1k_ep800 | svits16_in100_ep500 | svits8_imagenette_ep800 | phc_blob_ep250 | phc_gpm_ep250"
+    echo "Valid options: rn18_stl10_ep500 | rn50_in100_ep500 | vits16_in100_ep500 | vits8_imagenette_ep800 | vits8_in1k_ep800 | svits16_in100_ep500 | svits8_imagenette_ep800 | svits8_in1k_ep800 | phc_blob_ep250 | phc_gpm_ep250"
     exit 1
     ;;
 esac
@@ -166,7 +170,7 @@ HYDRA_OVERRIDES=("${DEFAULT_PRETRAIN_HYDRA_OVERRIDES[@]}")
 # Use batch_size=64 + accumulate_grad_batches=4 to keep the effective batch at 256.
 case "$RUN_MODE" in
   rn50_in100_ep500|vits16_in100_ep500|vits8_in1k_ep800|vits8_imagenette_ep800|\
-  svits16_in100_ep500)
+  svits16_in100_ep500|svits8_imagenette_ep800|svits8_in1k_ep800)
     HYDRA_OVERRIDES+=("data.image_folder=.")
     HYDRA_OVERRIDES+=("data.batch_size=64")
     HYDRA_OVERRIDES+=("+trainer.accumulate_grad_batches=4")

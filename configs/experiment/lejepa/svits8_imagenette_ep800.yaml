@@ -4,7 +4,7 @@ defaults:
   - override /data: imagenette
   - override /model: lejepa
   - override /model/encoder: spherical_vit_small_p8
-  - override /optimizer: adamw
+  - override /optimizer: adam
   - override /trainer: gpu
   - _self_
 
@@ -34,4 +34,3 @@ model:
 
 optimizer:
   lr: 2e-3
-  weight_decay: 5e-2
