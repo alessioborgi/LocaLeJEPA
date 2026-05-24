@@ -1,0 +1,45 @@
+# @package _global_
+# Comparison Model 2 (ViT baseline): ViT-S/8 + l_inv + l_align + l_uniform on Imagenette (800 epochs)
+# AUH losses from Wang & Isola, "Understanding Contrastive Representation Learning through
+# Alignment and Uniformity on the Hypersphere", ICML 2020.
+
+defaults:
+  - override /data: imagenette
+  - override /model: lejepa
+  - override /model/encoder: timm_vit
+  - override /optimizer: adamw
+  - override /trainer: gpu
+  - _self_
+
+tags: ["lejepa", "imagenette", "vit-small-p8", "auh", "comparison"]
+
+trainer:
+  max_epochs: 800
+
+data:
+  batch_size: 256
+  num_workers: 4
+  crop_size: 128
+
+model:
+  embedding_dim: 512
+  projection_dim: 16
+  num_classes: 10
+  use_online_probe: true
+  num_global_crops: null
+  probe_lr: 1e-3
+  probe_weight_decay: 1e-7
+  loss_type: auh
+  alpha: 2.0
+  t: 2.0
+  projector:
+    hidden_channels:
+      - 2048
+      - 2048
+      - ${model.projection_dim}
+  encoder:
+    model_name: vit_small_patch8_224
+
+optimizer:
+  lr: 2e-3
+  weight_decay: 5e-2

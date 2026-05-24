@@ -13,7 +13,7 @@ import torch.nn.functional as F
 from lightning import LightningModule
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 
-from src.losses import invariance_loss, sigreg_loss
+from src.losses import align_loss, invariance_loss, sfrik_loss, sigreg_loss, uniform_loss
 
 
 class LeJEPAModule(LightningModule):
@@ -34,6 +34,12 @@ class LeJEPAModule(LightningModule):
         projection_dim: int = 128,
         num_classes: int = 10,
         lamb: float = 0.02,
+        loss_type: str = "sigreg",
+        alpha: float = 2.0,
+        t: float = 2.0,
+        b1: float = 1.0,
+        b2: float = 40.0,
+        b3: float = 40.0,
         num_global_crops: int | None = None,
         use_online_probe: bool = True,
         probe_lr: float = 1e-3,
@@ -54,6 +60,12 @@ class LeJEPAModule(LightningModule):
         self.projection_dim = projection_dim
         self.num_classes = num_classes
         self.lamb = lamb
+        self.loss_type = loss_type
+        self.alpha = alpha
+        self.t = t
+        self.b1 = b1
+        self.b2 = b2
+        self.b3 = b3
         self.num_global_crops = num_global_crops
         self.use_online_probe = use_online_probe
         self.probe_lr = probe_lr
@@ -115,9 +127,25 @@ class LeJEPAModule(LightningModule):
         emb, proj = self.forward(views)
 
         inv_loss = invariance_loss(proj, num_global=self.num_global_crops)
-        # ? Why do we compute SIGReg on proj instead of emb? In le-wm paper they compute it over emb
-        sigreg = sigreg_loss(proj)
-        lejepa_loss = sigreg * self.lamb + inv_loss * (1.0 - self.lamb)
+
+        # ? Why do we compute reg loss on proj instead of emb? In le-wm paper they compute it over emb
+        reg_metrics: dict[str, torch.Tensor] = {}
+        if self.loss_type == "sigreg":
+            reg = sigreg_loss(proj)
+            reg_metrics["sigreg_loss"] = reg
+        elif self.loss_type == "auh":
+            a_loss = align_loss(proj, alpha=self.alpha)
+            u_loss = uniform_loss(proj, t=self.t)
+            reg = a_loss + u_loss
+            reg_metrics["align_loss"] = a_loss
+            reg_metrics["uniform_loss"] = u_loss
+        elif self.loss_type == "sfrik":
+            reg = sfrik_loss(proj, b1=self.b1, b2=self.b2, b3=self.b3)
+            reg_metrics["sfrik_loss"] = reg
+        else:
+            raise ValueError(f"Unknown loss_type: {self.loss_type!r}. Choose 'sigreg', 'auh', or 'sfrik'.")
+
+        lejepa_loss = reg * self.lamb + inv_loss * (1.0 - self.lamb)
 
         with torch.no_grad():
             z_all = proj.flatten(0, 1)  # (N*V, D)
@@ -137,15 +165,16 @@ class LeJEPAModule(LightningModule):
             "loss": lejepa_loss,
             "lejepa_loss": lejepa_loss,
             "invariance_loss": inv_loss,
-            "sigreg_loss": sigreg,
+            "reg_loss": reg,
             "inv_contrib": inv_loss * (1.0 - self.lamb),
-            "sigreg_contrib": sigreg * self.lamb,
+            "reg_contrib": reg * self.lamb,
             "std_mean": std_mean,
             "norm_mean": norm_mean,
             "mean_abs": mean_abs,
             "cov_diag_mean": cov_diag_mean,
             "cov_offdiag_mean": cov_offdiag_mean,
             "cov_offdiag_sq_mean": cov_offdiag_sq_mean,
+            **reg_metrics,
         }
 
         return emb, metrics
@@ -155,11 +184,19 @@ class LeJEPAModule(LightningModule):
         emb, metrics = self.model_step(views)
 
         self.log("train/lejepa_loss", metrics["lejepa_loss"], sync_dist=True, on_step=True, on_epoch=True)
-        self.log("train/sigreg_loss", metrics["sigreg_loss"], sync_dist=True, on_step=True, on_epoch=True)
         self.log("train/invariance_loss", metrics["invariance_loss"], sync_dist=True, on_step=True, on_epoch=True)
         self.log("train/loss", metrics["loss"], prog_bar=True, sync_dist=True, on_step=True, on_epoch=True)
         self.log("train/inv_contrib", metrics["inv_contrib"], sync_dist=True, on_step=True, on_epoch=True)
-        self.log("train/sigreg_contrib", metrics["sigreg_contrib"], sync_dist=True, on_step=True, on_epoch=True)
+        if self.loss_type == "sigreg":
+            self.log("train/sigreg_loss", metrics["sigreg_loss"], sync_dist=True, on_step=True, on_epoch=True)
+            self.log("train/sigreg_contrib", metrics["reg_contrib"], sync_dist=True, on_step=True, on_epoch=True)
+        elif self.loss_type == "auh":
+            self.log("train/align_loss", metrics["align_loss"], sync_dist=True, on_step=True, on_epoch=True)
+            self.log("train/uniform_loss", metrics["uniform_loss"], sync_dist=True, on_step=True, on_epoch=True)
+            self.log("train/auh_contrib", metrics["reg_contrib"], sync_dist=True, on_step=True, on_epoch=True)
+        elif self.loss_type == "sfrik":
+            self.log("train/sfrik_loss", metrics["sfrik_loss"], sync_dist=True, on_step=True, on_epoch=True)
+            self.log("train/sfrik_contrib", metrics["reg_contrib"], sync_dist=True, on_step=True, on_epoch=True)
         self.log("train/std_mean", metrics["std_mean"], sync_dist=True, on_step=True, on_epoch=True)
         self.log("train/norm_mean", metrics["norm_mean"], sync_dist=True, on_step=True, on_epoch=True)
         self.log("train/mean_abs", metrics["mean_abs"], sync_dist=True, on_step=True, on_epoch=True)

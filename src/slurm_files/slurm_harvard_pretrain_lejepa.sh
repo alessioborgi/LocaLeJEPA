@@ -27,6 +27,21 @@
 #   phc_blob_ep250           : PHC encoder    on PHC-Blob       (250 epochs)
 #   phc_gpm_ep250            : PHC encoder    on PHC-GPM        (250 epochs)
 #
+# Regularization comparison — ImageNet-1K (SphericalViT-S/8, 800 epochs):
+#   svit_in1k_sigreg         : SphericalViT-S/8 + l_inv + l_sigreg  (SIGReg baseline)
+#   svit_in1k_auh            : SphericalViT-S/8 + l_inv + l_align + l_uniform  (AUH, Wang & Isola 2020)
+#   svit_in1k_sfrik          : SphericalViT-S/8 + l_inv + l_sfrik   (SFRIK, Zheng et al. 2023)
+#
+# Regularization comparison — Imagenette SphericalViT-S/8 (800 epochs):
+#   svit_imagenette_sigreg   : SphericalViT-S/8 + l_inv + l_sigreg  (SIGReg baseline)
+#   svit_imagenette_auh      : SphericalViT-S/8 + l_inv + l_align + l_uniform  (AUH, Wang & Isola 2020)
+#   svit_imagenette_sfrik    : SphericalViT-S/8 + l_inv + l_sfrik   (SFRIK, Zheng et al. 2023)
+#
+# Regularization comparison — Imagenette ViT-S/8 (800 epochs):
+#   vit_imagenette_sigreg    : ViT-S/8 + l_inv + l_sigreg  (SIGReg baseline)
+#   vit_imagenette_auh       : ViT-S/8 + l_inv + l_align + l_uniform  (AUH, Wang & Isola 2020)
+#   vit_imagenette_sfrik     : ViT-S/8 + l_inv + l_sfrik   (SFRIK, Zheng et al. 2023)
+#
 # Override at submission time with:
 #   sbatch --export=ALL,RUN_MODE=vits8_imagenette_ep800 slurm_files/slurm_harvard_pretrain_lejepa.sh
 
@@ -99,6 +114,21 @@ if [[ -z "$RUN_MODE" ]]; then
   echo "  svits8_in1k_ep800         SphericalViT-S/8  on ImageNet-1K   (800 ep)"
   echo "  phc_blob_ep250            PHC               on PHC-Blob      (250 ep)"
   echo "  phc_gpm_ep250             PHC               on PHC-GPM       (250 ep)"
+  echo ""
+  echo "  Regularization comparison — ImageNet-1K (SphericalViT-S/8, 800 ep):"
+  echo "  svit_in1k_sigreg          SphericalViT-S/8  l_inv + l_sigreg"
+  echo "  svit_in1k_auh             SphericalViT-S/8  l_inv + l_align + l_uniform (AUH)"
+  echo "  svit_in1k_sfrik           SphericalViT-S/8  l_inv + l_sfrik (SFRIK)"
+  echo ""
+  echo "  Regularization comparison — Imagenette SphericalViT-S/8 (800 ep):"
+  echo "  svit_imagenette_sigreg    SphericalViT-S/8  l_inv + l_sigreg"
+  echo "  svit_imagenette_auh       SphericalViT-S/8  l_inv + l_align + l_uniform (AUH)"
+  echo "  svit_imagenette_sfrik     SphericalViT-S/8  l_inv + l_sfrik (SFRIK)"
+  echo ""
+  echo "  Regularization comparison — Imagenette ViT-S/8 (800 ep):"
+  echo "  vit_imagenette_sigreg     ViT-S/8           l_inv + l_sigreg"
+  echo "  vit_imagenette_auh        ViT-S/8           l_inv + l_align + l_uniform (AUH)"
+  echo "  vit_imagenette_sfrik      ViT-S/8           l_inv + l_sfrik (SFRIK)"
   exit 1
 fi
 
@@ -113,11 +143,20 @@ case "$RUN_MODE" in
   svits8_imagenette_ep800|\
   svits8_in1k_ep800|\
   phc_blob_ep250|\
-  phc_gpm_ep250)
+  phc_gpm_ep250|\
+  svit_in1k_sigreg|\
+  svit_in1k_auh|\
+  svit_in1k_sfrik|\
+  svit_imagenette_sigreg|\
+  svit_imagenette_auh|\
+  svit_imagenette_sfrik|\
+  vit_imagenette_sigreg|\
+  vit_imagenette_auh|\
+  vit_imagenette_sfrik)
     ;;
   *)
     echo "Unsupported RUN_MODE: $RUN_MODE"
-    echo "Valid options: rn18_stl10_ep500 | rn50_in100_ep500 | vits16_in100_ep500 | vits8_imagenette_ep800 | vits8_in1k_ep800 | svits16_in100_ep500 | svits8_imagenette_ep800 | svits8_in1k_ep800 | phc_blob_ep250 | phc_gpm_ep250"
+    echo "Valid options: rn18_stl10_ep500 | rn50_in100_ep500 | vits16_in100_ep500 | vits8_imagenette_ep800 | vits8_in1k_ep800 | svits16_in100_ep500 | svits8_imagenette_ep800 | svits8_in1k_ep800 | phc_blob_ep250 | phc_gpm_ep250 | svit_in1k_sigreg | svit_in1k_auh | svit_in1k_sfrik | svit_imagenette_sigreg | svit_imagenette_auh | svit_imagenette_sfrik | vit_imagenette_sigreg | vit_imagenette_auh | vit_imagenette_sfrik"
     exit 1
     ;;
 esac
@@ -165,13 +204,23 @@ RUN_CMD=(python src/train.py experiment="lejepa/${RUN_MODE}" logger=wandb)
 HYDRA_OVERRIDES=("${DEFAULT_PRETRAIN_HYDRA_OVERRIDES[@]}")
 
 # On this cluster ImageNet lives directly under imagenet/{train,val} — no imagenet_full_size/ subfolder.
+case "$RUN_MODE" in
+  rn50_in100_ep500|vits16_in100_ep500|vits8_in1k_ep800|\
+  svits16_in100_ep500|svits8_in1k_ep800|\
+  svit_in1k_sigreg|svit_in1k_auh|svit_in1k_sfrik)
+    HYDRA_OVERRIDES+=("data.image_folder=.")
+    ;;
+esac
+
 # encode() flattens all views into one tensor (batch * num_views images at once), so batch_size=256
 # with 8 crops = 2048 images through ResNet50 simultaneously overflows an 80 GB A100.
 # Use batch_size=64 + accumulate_grad_batches=4 to keep the effective batch at 256.
 case "$RUN_MODE" in
   rn50_in100_ep500|vits16_in100_ep500|vits8_in1k_ep800|vits8_imagenette_ep800|\
-  svits16_in100_ep500|svits8_imagenette_ep800|svits8_in1k_ep800)
-    HYDRA_OVERRIDES+=("data.image_folder=.")
+  svits16_in100_ep500|svits8_imagenette_ep800|svits8_in1k_ep800|\
+  svit_in1k_sigreg|svit_in1k_auh|svit_in1k_sfrik|\
+  svit_imagenette_sigreg|svit_imagenette_auh|svit_imagenette_sfrik|\
+  vit_imagenette_sigreg|vit_imagenette_auh|vit_imagenette_sfrik)
     HYDRA_OVERRIDES+=("data.batch_size=64")
     HYDRA_OVERRIDES+=("+trainer.accumulate_grad_batches=4")
     ;;

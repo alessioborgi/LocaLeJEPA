@@ -8,7 +8,7 @@ has_test_data: false
 dataset: gpm
 target_mode: unlabeled
 data_dir: ${paths.data_dir}/phc
-train_size: 25000
+train_size: 23368
 
 batch_size: 512
 num_workers: 4

@@ -9,6 +9,17 @@ projection_dim: 16
 num_classes: 10
 
 lamb: 0.02
+
+# Regularization type: "sigreg" | "auh" | "sfrik"
+loss_type: sigreg
+# AUH (Wang & Isola, ICML 2020) hyper-parameters
+alpha: 2.0
+t: 2.0
+# SFRIK (Zheng et al., ICLR 2023) hyper-parameters
+b1: 1.0
+b2: 40.0
+b3: 40.0
+
 num_global_crops: null
 use_online_probe: true
 probe_lr: 1e-3

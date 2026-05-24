@@ -87,6 +87,63 @@ python eval_voc.py --config configs/eval_voc.yaml
 
 ---
 
+## Photonic Crystal (PhC) Pipeline
+
+The PhC pipeline runs in two sequential stages: pre-training (self-supervised) followed by fine-tuning (DOS regression).
+
+### 1. Download the dataset (once, on the login node)
+
+```bash
+python scripts/download_phc.py --output-dir data/phc
+```
+
+This downloads five HDF5 files (~few GB total) from Dropbox into `data/phc/`.
+
+### 2. Pre-train
+
+```bash
+# Blob
+sbatch src/slurm_files/slurm_harvard_phc_pretrain.sh
+
+# GPM
+sbatch --export=ALL,DATASET=gpm src/slurm_files/slurm_harvard_phc_pretrain.sh
+```
+
+Checkpoint is saved to `logs/pretrain/phc_{blob|gpm}_ep250/checkpoints/last.ckpt`.
+
+### 3. Fine-tune (after pre-training finishes)
+
+```bash
+# Blob
+sbatch src/slurm_files/slurm_harvard_phc_finetune.sh
+
+# GPM
+sbatch --export=ALL,DATASET=gpm src/slurm_files/slurm_harvard_phc_finetune.sh
+```
+
+The fine-tune script automatically picks up the checkpoint from step 2.  To use a custom checkpoint path:
+
+```bash
+sbatch --export=ALL,DATASET=blob,CKPT_PATH=logs/pretrain/phc_blob_ep250/checkpoints/last.ckpt \
+       src/slurm_files/slurm_harvard_phc_finetune.sh
+```
+
+### Submit all four jobs at once (with SLURM dependencies)
+
+Pre-training and fine-tuning for both datasets can be submitted together; SLURM holds each fine-tune job until its pre-train job succeeds.
+
+```bash
+# Blob
+BLOB_PRETRAIN=$(sbatch --parsable src/slurm_files/slurm_harvard_phc_pretrain.sh)
+sbatch --dependency=afterok:$BLOB_PRETRAIN src/slurm_files/slurm_harvard_phc_finetune.sh
+
+# GPM
+GPM_PRETRAIN=$(sbatch --parsable --export=ALL,DATASET=gpm src/slurm_files/slurm_harvard_phc_pretrain.sh)
+sbatch --dependency=afterok:$GPM_PRETRAIN --export=ALL,DATASET=gpm src/slurm_files/slurm_harvard_phc_finetune.sh
+```
+
+---
+
 ## Configuration
 
 All experiments are driven by YAML files.  The `method` key selects the training loop (`lejepa`, `ijepa`, `simclr`, `phc_supervised`).  A minimal LeJEPA config:

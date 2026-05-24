@@ -12,6 +12,9 @@ D embedding dimension — which is the uniform interface across all encoders.
 invariance_loss  -- pulls every view toward the mean of the reference views
 sigreg_loss      -- Sketched Isotropic Gaussian Regularization (SIGReg)
 nt_xent_loss     -- Normalised Temperature-scaled Cross Entropy (SimCLR)
+align_loss       -- AUH alignment: mean L2^alpha distance over positive pairs (Wang & Isola, ICML 2020)
+uniform_loss     -- AUH uniformity: log Gaussian potential kernel (Wang & Isola, ICML 2020)
+sfrik_loss       -- SFRIK uniformity: truncated rotation-invariant kernel MMD (Zheng et al., ICLR 2023)
 """
 
 import torch
@@ -67,6 +70,80 @@ def sigreg_loss(proj: torch.Tensor, knots: int = 17) -> torch.Tensor:
     x_t = (proj @ A).unsqueeze(-1) * t          # (V, N, 256, knots)
     err = (x_t.cos().mean(-3) - phi).square() + x_t.sin().mean(-3).square()
     return ((err @ weights) * proj.size(-2)).mean()
+
+
+def align_loss(proj: torch.Tensor, alpha: float = 2.0) -> torch.Tensor:
+    """L_align from Wang & Isola (ICML 2020): mean L2^alpha over positive (same-sample) view pairs.
+
+    Parameters
+    ----------
+    proj  : (V, N, D) — stacked projections from all views
+    alpha : exponent (default 2); original paper uses alpha=2
+
+    Returns
+    -------
+    Scalar tensor (float32).
+    """
+    z = F.normalize(proj.float(), dim=-1)
+    V = z.shape[0]
+    idx = torch.triu_indices(V, V, offset=1, device=z.device)
+    diffs = z[idx[0]] - z[idx[1]]          # (num_pairs, N, D)
+    return diffs.norm(p=2, dim=-1).pow(alpha).mean()
+
+
+def uniform_loss(proj: torch.Tensor, t: float = 2.0) -> torch.Tensor:
+    """L_uniform from Wang & Isola (ICML 2020): log average Gaussian potential on S^{d-1}.
+
+    Parameters
+    ----------
+    proj : (V, N, D) — stacked projections from all views
+    t    : bandwidth of the Gaussian kernel (default 2)
+
+    Returns
+    -------
+    Scalar tensor (float32).
+    """
+    z = F.normalize(proj.float().flatten(0, 1), dim=-1)   # (V*N, D)
+    sq_dists = torch.cdist(z, z).square()                  # (V*N, V*N)
+    return (-t * sq_dists).exp().mean().log()
+
+
+def sfrik_loss(
+    proj: torch.Tensor,
+    b1: float = 1.0,
+    b2: float = 40.0,
+    b3: float = 40.0,
+) -> torch.Tensor:
+    """SFRIK uniformity loss from Zheng et al. (ICLR 2023).
+
+    Truncated rotation-invariant kernel MMD on S^{d-1} using the first three
+    zonal spherical harmonics (Legendre polynomials P1, P2, P3):
+
+        k(z, z') = b1·P1(u) + b2·P2(u) + b3·P3(u)
+
+    where u = z^T z' and the polynomials are the dimension-q Gegenbauer variants:
+        P1(u) = u
+        P2(u) = (q·u² - 1) / (q - 1)
+        P3(u) = ((q+2)·u³ - 3u) / (q - 1)
+
+    Parameters
+    ----------
+    proj : (V, N, D) — stacked projections from all views
+    b1   : weight on the degree-1 term (default 1.0)
+    b2   : weight on the degree-2 term (default 40.0)
+    b3   : weight on the degree-3 term (default 40.0)
+
+    Returns
+    -------
+    Scalar tensor (float32).
+    """
+    z = F.normalize(proj.float().flatten(0, 1), dim=-1)   # (V*N, D)
+    q = z.shape[-1]
+    gram = z @ z.T                                         # (V*N, V*N)
+    p1 = gram
+    p2 = (q * gram.square() - 1) / (q - 1)
+    p3 = ((q + 2) * gram.pow(3) - 3 * gram) / (q - 1)
+    return (b1 * p1 + b2 * p2 + b3 * p3).mean()
 
 
 def nt_xent_loss(proj: torch.Tensor, temperature: float = 0.07) -> torch.Tensor:
