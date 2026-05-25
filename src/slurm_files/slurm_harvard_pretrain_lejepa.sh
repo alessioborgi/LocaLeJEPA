@@ -208,7 +208,17 @@ case "$RUN_MODE" in
   rn50_in100_ep500|vits16_in100_ep500|vits8_in1k_ep800|\
   svits16_in100_ep500|svits8_in1k_ep800|\
   svit_in1k_sigreg|svit_in1k_auh|svit_in1k_sfrik)
-    HYDRA_OVERRIDES+=("data.image_folder=.")
+    HYDRA_OVERRIDES+=("++data.image_folder=.")
+    ;;
+esac
+
+# Point imagenette runs to the local copy — the cluster shared path is not writable.
+case "$RUN_MODE" in
+  vits8_imagenette_ep800|\
+  svits8_imagenette_ep800|\
+  svit_imagenette_sigreg|svit_imagenette_auh|svit_imagenette_sfrik|\
+  vit_imagenette_sigreg|vit_imagenette_auh|vit_imagenette_sfrik)
+    HYDRA_OVERRIDES+=("data.data_dir=${SLURM_SUBMIT_DIR}/data/imagenette")
     ;;
 esac
 

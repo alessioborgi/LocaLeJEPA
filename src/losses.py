@@ -104,8 +104,8 @@ def uniform_loss(proj: torch.Tensor, t: float = 2.0) -> torch.Tensor:
     Scalar tensor (float32).
     """
     z = F.normalize(proj.float().flatten(0, 1), dim=-1)   # (V*N, D)
-    sq_dists = torch.cdist(z, z).square()                  # (V*N, V*N)
-    return (-t * sq_dists).exp().mean().log()
+    sq_pdist = torch.pdist(z, p=2).pow(2)                 # N*(N-1)/2 unique pairs
+    return sq_pdist.mul(-t).exp().mean().log()
 
 
 def sfrik_loss(

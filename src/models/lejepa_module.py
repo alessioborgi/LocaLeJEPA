@@ -128,7 +128,6 @@ class LeJEPAModule(LightningModule):
 
         inv_loss = invariance_loss(proj, num_global=self.num_global_crops)
 
-        # ? Why do we compute reg loss on proj instead of emb? In le-wm paper they compute it over emb
         reg_metrics: dict[str, torch.Tensor] = {}
         if self.loss_type == "sigreg":
             reg = sigreg_loss(proj)
