@@ -37,6 +37,11 @@
 #   svit_imagenette_auh      : SphericalViT-S/8 + l_inv + l_align + l_uniform  (AUH, Wang & Isola 2020)
 #   svit_imagenette_sfrik    : SphericalViT-S/8 + l_inv + l_sfrik   (SFRIK, Zheng et al. 2023)
 #
+# Regularization comparison — Imagenette nViT-S/8 (800 epochs):
+#   nvit_imagenette_sigreg   : nViT-S/8 + l_inv + l_sigreg  (SIGReg baseline)
+#   nvit_imagenette_auh      : nViT-S/8 + l_inv + l_align + l_uniform  (AUH, Wang & Isola 2020)
+#   nvit_imagenette_sfrik    : nViT-S/8 + l_inv + l_sfrik   (SFRIK, Zheng et al. 2023)
+#
 # Regularization comparison — Imagenette ViT-S/8 (800 epochs):
 #   vit_imagenette_sigreg    : ViT-S/8 + l_inv + l_sigreg  (SIGReg baseline)
 #   vit_imagenette_auh       : ViT-S/8 + l_inv + l_align + l_uniform  (AUH, Wang & Isola 2020)
@@ -129,6 +134,11 @@ if [[ -z "$RUN_MODE" ]]; then
   echo "  vit_imagenette_sigreg     ViT-S/8           l_inv + l_sigreg"
   echo "  vit_imagenette_auh        ViT-S/8           l_inv + l_align + l_uniform (AUH)"
   echo "  vit_imagenette_sfrik      ViT-S/8           l_inv + l_sfrik (SFRIK)"
+  echo ""
+  echo "  Regularization comparison — Imagenette nViT-S/8 (800 ep):"
+  echo "  nvit_imagenette_sigreg    nViT-S/8          l_inv + l_sigreg"
+  echo "  nvit_imagenette_auh       nViT-S/8          l_inv + l_align + l_uniform (AUH)"
+  echo "  nvit_imagenette_sfrik     nViT-S/8          l_inv + l_sfrik (SFRIK)"
   exit 1
 fi
 
@@ -152,7 +162,10 @@ case "$RUN_MODE" in
   svit_imagenette_sfrik|\
   vit_imagenette_sigreg|\
   vit_imagenette_auh|\
-  vit_imagenette_sfrik)
+  vit_imagenette_sfrik|\
+  nvit_imagenette_sigreg|\
+  nvit_imagenette_auh|\
+  nvit_imagenette_sfrik)
     ;;
   *)
     echo "Unsupported RUN_MODE: $RUN_MODE"
@@ -217,7 +230,8 @@ case "$RUN_MODE" in
   vits8_imagenette_ep800|\
   svits8_imagenette_ep800|\
   svit_imagenette_sigreg|svit_imagenette_auh|svit_imagenette_sfrik|\
-  vit_imagenette_sigreg|vit_imagenette_auh|vit_imagenette_sfrik)
+  vit_imagenette_sigreg|vit_imagenette_auh|vit_imagenette_sfrik|\
+  nvit_imagenette_sigreg|nvit_imagenette_auh|nvit_imagenette_sfrik)
     HYDRA_OVERRIDES+=("data.data_dir=${SLURM_SUBMIT_DIR}/data/imagenette")
     ;;
 esac
@@ -230,7 +244,8 @@ case "$RUN_MODE" in
   svits16_in100_ep500|svits8_imagenette_ep800|svits8_in1k_ep800|\
   svit_in1k_sigreg|svit_in1k_auh|svit_in1k_sfrik|\
   svit_imagenette_sigreg|svit_imagenette_auh|svit_imagenette_sfrik|\
-  vit_imagenette_sigreg|vit_imagenette_auh|vit_imagenette_sfrik)
+  vit_imagenette_sigreg|vit_imagenette_auh|vit_imagenette_sfrik|\
+  nvit_imagenette_sigreg|nvit_imagenette_auh|nvit_imagenette_sfrik)
     HYDRA_OVERRIDES+=("data.batch_size=64")
     HYDRA_OVERRIDES+=("+trainer.accumulate_grad_batches=4")
     ;;

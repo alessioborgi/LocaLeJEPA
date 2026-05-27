@@ -23,13 +23,14 @@ data:
 
 model:
   embedding_dim: 512
-  projection_dim: 16
+  projection_dim: 128
   num_classes: 10
   use_online_probe: true
   num_global_crops: null
   probe_lr: 1e-3
   probe_weight_decay: 1e-7
   loss_type: sfrik
+  lamb: 0.1
   b1: 1.0
   b2: 40.0
   b3: 40.0
