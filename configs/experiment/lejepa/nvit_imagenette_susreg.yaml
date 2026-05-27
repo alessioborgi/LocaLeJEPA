@@ -1,7 +1,7 @@
 # @package _global_
-# Comparison Model: nViT-S/8 + l_inv + l_sfrik on Imagenette (800 epochs)
-# SFRIK loss from Zheng et al., "Spectral Feature Regularization for Improved Kernel Risk
-# Minimization over Hyperspherical Representations", ICLR 2023.
+# Comparison Model: nViT-S/8 + l_inv + l_susreg on Imagenette (800 epochs)
+# SUSReg loss from Nicollier et al., "SPHERE-JEPA: Sketched Uniform Spherical
+# Regularization for Joint Embedding Predictive Architectures", arXiv 2605.26900 (2026).
 # nViT = nGPT ViT with learned PE table; no spherical harmonic PE / RPB.
 
 defaults:
@@ -12,11 +12,10 @@ defaults:
   - override /trainer: gpu
   - _self_
 
-tags: ["lejepa", "imagenette", "nvit-small-p8", "sfrik", "comparison"]
+tags: ["lejepa", "imagenette", "nvit-small-p8", "susreg", "comparison"]
 
 trainer:
   max_epochs: 800
-  gradient_clip_val: 1.0
 
 data:
   batch_size: 256
@@ -25,17 +24,14 @@ data:
 
 model:
   embedding_dim: 512
-  projection_dim: 128
+  projection_dim: 16
   num_classes: 10
   use_online_probe: true
   num_global_crops: null
   probe_lr: 1e-3
   probe_weight_decay: 1e-7
-  loss_type: sfrik
+  loss_type: susreg
   lamb: 0.02
-  b1: 1.0
-  b2: 10.0
-  b3: 10.0
   projector:
     hidden_channels:
       - 2048

@@ -1,17 +1,18 @@
 # @package _global_
-# Comparison Model 2: SphericalViT-S/8 + l_inv + l_align + l_uniform on Imagenette (800 epochs)
-# AUH losses from Wang & Isola, "Understanding Contrastive Representation Learning through
-# Alignment and Uniformity on the Hypersphere", ICML 2020.
+# Comparison Model: nViT-S/8 + l_inv + l_subreg on Imagenette (800 epochs)
+# SubReg loss from Zhao et al., "Sub-JEPA: Subspace Gaussian Regularization
+# for Self-Supervised Visual Pre-Training", arXiv 2605.09241 (2026).
+# nViT = nGPT ViT with learned PE table; no spherical harmonic PE / RPB.
 
 defaults:
   - override /data: imagenette
   - override /model: lejepa
-  - override /model/encoder: spherical_vit_small_p8
+  - override /model/encoder: nvit_small_p8
   - override /optimizer: adam
   - override /trainer: gpu
   - _self_
 
-tags: ["lejepa", "imagenette", "spherical-vit-small-p8", "auh", "comparison"]
+tags: ["lejepa", "imagenette", "nvit-small-p8", "subreg", "comparison"]
 
 trainer:
   max_epochs: 800
@@ -29,9 +30,9 @@ model:
   num_global_crops: null
   probe_lr: 1e-3
   probe_weight_decay: 1e-7
-  loss_type: auh
-  alpha: 2.0
-  t: 2.0
+  loss_type: subreg
+  lamb: 0.02
+  num_subspaces: 4
   projector:
     hidden_channels:
       - 2048

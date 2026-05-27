@@ -28,24 +28,18 @@
 #   phc_gpm_ep250            : PHC encoder    on PHC-GPM        (250 epochs)
 #
 # Regularization comparison — ImageNet-1K (SphericalViT-S/8, 800 epochs):
-#   svit_in1k_sigreg         : SphericalViT-S/8 + l_inv + l_sigreg  (SIGReg baseline)
-#   svit_in1k_auh            : SphericalViT-S/8 + l_inv + l_align + l_uniform  (AUH, Wang & Isola 2020)
-#   svit_in1k_sfrik          : SphericalViT-S/8 + l_inv + l_sfrik   (SFRIK, Zheng et al. 2023)
+#   svit_in1k_sigreg         : SphericalViT-S/8 + l_inv + l_sigreg  (SIGReg / LeJEPA)
 #
 # Regularization comparison — Imagenette SphericalViT-S/8 (800 epochs):
-#   svit_imagenette_sigreg   : SphericalViT-S/8 + l_inv + l_sigreg  (SIGReg baseline)
-#   svit_imagenette_auh      : SphericalViT-S/8 + l_inv + l_align + l_uniform  (AUH, Wang & Isola 2020)
-#   svit_imagenette_sfrik    : SphericalViT-S/8 + l_inv + l_sfrik   (SFRIK, Zheng et al. 2023)
+#   svit_imagenette_sigreg   : SphericalViT-S/8 + l_inv + l_sigreg  (SIGReg / LeJEPA)
 #
 # Regularization comparison — Imagenette nViT-S/8 (800 epochs):
-#   nvit_imagenette_sigreg   : nViT-S/8 + l_inv + l_sigreg  (SIGReg baseline)
-#   nvit_imagenette_auh      : nViT-S/8 + l_inv + l_align + l_uniform  (AUH, Wang & Isola 2020)
-#   nvit_imagenette_sfrik    : nViT-S/8 + l_inv + l_sfrik   (SFRIK, Zheng et al. 2023)
+#   nvit_imagenette_sigreg   : nViT-S/8 + l_inv + l_sigreg  (SIGReg / LeJEPA)
+#   nvit_imagenette_subreg   : nViT-S/8 + l_inv + l_subreg  (Sub-JEPA, Zhao et al. 2026)
+#   nvit_imagenette_susreg   : nViT-S/8 + l_inv + l_susreg  (SPHERE-JEPA, Nicollier et al. 2026)
 #
 # Regularization comparison — Imagenette ViT-S/8 (800 epochs):
-#   vit_imagenette_sigreg    : ViT-S/8 + l_inv + l_sigreg  (SIGReg baseline)
-#   vit_imagenette_auh       : ViT-S/8 + l_inv + l_align + l_uniform  (AUH, Wang & Isola 2020)
-#   vit_imagenette_sfrik     : ViT-S/8 + l_inv + l_sfrik   (SFRIK, Zheng et al. 2023)
+#   vit_imagenette_sigreg    : ViT-S/8 + l_inv + l_sigreg  (SIGReg / LeJEPA)
 #
 # Override at submission time with:
 #   sbatch --export=ALL,RUN_MODE=vits8_imagenette_ep800 slurm_files/slurm_harvard_pretrain_lejepa.sh
@@ -121,24 +115,18 @@ if [[ -z "$RUN_MODE" ]]; then
   echo "  phc_gpm_ep250             PHC               on PHC-GPM       (250 ep)"
   echo ""
   echo "  Regularization comparison — ImageNet-1K (SphericalViT-S/8, 800 ep):"
-  echo "  svit_in1k_sigreg          SphericalViT-S/8  l_inv + l_sigreg"
-  echo "  svit_in1k_auh             SphericalViT-S/8  l_inv + l_align + l_uniform (AUH)"
-  echo "  svit_in1k_sfrik           SphericalViT-S/8  l_inv + l_sfrik (SFRIK)"
+  echo "  svit_in1k_sigreg          SphericalViT-S/8  l_inv + l_sigreg (LeJEPA)"
   echo ""
   echo "  Regularization comparison — Imagenette SphericalViT-S/8 (800 ep):"
-  echo "  svit_imagenette_sigreg    SphericalViT-S/8  l_inv + l_sigreg"
-  echo "  svit_imagenette_auh       SphericalViT-S/8  l_inv + l_align + l_uniform (AUH)"
-  echo "  svit_imagenette_sfrik     SphericalViT-S/8  l_inv + l_sfrik (SFRIK)"
+  echo "  svit_imagenette_sigreg    SphericalViT-S/8  l_inv + l_sigreg (LeJEPA)"
   echo ""
   echo "  Regularization comparison — Imagenette ViT-S/8 (800 ep):"
-  echo "  vit_imagenette_sigreg     ViT-S/8           l_inv + l_sigreg"
-  echo "  vit_imagenette_auh        ViT-S/8           l_inv + l_align + l_uniform (AUH)"
-  echo "  vit_imagenette_sfrik      ViT-S/8           l_inv + l_sfrik (SFRIK)"
+  echo "  vit_imagenette_sigreg     ViT-S/8           l_inv + l_sigreg (LeJEPA)"
   echo ""
   echo "  Regularization comparison — Imagenette nViT-S/8 (800 ep):"
-  echo "  nvit_imagenette_sigreg    nViT-S/8          l_inv + l_sigreg"
-  echo "  nvit_imagenette_auh       nViT-S/8          l_inv + l_align + l_uniform (AUH)"
-  echo "  nvit_imagenette_sfrik     nViT-S/8          l_inv + l_sfrik (SFRIK)"
+  echo "  nvit_imagenette_sigreg    nViT-S/8          l_inv + l_sigreg (LeJEPA)"
+  echo "  nvit_imagenette_subreg    nViT-S/8          l_inv + l_subreg (Sub-JEPA)"
+  echo "  nvit_imagenette_susreg    nViT-S/8          l_inv + l_susreg (SPHERE-JEPA)"
   exit 1
 fi
 
@@ -155,21 +143,15 @@ case "$RUN_MODE" in
   phc_blob_ep250|\
   phc_gpm_ep250|\
   svit_in1k_sigreg|\
-  svit_in1k_auh|\
-  svit_in1k_sfrik|\
   svit_imagenette_sigreg|\
-  svit_imagenette_auh|\
-  svit_imagenette_sfrik|\
   vit_imagenette_sigreg|\
-  vit_imagenette_auh|\
-  vit_imagenette_sfrik|\
   nvit_imagenette_sigreg|\
-  nvit_imagenette_auh|\
-  nvit_imagenette_sfrik)
+  nvit_imagenette_subreg|\
+  nvit_imagenette_susreg)
     ;;
   *)
     echo "Unsupported RUN_MODE: $RUN_MODE"
-    echo "Valid options: rn18_stl10_ep500 | rn50_in100_ep500 | vits16_in100_ep500 | vits8_imagenette_ep800 | vits8_in1k_ep800 | svits16_in100_ep500 | svits8_imagenette_ep800 | svits8_in1k_ep800 | phc_blob_ep250 | phc_gpm_ep250 | svit_in1k_sigreg | svit_in1k_auh | svit_in1k_sfrik | svit_imagenette_sigreg | svit_imagenette_auh | svit_imagenette_sfrik | vit_imagenette_sigreg | vit_imagenette_auh | vit_imagenette_sfrik"
+    echo "Valid options: rn18_stl10_ep500 | rn50_in100_ep500 | vits16_in100_ep500 | vits8_imagenette_ep800 | vits8_in1k_ep800 | svits16_in100_ep500 | svits8_imagenette_ep800 | svits8_in1k_ep800 | phc_blob_ep250 | phc_gpm_ep250 | svit_in1k_sigreg | svit_imagenette_sigreg | vit_imagenette_sigreg | nvit_imagenette_sigreg | nvit_imagenette_subreg | nvit_imagenette_susreg"
     exit 1
     ;;
 esac
@@ -220,7 +202,7 @@ HYDRA_OVERRIDES=("${DEFAULT_PRETRAIN_HYDRA_OVERRIDES[@]}")
 case "$RUN_MODE" in
   rn50_in100_ep500|vits16_in100_ep500|vits8_in1k_ep800|\
   svits16_in100_ep500|svits8_in1k_ep800|\
-  svit_in1k_sigreg|svit_in1k_auh|svit_in1k_sfrik)
+  svit_in1k_sigreg)
     HYDRA_OVERRIDES+=("++data.image_folder=.")
     ;;
 esac
@@ -229,9 +211,9 @@ esac
 case "$RUN_MODE" in
   vits8_imagenette_ep800|\
   svits8_imagenette_ep800|\
-  svit_imagenette_sigreg|svit_imagenette_auh|svit_imagenette_sfrik|\
-  vit_imagenette_sigreg|vit_imagenette_auh|vit_imagenette_sfrik|\
-  nvit_imagenette_sigreg|nvit_imagenette_auh|nvit_imagenette_sfrik)
+  svit_imagenette_sigreg|\
+  vit_imagenette_sigreg|\
+  nvit_imagenette_sigreg|nvit_imagenette_subreg|nvit_imagenette_susreg)
     HYDRA_OVERRIDES+=("data.data_dir=${SLURM_SUBMIT_DIR}/data/imagenette")
     ;;
 esac
@@ -242,10 +224,10 @@ esac
 case "$RUN_MODE" in
   rn50_in100_ep500|vits16_in100_ep500|vits8_in1k_ep800|vits8_imagenette_ep800|\
   svits16_in100_ep500|svits8_imagenette_ep800|svits8_in1k_ep800|\
-  svit_in1k_sigreg|svit_in1k_auh|svit_in1k_sfrik|\
-  svit_imagenette_sigreg|svit_imagenette_auh|svit_imagenette_sfrik|\
-  vit_imagenette_sigreg|vit_imagenette_auh|vit_imagenette_sfrik|\
-  nvit_imagenette_sigreg|nvit_imagenette_auh|nvit_imagenette_sfrik)
+  svit_in1k_sigreg|\
+  svit_imagenette_sigreg|\
+  vit_imagenette_sigreg|\
+  nvit_imagenette_sigreg|nvit_imagenette_subreg|nvit_imagenette_susreg)
     HYDRA_OVERRIDES+=("data.batch_size=64")
     HYDRA_OVERRIDES+=("+trainer.accumulate_grad_batches=4")
     ;;

@@ -4,159 +4,172 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-"""NormalizedViT (nViT) — nGPT ViT with learned positional embeddings.
+"""NormalizedViT (nViT) -- nGPT ViT with learned positional embeddings.
 
-Compared with SphericalViT this model replaces:
-  • Spherical harmonic PE → learned unit-norm PE table (one d-dim vector per patch).
-  • Great-circle RPB      → no RPB; standard scaled dot-product attention.
+Self-contained implementation closely following the reference nViT by Loshchilov
+et al., "nGPT: Normalized Transformer with Representation Learning on the
+Hypersphere", ICLR 2025 (arXiv:2410.01131).
 
-All nGPT components (QK-norm, SwiGLU, spherical LERP residuals, NormLinear
-weight rows on S^{d-1}) are identical to SphericalViT.
+Framework additions over the reference:
+- num_classes=0 mode returns (B, num_patches, embed_dim) for I-JEPA.
+- masks argument in forward for I-JEPA token masking.
+- Same __init__ signature as SphericalViT for drop-in Hydra config use.
 
-Reference: Loshchilov et al., "nGPT: Normalized Transformer with Representation
-Learning on the Hypersphere", ICLR 2025.  https://arxiv.org/abs/2410.01131
-
-Training notes (same as SphericalViT):
-  • Set weight_decay = 0.
-  • Call model.norm_weights_() after every optimizer step.
-  • Higher learning rates (3–5×) are safe vs. standard ViT.
-
-Drop-in replacement for SphericalViT in LeJEPA and I-JEPA configs.
+Training notes (same as the reference):
+- Set weight_decay = 0.
+- Call model.norm_weights_() after every optimizer step.
+- Higher learning rates (3-5x) are safe versus standard ViT.
 """
 
-import math
 from collections.abc import Sequence
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.nn.utils.parametrize as parametrize
 
-from src.models.components.spherical_vit import NormLinear, SwiGLUMLP, l2norm
 from src.models.components.tensor_ops import apply_masks
-from src.models.components.vision_transformer import PatchEmbed, _to_2tuple
 
 
-class NViTAttention(nn.Module):
-    """Multi-head self-attention on the hypersphere — no spherical RPB.
+def l2norm(t: torch.Tensor, dim: int = -1) -> torch.Tensor:
+    return F.normalize(t, dim=dim, p=2)
 
-    Differences from SphericalAttention:
-      • No great-circle distance relative position bias.
-      • QK scales stored directly at ``head_dim**0.25`` (reference nViT convention)
-        so the initial effective attention logit is ``head_dim**0.5 * cos(q, k)``,
-        matching the nGPT paper eq. 16.
+
+class L2Norm(nn.Module):
+    def __init__(self, dim: int = -1) -> None:
+        super().__init__()
+        self.dim = dim
+
+    def forward(self, t: torch.Tensor) -> torch.Tensor:
+        return l2norm(t, dim=self.dim)
+
+
+class NormLinear(nn.Module):
+    """Bias-free linear layer with unit-norm weight rows or columns.
+
+    norm_dim_in=True (default): each output neuron weight vector has unit norm.
+    norm_dim_in=False: each input feature weight vector has unit norm.
     """
 
+    def __init__(self, dim: int, dim_out: int, norm_dim_in: bool = True) -> None:
+        super().__init__()
+        self.linear = nn.Linear(dim, dim_out, bias=False)
+        parametrize.register_parametrization(
+            self.linear, "weight", L2Norm(dim=-1 if norm_dim_in else 0)
+        )
+
+    @property
+    def weight(self) -> torch.Tensor:
+        return self.linear.weight
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.linear(x)
+
+    @torch.no_grad()
+    def norm_weights_(self) -> None:
+        # Snap the raw parameter back to its normalized value.
+        original = self.linear.parametrizations.weight.original
+        original.copy_(self.weight)
+
+
+class Attention(nn.Module):
     def __init__(
         self,
         dim: int,
-        num_heads: int = 8,
-        attn_drop: float = 0.0,
-        proj_drop: float = 0.0,
+        *,
+        dim_head: int = 64,
+        heads: int = 8,
+        dropout: float = 0.0,
     ) -> None:
         super().__init__()
-        self.num_heads = num_heads
-        self.head_dim = dim // num_heads
+        dim_inner = dim_head * heads
+        self.heads = heads
+        self.dim_head = dim_head
+        self.dropout = dropout
 
-        self.Wq = NormLinear(dim, dim)
-        self.Wk = NormLinear(dim, dim)
-        self.Wv = NormLinear(dim, dim)
-        self.Wo = NormLinear(dim, dim)
+        self.to_q = NormLinear(dim, dim_inner)
+        self.to_k = NormLinear(dim, dim_inner)
+        self.to_v = NormLinear(dim, dim_inner)
+        self.to_out = NormLinear(dim_inner, dim, norm_dim_in=False)
 
-        self.attn_drop = attn_drop
-        self.proj_drop = nn.Dropout(proj_drop)
-
-        # per-head per-dim QK scales; init at head_dim**0.25 so that
-        # (q*s) @ (k*s)^T = head_dim**0.5 * cosine(q_unit, k_unit) initially
-        scale_init = self.head_dim ** 0.25
-        self.q_scale = nn.Parameter(torch.full((num_heads, 1, self.head_dim), scale_init))
-        self.k_scale = nn.Parameter(torch.full((num_heads, 1, self.head_dim), scale_init))
+        # Init at dim_head**0.25 so initial logit scale equals dim_head**0.5 * cos(q, k).
+        scale_init = dim_head ** 0.25
+        self.q_scale = nn.Parameter(torch.ones(heads, 1, dim_head) * scale_init)
+        self.k_scale = nn.Parameter(torch.ones(heads, 1, dim_head) * scale_init)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        B, N, C = x.shape
-        H, D = self.num_heads, self.head_dim
+        B, N, _ = x.shape
+        H, D = self.heads, self.dim_head
 
-        q = self.Wq(x).reshape(B, N, H, D).transpose(1, 2)  # (B, H, N, D)
-        k = self.Wk(x).reshape(B, N, H, D).transpose(1, 2)
-        v = self.Wv(x).reshape(B, N, H, D).transpose(1, 2)
+        # Project and split into heads: (B, H, N, D).
+        q = self.to_q(x).reshape(B, N, H, D).transpose(1, 2)
+        k = self.to_k(x).reshape(B, N, H, D).transpose(1, 2)
+        v = self.to_v(x).reshape(B, N, H, D).transpose(1, 2)
 
-        # QK-norm then scale; scale=1. because scaling is absorbed into q_scale / k_scale
+        # Unit-norm QK then apply per-head learned scale; scale=1.0 in SDPA.
         q = l2norm(q) * self.q_scale
         k = l2norm(k) * self.k_scale
 
         out = F.scaled_dot_product_attention(
-            q, k, v,
-            dropout_p=self.attn_drop if self.training else 0.0,
-            scale=1.0,
+            q, k, v, dropout_p=self.dropout if self.training else 0.0, scale=1.0
         )
-        out = out.transpose(1, 2).reshape(B, N, C)
-        return self.proj_drop(self.Wo(out))
+        out = out.transpose(1, 2).reshape(B, N, H * D)
+        return self.to_out(out)
 
 
-class NViTBlock(nn.Module):
-    """Transformer block with nGPT spherical LERP residuals (no RPB)."""
-
-    def __init__(
-        self,
-        dim: int,
-        num_heads: int,
-        mlp_ratio: float = 4.0,
-        attn_drop: float = 0.0,
-        drop: float = 0.0,
-        alpha_init: float = 0.05,
-    ) -> None:
+class FeedForward(nn.Module):
+    def __init__(self, dim: int, *, dim_inner: int, dropout: float = 0.0) -> None:
         super().__init__()
-        self.attn = NViTAttention(dim, num_heads=num_heads, attn_drop=attn_drop, proj_drop=drop)
-        self.mlp = SwiGLUMLP(dim, mlp_ratio=mlp_ratio, drop=drop)
+        # SwiGLU: actual hidden width is 2/3 of the nominal expansion.
+        dim_inner = int(dim_inner * 2 / 3)
 
-        # per-dim eigen learning rates stored at alpha_init/sqrt(dim); restored in forward
-        alpha_scale = alpha_init / math.sqrt(dim)
-        self._alpha_restore = math.sqrt(dim)
-        self.alpha_A = nn.Parameter(torch.full((dim,), alpha_scale))
-        self.alpha_M = nn.Parameter(torch.full((dim,), alpha_scale))
+        self.dim = dim
+        self.dropout = nn.Dropout(dropout)
+
+        self.to_hidden = NormLinear(dim, dim_inner)
+        self.to_gate   = NormLinear(dim, dim_inner)
+        self.to_out    = NormLinear(dim_inner, dim, norm_dim_in=False)
+
+        self.hidden_scale = nn.Parameter(torch.ones(dim_inner))
+        self.gate_scale   = nn.Parameter(torch.ones(dim_inner))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        alpha_A = self.alpha_A * self._alpha_restore
-        x = l2norm(x.lerp(l2norm(self.attn(x)), alpha_A))
-
-        alpha_M = self.alpha_M * self._alpha_restore
-        x = l2norm(x.lerp(l2norm(self.mlp(x)), alpha_M))
-        return x
+        hidden = self.to_hidden(x) * self.hidden_scale
+        # Gate branch scaled by sqrt(dim) to maintain unit-sphere geometry.
+        gate   = self.to_gate(x) * self.gate_scale * (self.dim ** 0.5)
+        hidden = F.silu(gate) * hidden
+        hidden = self.dropout(hidden)
+        return self.to_out(hidden)
 
 
 class NormalizedViT(nn.Module):
     """nGPT Vision Transformer with learned positional embeddings.
 
-    All token representations live on the unit hypersphere S^{d-1} at every
-    layer.  Positional encoding is a learned table of unit-norm vectors, one
-    per patch position, rather than the spherical harmonic projection used by
-    SphericalViT.  Attention uses standard SDPA without a relative position bias.
-
-    **Training recipe** (identical to SphericalViT):
-
-    1. Set ``weight_decay = 0``.
-    2. After each optimiser step call ``model.norm_weights_()`` to keep
-       :class:`NormLinear` weight rows and the PE table on the sphere.
-    3. Higher learning rates (3–5×) are safe compared with a standard ViT.
+    All token representations live on the unit hypersphere at every layer.
+    Positional encoding is a table of unit-norm vectors stored as the weight
+    rows of a NormLinear(embed_dim, num_patches) layer, exactly as in the
+    reference nViT implementation.
 
     Args:
-        img_size: Input image resolution (square assumed).
-        patch_size: Patch side length in pixels.
-        in_chans: Number of input channels.
-        embed_dim: Transformer embedding dimension *d*.
-        depth: Number of transformer blocks *L*.
-        num_heads: Number of attention heads.
-        mlp_ratio: FFN hidden-dim expansion (SwiGLU convention: actual width
-            is ``int(embed_dim * mlp_ratio * 2/3)``).
-        drop_rate: Dropout inside MLP and attention output projection.
+        img_size:       Input image resolution (square assumed).
+        patch_size:     Patch side length in pixels.
+        in_chans:       Number of input channels.
+        embed_dim:      Transformer embedding dimension d.
+        depth:          Number of transformer blocks.
+        num_heads:      Number of attention heads.
+        mlp_ratio:      Nominal FFN hidden-dim expansion (SwiGLU actual width
+                        is int(embed_dim * mlp_ratio * 2/3)).
+        drop_rate:      Dropout inside MLP and attention output projection.
         attn_drop_rate: Dropout applied to attention weights.
-        num_classes: If > 0, add GAP + NormLinear head → ``(B, num_classes)``
-            for LeJEPA.  Set to 0 to return ``(B, num_patches, embed_dim)``
-            for I-JEPA.
-        alpha_init: Initial effective eigen learning rate for spherical residuals.
-            Defaults to ``1/depth`` (nGPT recommendation).
+        num_classes:    If > 0, adds GAP + NormLinear head returning
+                        (B, num_classes) for LeJEPA. Set to 0 to return patch
+                        tokens (B, num_patches, embed_dim) for I-JEPA.
+        alpha_init:     Initial eigen learning rate for spherical residuals.
+                        Defaults to 1/depth.
         qkv_bias, qk_scale, drop_path_rate, norm_layer, init_std,
-        sh_max_degree, use_sph_attn_bias, sph_attn_num_bins: Accepted for
-            config drop-in compatibility with SphericalViT; all are ignored.
+        sh_max_degree, use_sph_attn_bias, sph_attn_num_bins:
+                        Accepted for drop-in compatibility with SphericalViT
+                        configs; all are silently ignored.
     """
 
     def __init__(
@@ -172,7 +185,7 @@ class NormalizedViT(nn.Module):
         attn_drop_rate: float = 0.0,
         num_classes: int = 0,
         alpha_init: float | None = None,
-        # SphericalViT-compatible kwargs — accepted but ignored:
+        # SphericalViT-compatible kwargs, accepted but ignored:
         qkv_bias: bool = True,
         qk_scale: float | None = None,
         drop_path_rate: float = 0.0,
@@ -183,55 +196,62 @@ class NormalizedViT(nn.Module):
         sph_attn_num_bins: int = 64,
     ) -> None:
         super().__init__()
-        self.num_features = self.embed_dim = embed_dim
-        self.num_heads = num_heads
-        self.num_classes = num_classes
 
-        img_h, img_w = _to_2tuple(img_size)
-        self.patch_embed = PatchEmbed(
-            img_size=img_size, patch_size=patch_size, in_chans=in_chans, embed_dim=embed_dim
-        )
+        if isinstance(img_size, Sequence):
+            img_h, img_w = img_size[0], img_size[1]
+        else:
+            img_h = img_w = img_size
+
+        patch_dim   = in_chans * patch_size * patch_size
         num_patches = (img_h // patch_size) * (img_w // patch_size)
 
-        # Learned unit-norm PE table: shape (num_patches, embed_dim)
-        self.pos_emb = nn.Parameter(torch.randn(num_patches, embed_dim))
-        with torch.no_grad():
-            self.pos_emb.copy_(F.normalize(self.pos_emb, dim=-1))
+        self.num_features = self.embed_dim = embed_dim
+        self.num_heads    = num_heads
+        self.num_classes  = num_classes
+        self.patch_size   = patch_size
+        # scale = sqrt(embed_dim), used to restore alpha and logit magnitude.
+        self.scale        = embed_dim ** 0.5
 
-        _alpha = (1.0 / depth) if alpha_init is None else alpha_init
-        self.blocks = nn.ModuleList([
-            NViTBlock(
-                dim=embed_dim,
-                num_heads=num_heads,
-                mlp_ratio=mlp_ratio,
-                attn_drop=attn_drop_rate,
-                drop=drop_rate,
-                alpha_init=_alpha,
-            )
-            for _ in range(depth)
-        ])
+        # Linear patch projection; columns of weight are unit-norm (norm_dim_in=False).
+        self.to_patch_embedding = NormLinear(patch_dim, embed_dim, norm_dim_in=False)
+
+        # PE table: weight rows are unit-norm PE vectors, one per patch position.
+        # Weight shape is (num_patches, embed_dim); row i is the PE for position i.
+        self.abs_pos_emb = NormLinear(embed_dim, num_patches)
+
+        # Default alpha follows the nGPT recommendation of 1/depth.
+        residual_lerp_scale_init = (1.0 / depth) if alpha_init is None else alpha_init
+
+        dim_head  = embed_dim // num_heads
+        dim_inner = int(embed_dim * mlp_ratio)
+
+        self.layers = nn.ModuleList([])
+        self.residual_lerp_scales = nn.ParameterList([])
+
+        for _ in range(depth):
+            self.layers.append(nn.ModuleList([
+                Attention(embed_dim, dim_head=dim_head, heads=num_heads, dropout=attn_drop_rate),
+                FeedForward(embed_dim, dim_inner=dim_inner, dropout=drop_rate),
+            ]))
+            # Alpha stored divided by scale; restored in forward to keep parameter magnitudes small.
+            self.residual_lerp_scales.append(nn.ParameterList([
+                nn.Parameter(torch.ones(embed_dim) * residual_lerp_scale_init / self.scale),
+                nn.Parameter(torch.ones(embed_dim) * residual_lerp_scale_init / self.scale),
+            ]))
 
         if num_classes > 0:
-            self.head = NormLinear(embed_dim, num_classes)
-            self._sz_restore = math.sqrt(num_classes)
-            self.logit_scale = nn.Parameter(
-                torch.full((num_classes,), num_classes ** -0.5)
-            )
+            self.logit_scale = nn.Parameter(torch.ones(num_classes))
+            self.to_pred     = NormLinear(embed_dim, num_classes)
         else:
-            self.head = None
             self.logit_scale = None
-            self._sz_restore = 1.0
+            self.to_pred     = None
 
+    @torch.no_grad()
     def norm_weights_(self) -> None:
-        """Snap all NormLinear weight rows and the PE table back to unit norm.
-
-        Call after every optimiser step.
-        """
-        with torch.no_grad():
-            self.pos_emb.copy_(F.normalize(self.pos_emb, dim=-1))
-        for m in self.modules():
-            if isinstance(m, NormLinear):
-                m.norm_weights_()
+        # Snap all NormLinear parameters back to unit norm after each optimizer step.
+        for module in self.modules():
+            if isinstance(module, NormLinear):
+                module.norm_weights_()
 
     def forward(
         self,
@@ -240,33 +260,43 @@ class NormalizedViT(nn.Module):
     ) -> torch.Tensor:
         """
         Args:
-            x: ``(B, C, H, W)`` image tensor.
+            x:     (B, C, H, W) image tensor.
             masks: Optional index masks for I-JEPA token masking.
 
         Returns:
-            ``(B, num_classes)`` when ``num_classes > 0`` (LeJEPA mode), or
-            ``(B, num_patches, embed_dim)`` when ``num_classes == 0`` (I-JEPA mode).
-            Output tokens are unit-norm vectors on S^{d-1}.
+            (B, num_classes) when num_classes > 0 (LeJEPA mode), or
+            (B, num_patches, embed_dim) when num_classes == 0 (I-JEPA mode).
         """
         if masks is not None and not isinstance(masks, list):
             masks = [masks]
 
-        # Step 1: extract patch tokens, add unit-norm PE, project onto S^{d-1}
-        x = self.patch_embed(x)
-        pos_emb = F.normalize(self.pos_emb, dim=-1)
-        x = l2norm(x + pos_emb)
+        B, C, H, W = x.shape
+        p = self.patch_size
 
-        # Step 2: (optional) keep only context/target subsets for I-JEPA masking
+        # Rearrange image into flat patch vectors: (B, num_patches, C*p*p).
+        tokens = x.reshape(B, C, H // p, p, W // p, p)
+        tokens = tokens.permute(0, 2, 4, 1, 3, 5).reshape(B, (H // p) * (W // p), C * p * p)
+        tokens = self.to_patch_embedding(tokens)
+
+        # Fetch PE vectors for the current sequence length and project to unit norm.
+        seq_len = tokens.shape[1]
+        pos_emb = self.abs_pos_emb.weight[torch.arange(seq_len, device=x.device)]
+        tokens  = l2norm(tokens + pos_emb)
+
         if masks is not None:
-            x = apply_masks(x, masks)
+            tokens = apply_masks(tokens, masks)
 
-        # Step 3: pass through all transformer blocks; each keeps tokens on S^{d-1}
-        for block in self.blocks:
-            x = block(x)
+        for (attn, ff), (attn_alpha, ff_alpha) in zip(self.layers, self.residual_lerp_scales):
+            # Spherical LERP residual: interpolate on the unit hypersphere.
+            attn_out = l2norm(attn(tokens))
+            tokens   = l2norm(tokens.lerp(attn_out, attn_alpha * self.scale))
 
-        if self.head is not None:
-            # Step 4 (LeJEPA): global average pool, re-normalise, apply head with temperature
-            x = l2norm(x.mean(dim=1))
-            x = self.head(x) * (self.logit_scale * self._sz_restore)
+            ff_out = l2norm(ff(tokens))
+            tokens = l2norm(tokens.lerp(ff_out, ff_alpha * self.scale))
 
-        return x
+        if self.to_pred is not None:
+            # LeJEPA mode: global average pool, re-normalize, then classify.
+            pooled = l2norm(tokens.mean(dim=1))
+            return self.to_pred(pooled) * self.logit_scale * self.scale
+
+        return tokens

@@ -13,7 +13,7 @@ import torch.nn.functional as F
 from lightning import LightningModule
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 
-from src.losses import align_loss, invariance_loss, sfrik_loss, sigreg_loss, uniform_loss
+from src.losses import invariance_loss, sigreg_loss, subreg_loss, susreg_loss
 
 
 class LeJEPAModule(LightningModule):
@@ -22,6 +22,14 @@ class LeJEPAModule(LightningModule):
     The module composes a Hydra-instantiated image encoder with a projector head.
     The encoder can be any ``nn.Module`` as long as it maps flattened image views
     ``(N * V, C, H, W)`` to embeddings ``(N * V, embedding_dim)``.
+
+    Supported loss types
+    --------------------
+    sigreg : Sketched Isotropic Gaussian Regularization (original LeJEPA).
+    susreg : Sketched Uniform Spherical Regularization (SPHERE-JEPA).
+    subreg : Subspace Gaussian Regularization (Sub-JEPA). Requires
+             ``num_subspaces`` to be set. Uses frozen orthonormal projection
+             matrices registered as a buffer.
     """
 
     def __init__(
@@ -35,11 +43,7 @@ class LeJEPAModule(LightningModule):
         num_classes: int = 10,
         lamb: float = 0.02,
         loss_type: str = "sigreg",
-        alpha: float = 2.0,
-        t: float = 2.0,
-        b1: float = 1.0,
-        b2: float = 40.0,
-        b3: float = 40.0,
+        num_subspaces: int = 4,
         num_global_crops: int | None = None,
         use_online_probe: bool = True,
         probe_lr: float = 1e-3,
@@ -61,17 +65,33 @@ class LeJEPAModule(LightningModule):
         self.num_classes = num_classes
         self.lamb = lamb
         self.loss_type = loss_type
-        self.alpha = alpha
-        self.t = t
-        self.b1 = b1
-        self.b2 = b2
-        self.b3 = b3
+        self.num_subspaces = num_subspaces
         self.num_global_crops = num_global_crops
         self.use_online_probe = use_online_probe
         self.probe_lr = probe_lr
         self.probe_weight_decay = probe_weight_decay
         self.warmup_epochs = warmup_epochs
         self.compile_model = compile
+
+        # Sub-JEPA: frozen row-orthonormal projection matrices (K, ds, D).
+        # Initialised on CPU here; Lightning moves them to the correct device
+        # automatically when the module is transferred.
+        if loss_type == "subreg":
+            K  = num_subspaces
+            ds = projection_dim // K
+            if ds < 1:
+                raise ValueError(
+                    f"num_subspaces={K} is too large for projection_dim={projection_dim}; "
+                    f"need num_subspaces ≤ projection_dim."
+                )
+            matrices = []
+            for _ in range(K):
+                g = torch.randn(projection_dim, ds)
+                q, _ = torch.linalg.qr(g)   # (D, ds) with orthonormal columns
+                matrices.append(q.T)         # (ds, D) with orthonormal rows
+            self.register_buffer("proj_matrices", torch.stack(matrices, dim=0))
+        else:
+            self.register_buffer("proj_matrices", None)
 
     def encode(self, views: torch.Tensor) -> torch.Tensor:
         """Encode multi-view images into embeddings.
@@ -121,28 +141,30 @@ class LeJEPAModule(LightningModule):
             views: Tensor shaped ``(N, V, C, H, W)``.
 
         Returns:
-            Dictionary containing:
             Backbone embeddings shaped ``(N * V, embedding_dim)`` and scalar loss metrics.
         """
         emb, proj = self.forward(views)
 
-        inv_loss = invariance_loss(proj, num_global=self.num_global_crops)
+        # For SPHERE-JEPA both the invariance and regularisation losses operate on
+        # normalised embeddings (approximating squared geodesic distance).
+        proj_for_inv = F.normalize(proj, dim=-1) if self.loss_type == "susreg" else proj
+
+        inv_loss = invariance_loss(proj_for_inv, num_global=self.num_global_crops)
 
         reg_metrics: dict[str, torch.Tensor] = {}
         if self.loss_type == "sigreg":
             reg = sigreg_loss(proj)
             reg_metrics["sigreg_loss"] = reg
-        elif self.loss_type == "auh":
-            a_loss = align_loss(proj, alpha=self.alpha)
-            u_loss = uniform_loss(proj, t=self.t)
-            reg = a_loss + u_loss
-            reg_metrics["align_loss"] = a_loss
-            reg_metrics["uniform_loss"] = u_loss
-        elif self.loss_type == "sfrik":
-            reg = sfrik_loss(proj, b1=self.b1, b2=self.b2, b3=self.b3)
-            reg_metrics["sfrik_loss"] = reg
+        elif self.loss_type == "susreg":
+            reg = susreg_loss(proj)
+            reg_metrics["susreg_loss"] = reg
+        elif self.loss_type == "subreg":
+            reg = subreg_loss(proj, self.proj_matrices)
+            reg_metrics["subreg_loss"] = reg
         else:
-            raise ValueError(f"Unknown loss_type: {self.loss_type!r}. Choose 'sigreg', 'auh', or 'sfrik'.")
+            raise ValueError(
+                f"Unknown loss_type: {self.loss_type!r}. Choose 'sigreg', 'susreg', or 'subreg'."
+            )
 
         lejepa_loss = reg * self.lamb + inv_loss * (1.0 - self.lamb)
 
@@ -152,7 +174,7 @@ class LeJEPAModule(LightningModule):
             norm_mean = z_all.norm(dim=1).mean()
             mean = z_all.mean(dim=0)
             z_centered = z_all - mean
-            cov = z_centered.T @ z_centered / (z_all.size(0) - 1)  # (D, D)
+            cov = z_centered.T @ z_centered / (z_all.size(0) - 1)
             cov_diag = torch.diag(cov)
             cov_offdiag = cov - torch.diag(cov_diag)
             mean_abs = mean.abs().mean()
@@ -186,16 +208,17 @@ class LeJEPAModule(LightningModule):
         self.log("train/invariance_loss", metrics["invariance_loss"], sync_dist=True, on_step=True, on_epoch=True)
         self.log("train/loss", metrics["loss"], prog_bar=True, sync_dist=True, on_step=True, on_epoch=True)
         self.log("train/inv_contrib", metrics["inv_contrib"], sync_dist=True, on_step=True, on_epoch=True)
+
         if self.loss_type == "sigreg":
             self.log("train/sigreg_loss", metrics["sigreg_loss"], sync_dist=True, on_step=True, on_epoch=True)
-            self.log("train/sigreg_contrib", metrics["reg_contrib"], sync_dist=True, on_step=True, on_epoch=True)
-        elif self.loss_type == "auh":
-            self.log("train/align_loss", metrics["align_loss"], sync_dist=True, on_step=True, on_epoch=True)
-            self.log("train/uniform_loss", metrics["uniform_loss"], sync_dist=True, on_step=True, on_epoch=True)
-            self.log("train/auh_contrib", metrics["reg_contrib"], sync_dist=True, on_step=True, on_epoch=True)
-        elif self.loss_type == "sfrik":
-            self.log("train/sfrik_loss", metrics["sfrik_loss"], sync_dist=True, on_step=True, on_epoch=True)
-            self.log("train/sfrik_contrib", metrics["reg_contrib"], sync_dist=True, on_step=True, on_epoch=True)
+            self.log("train/reg_contrib", metrics["reg_contrib"], sync_dist=True, on_step=True, on_epoch=True)
+        elif self.loss_type == "susreg":
+            self.log("train/susreg_loss", metrics["susreg_loss"], sync_dist=True, on_step=True, on_epoch=True)
+            self.log("train/reg_contrib", metrics["reg_contrib"], sync_dist=True, on_step=True, on_epoch=True)
+        elif self.loss_type == "subreg":
+            self.log("train/subreg_loss", metrics["subreg_loss"], sync_dist=True, on_step=True, on_epoch=True)
+            self.log("train/reg_contrib", metrics["reg_contrib"], sync_dist=True, on_step=True, on_epoch=True)
+
         self.log("train/std_mean", metrics["std_mean"], sync_dist=True, on_step=True, on_epoch=True)
         self.log("train/norm_mean", metrics["norm_mean"], sync_dist=True, on_step=True, on_epoch=True)
         self.log("train/mean_abs", metrics["mean_abs"], sync_dist=True, on_step=True, on_epoch=True)
@@ -259,7 +282,7 @@ class LeJEPAModule(LightningModule):
         )
 
         optimizer = self.optimizer_fn(params=param_groups)
-        scheduler = self._build_scheduler(optimizer)  # TODO: this should be configurable as well
+        scheduler = self._build_scheduler(optimizer)
         return {
             "optimizer": optimizer,
             "lr_scheduler": {

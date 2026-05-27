@@ -10,15 +10,10 @@ num_classes: 10
 
 lamb: 0.02
 
-# Regularization type: "sigreg" | "auh" | "sfrik"
+# Regularization type: "sigreg" | "susreg" | "subreg"
 loss_type: sigreg
-# AUH (Wang & Isola, ICML 2020) hyper-parameters
-alpha: 2.0
-t: 2.0
-# SFRIK (Zheng et al., ICLR 2023) hyper-parameters
-b1: 1.0
-b2: 40.0
-b3: 40.0
+# Sub-JEPA (Zhao et al., arXiv:2605.09241) hyper-parameters
+num_subspaces: 4
 
 num_global_crops: null
 use_online_probe: true

@@ -10,15 +10,16 @@ All functions accept projections in (V, N, D) layout — V views, N samples,
 D embedding dimension — which is the uniform interface across all encoders.
 
 invariance_loss  -- pulls every view toward the mean of the reference views
-sigreg_loss      -- Sketched Isotropic Gaussian Regularization (SIGReg)
+sigreg_loss      -- Sketched Isotropic Gaussian Regularization (SIGReg / LeJEPA)
+susreg_loss      -- Sketched Uniform Spherical Regularization (SUSReg / SPHERE-JEPA)
+subreg_loss      -- Subspace Gaussian Regularization (Sub-JEPA)
 nt_xent_loss     -- Normalised Temperature-scaled Cross Entropy (SimCLR)
-align_loss       -- AUH alignment: mean L2^alpha distance over positive pairs (Wang & Isola, ICML 2020)
-uniform_loss     -- AUH uniformity: log Gaussian potential kernel (Wang & Isola, ICML 2020)
-sfrik_loss       -- SFRIK uniformity: truncated rotation-invariant kernel MMD (Zheng et al., ICLR 2023)
 """
 
+import numpy as np
 import torch
 import torch.nn.functional as F
+from numpy.polynomial.legendre import leggauss
 
 
 def invariance_loss(proj: torch.Tensor, num_global: int | None = None) -> torch.Tensor:
@@ -39,7 +40,7 @@ def invariance_loss(proj: torch.Tensor, num_global: int | None = None) -> torch.
 
 
 def sigreg_loss(proj: torch.Tensor, knots: int = 17) -> torch.Tensor:
-    """SIGReg: Sketched Isotropic Gaussian Regularization.
+    """SIGReg: Sketched Isotropic Gaussian Regularization (LeJEPA).
 
     Enforces an isotropic Gaussian distribution on projection embeddings via
     the Epps-Pulley characteristic function test along random 1-D projections.
@@ -72,78 +73,131 @@ def sigreg_loss(proj: torch.Tensor, knots: int = 17) -> torch.Tensor:
     return ((err @ weights) * proj.size(-2)).mean()
 
 
-def align_loss(proj: torch.Tensor, alpha: float = 2.0) -> torch.Tensor:
-    """L_align from Wang & Isola (ICML 2020): mean L2^alpha over positive (same-sample) view pairs.
+def _rho_d_cf(t: torch.Tensor, d: int, n_quad: int = 64) -> torch.Tensor:
+    """Characteristic function of the spherical projection density ρ_d.
+
+    For X ~ Unif(S^{d-1}) and a ∈ S^{d-1}, the scalar a^T X has density
+    ρ_d(s) ∝ (1 - s^2)^{(d-3)/2} on (-1, 1). The CF is real by symmetry.
+    Computed via Gauss-Legendre quadrature on [-1, 1].
 
     Parameters
     ----------
-    proj  : (V, N, D) — stacked projections from all views
-    alpha : exponent (default 2); original paper uses alpha=2
+    t     : (knots,) integration points at which to evaluate φ_{ρ_d}
+    d     : dimension of the hypersphere S^{d-1} (d ≥ 2)
+    n_quad: number of Gauss-Legendre quadrature nodes
+
+    Returns
+    -------
+    phi : (knots,) real-valued CF of ρ_d, float32, on the same device as t.
+    """
+    x_np, w_np = leggauss(n_quad)
+    x = torch.tensor(x_np, dtype=torch.float32, device=t.device)   # (n_quad,)
+    w = torch.tensor(w_np, dtype=torch.float32, device=t.device)   # (n_quad,)
+
+    exponent = (d - 3) / 2.0
+    density = (1.0 - x.square()).clamp(min=0.0).pow(exponent)      # (n_quad,)
+    norm = (density * w).sum()
+
+    # φ(t) = E[cos(t·s)] = ∫ cos(t·s) ρ_d(s) ds / ∫ ρ_d(s) ds
+    cos_vals = torch.cos(t.unsqueeze(-1) * x.unsqueeze(0))         # (knots, n_quad)
+    phi = (cos_vals * (density * w).unsqueeze(0)).sum(-1) / norm   # (knots,)
+    return phi
+
+
+def susreg_loss(proj: torch.Tensor, knots: int = 17) -> torch.Tensor:
+    """SUSReg: Sketched Uniform Spherical Regularization (SPHERE-JEPA).
+
+    Enforces uniformity on S^{d-1} by testing, via the Epps-Pulley statistic,
+    that L2-normalised projections match the spherical projection density ρ_d
+    rather than the Gaussian prior used by SIGReg. Uses a Gaussian integration
+    weight w(t) = e^{-t²/2} independently of the target CF.
+
+    For d > 256 the central-limit approximation ρ_d ≈ N(0, 1/d) is used.
+
+    Reference: Nicollier et al., "SPHERE-JEPA", arXiv 2605.26900 (2026).
+
+    Parameters
+    ----------
+    proj  : (V, N, D) — stacked projections from all views (any dtype)
+    knots : number of integration knots (default 17)
 
     Returns
     -------
     Scalar tensor (float32).
     """
-    z = F.normalize(proj.float(), dim=-1)
-    V = z.shape[0]
-    idx = torch.triu_indices(V, V, offset=1, device=z.device)
-    diffs = z[idx[0]] - z[idx[1]]          # (num_pairs, N, D)
-    return diffs.norm(p=2, dim=-1).pow(alpha).mean()
+    proj   = F.normalize(proj.float(), dim=-1)   # project to S^{d-1}
+    device = proj.device
+    d      = proj.shape[-1]
+
+    t  = torch.linspace(0, 3, knots, device=device)
+    dt = 3.0 / (knots - 1)
+    trap    = torch.full((knots,), 2.0 * dt, device=device)
+    trap[[0, -1]] = dt
+    gauss_w = torch.exp(-t.square() / 2.0)   # integration weight w(t)
+    weights = trap * gauss_w
+
+    with torch.no_grad():
+        phi_Y = (
+            torch.exp(-t.square() / (2.0 * d))   # Gaussian approx for large d
+            if d > 256
+            else _rho_d_cf(t, d)
+        )
+
+    A   = torch.randn(d, 256, device=device)
+    A   = A.div_(A.norm(p=2, dim=0))
+    x_t = (proj @ A).unsqueeze(-1) * t          # (V, N, 256, knots)
+    err = (x_t.cos().mean(-3) - phi_Y).square() + x_t.sin().mean(-3).square()
+    return ((err @ weights) * proj.size(-2)).mean()
 
 
-def uniform_loss(proj: torch.Tensor, t: float = 2.0) -> torch.Tensor:
-    """L_uniform from Wang & Isola (ICML 2020): log average Gaussian potential on S^{d-1}.
-
-    Parameters
-    ----------
-    proj : (V, N, D) — stacked projections from all views
-    t    : bandwidth of the Gaussian kernel (default 2)
-
-    Returns
-    -------
-    Scalar tensor (float32).
-    """
-    z = F.normalize(proj.float().flatten(0, 1), dim=-1)   # (V*N, D)
-    sq_pdist = torch.pdist(z, p=2).pow(2)                 # N*(N-1)/2 unique pairs
-    return sq_pdist.mul(-t).exp().mean().log()
-
-
-def sfrik_loss(
+def subreg_loss(
     proj: torch.Tensor,
-    b1: float = 1.0,
-    b2: float = 40.0,
-    b3: float = 40.0,
+    proj_matrices: torch.Tensor,
+    knots: int = 17,
 ) -> torch.Tensor:
-    """SFRIK uniformity loss from Zheng et al. (ICLR 2023).
+    """SubReg: Subspace Gaussian Regularization (Sub-JEPA).
 
-    Truncated rotation-invariant kernel MMD on S^{d-1} using the first three
-    zonal spherical harmonics (Legendre polynomials P1, P2, P3):
+    Applies the Epps-Pulley Gaussian test independently in K frozen orthonormal
+    subspaces rather than the full ambient space. Each subspace uses its own
+    random sketch direction set, matching the regularisation to the intrinsic
+    dimensionality of the representation manifold.
 
-        k(z, z') = b1·P1(u) + b2·P2(u) + b3·P3(u)
-
-    where u = z^T z' and the polynomials are the dimension-q Gegenbauer variants:
-        P1(u) = u
-        P2(u) = (q·u² - 1) / (q - 1)
-        P3(u) = ((q+2)·u³ - 3u) / (q - 1)
+    Reference: Zhao et al., "Sub-JEPA", arXiv 2605.09241 (2026).
 
     Parameters
     ----------
-    proj : (V, N, D) — stacked projections from all views
-    b1   : weight on the degree-1 term (default 1.0)
-    b2   : weight on the degree-2 term (default 40.0)
-    b3   : weight on the degree-3 term (default 40.0)
+    proj         : (V, N, D) — stacked projections from all views
+    proj_matrices: (K, ds, D) — frozen row-orthonormal projection matrices,
+                   registered as a buffer on LeJEPAModule
+    knots        : number of integration knots (default 17)
 
     Returns
     -------
     Scalar tensor (float32).
     """
-    z = F.normalize(proj.float().flatten(0, 1), dim=-1)   # (V*N, D)
-    q = z.shape[-1]
-    gram = z @ z.T                                         # (V*N, V*N)
-    p1 = gram
-    p2 = (q * gram.square() - 1) / (q - 1)
-    p3 = ((q + 2) * gram.pow(3) - 3 * gram) / (q - 1)
-    return (b1 * p1 + b2 * p2 + b3 * p3).mean()
+    proj = proj.float()
+    V, N, D = proj.shape
+    K, ds, _ = proj_matrices.shape
+    device   = proj.device
+
+    t       = torch.linspace(0, 3, knots, device=device)
+    dt      = 3.0 / (knots - 1)
+    weights = torch.full((knots,), 2.0 * dt, device=device)
+    weights[[0, -1]] = dt
+    phi     = torch.exp(-t.square() / 2.0)
+    weights = weights * phi
+
+    # Project into each subspace: result[k,v,n,m] = Σ_d proj[v,n,d] * P[k,m,d]
+    z_sub = torch.einsum('vnd,kmd->kvnm', proj, proj_matrices)   # (K, V, N, ds)
+
+    # Random sketch directions in R^{ds}, one shared set across subspaces
+    A = torch.randn(ds, 256, device=device)
+    A = A.div_(A.norm(p=2, dim=0))                               # (ds, 256)
+
+    scalars = z_sub @ A                                           # (K, V, N, 256)
+    x_t = scalars.unsqueeze(-1) * t                              # (K, V, N, 256, knots)
+    err = (x_t.cos().mean(-3) - phi).square() + x_t.sin().mean(-3).square()
+    return ((err @ weights) * N).mean()
 
 
 def nt_xent_loss(proj: torch.Tensor, temperature: float = 0.07) -> torch.Tensor:
@@ -168,10 +222,8 @@ def nt_xent_loss(proj: torch.Tensor, temperature: float = 0.07) -> torch.Tensor:
     z   = torch.cat([z1, z2], dim=0)            # (2N, D)
     sim = (z @ z.T) / temperature               # (2N, 2N)
 
-    # Mask self-similarities so they never become the argmax
     sim.fill_diagonal_(float('-inf'))
 
-    # Positive pair for sample i in [0,N) is i+N, and vice-versa
     labels = torch.cat([
         torch.arange(N, 2 * N, device=proj.device),
         torch.arange(0, N,     device=proj.device),
