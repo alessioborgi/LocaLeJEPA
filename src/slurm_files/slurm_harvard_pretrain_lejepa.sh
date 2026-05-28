@@ -2,7 +2,7 @@
 #SBATCH -J BundLeJEPA
 #SBATCH -p gpu,gpu_h200,gpu_requeue,hsph_gpu,hsph_gpu
 #SBATCH -c 8
-#SBATCH -t 1-00:00
+#SBATCH -t 3-00:00
 #SBATCH --mem=64000
 #SBATCH --gres=gpu:1
 #SBATCH --constraint=a100

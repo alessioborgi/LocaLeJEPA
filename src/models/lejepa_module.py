@@ -87,8 +87,10 @@ class LeJEPAModule(LightningModule):
             matrices = []
             for _ in range(K):
                 g = torch.randn(projection_dim, ds)
-                q, _ = torch.linalg.qr(g)   # (D, ds) with orthonormal columns
-                matrices.append(q.T)         # (ds, D) with orthonormal rows
+                # QR gives Q with orthonormal columns: (D, ds).
+                q, _ = torch.linalg.qr(g)
+                # Transpose to get orthonormal rows: (ds, D).
+                matrices.append(q.T)
             self.register_buffer("proj_matrices", torch.stack(matrices, dim=0))
         else:
             self.register_buffer("proj_matrices", None)
@@ -166,10 +168,12 @@ class LeJEPAModule(LightningModule):
                 f"Unknown loss_type: {self.loss_type!r}. Choose 'sigreg', 'susreg', or 'subreg'."
             )
 
+        # Weighted combination: loss = lamb * reg + (1 - lamb) * inv.
         lejepa_loss = reg * self.lamb + inv_loss * (1.0 - self.lamb)
 
         with torch.no_grad():
-            z_all = proj.flatten(0, 1)  # (N*V, D)
+            # Flatten views into a single batch for covariance diagnostics: (N*V, D).
+            z_all = proj.flatten(0, 1)
             std_mean = z_all.std(dim=0).mean()
             norm_mean = z_all.norm(dim=1).mean()
             mean = z_all.mean(dim=0)
@@ -268,7 +272,7 @@ class LeJEPAModule(LightningModule):
 
     def optimizer_step(self, *args: Any, **kwargs: Any) -> None:
         super().optimizer_step(*args, **kwargs)
-        # nGPT: snap NormLinear weight rows back to S^{d-1} after every optimiser update
+        # nGPT: keep encoder weight rows on the unit hypersphere after each optimizer step.
         if hasattr(self.encoder, "norm_weights_"):
             self.encoder.norm_weights_()
 
