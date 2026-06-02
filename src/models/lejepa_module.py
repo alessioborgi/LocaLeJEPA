@@ -35,8 +35,8 @@ class LeJEPAModule(LightningModule):
     def __init__(
         self,
         encoder: nn.Module,
-        projector: nn.Module,
         optimizer: Callable[..., torch.optim.Optimizer],
+        projector: nn.Module | None = None,
         online_probe: nn.Module | None = None,
         embedding_dim: int = 512,
         projection_dim: int = 128,
@@ -56,7 +56,7 @@ class LeJEPAModule(LightningModule):
         self.save_hyperparameters(ignore=["encoder", "projector", "online_probe", "optimizer"], logger=False)
 
         self.encoder = encoder
-        self.projector = projector
+        self.projector = projector if projector is not None else nn.Identity()
         self.online_probe = online_probe if use_online_probe else None
         self.optimizer_fn = optimizer
 
@@ -77,12 +77,11 @@ class LeJEPAModule(LightningModule):
         # Initialised on CPU here; Lightning moves them to the correct device
         # automatically when the module is transferred.
         if loss_type == "subreg":
-            K  = num_subspaces
+            K = num_subspaces
             ds = projection_dim // K
             if ds < 1:
                 raise ValueError(
-                    f"num_subspaces={K} is too large for projection_dim={projection_dim}; "
-                    f"need num_subspaces ≤ projection_dim."
+                    f"num_subspaces={K} is too large for projection_dim={projection_dim}; need num_subspaces ≤ projection_dim."
                 )
             matrices = []
             for _ in range(K):
@@ -164,9 +163,7 @@ class LeJEPAModule(LightningModule):
             reg = subreg_loss(proj, self.proj_matrices)
             reg_metrics["subreg_loss"] = reg
         else:
-            raise ValueError(
-                f"Unknown loss_type: {self.loss_type!r}. Choose 'sigreg', 'susreg', or 'subreg'."
-            )
+            raise ValueError(f"Unknown loss_type: {self.loss_type!r}. Choose 'sigreg', 'susreg', or 'subreg'.")
 
         # Weighted combination: loss = lamb * reg + (1 - lamb) * inv.
         lejepa_loss = reg * self.lamb + inv_loss * (1.0 - self.lamb)
