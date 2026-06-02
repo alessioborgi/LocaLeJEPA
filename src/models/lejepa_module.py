@@ -234,10 +234,11 @@ class LeJEPAModule(LightningModule):
 
         if self.online_probe is not None:
             labels = labels.to(emb.device, non_blocking=True)
-            y_rep = labels.repeat_interleave(views.shape[1])
-            y_hat = self.online_probe(emb.detach())
+            batch_size, num_views = views.shape[:2]
+            emb_first_view = emb.reshape(batch_size, num_views, self.embedding_dim)[:, 0]
+            y_hat = self.online_probe(emb_first_view.detach())
 
-            metrics["probe_loss"] = F.cross_entropy(y_hat, y_rep)
+            metrics["probe_loss"] = F.cross_entropy(y_hat, labels)
             self.log("train/probe_loss", metrics["probe_loss"], sync_dist=True, on_step=True, on_epoch=True)
             loss += metrics["probe_loss"]
 
