@@ -1,4 +1,4 @@
-# Sheaf Neural Networks – PyTorch Implementation
+# BundLeJEPA – Two Symmetries, One Bundle: Invariance and Equivariance Packaged Together
 
 A implementation of the paper "BundLeJEPA: .."
 
