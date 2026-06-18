@@ -1,4 +1,4 @@
-# Copyright (c) 2026 Pavel Snopov
+# Copyright (c) 2026 Alessio Borgi, Pavel Snopov, Kartik Tendon, Ines Garcia Redondo, Randall Balestriero, Claudio Battiloro
 # All rights reserved.
 #
 # This source code is licensed under the license found in the
@@ -13,7 +13,7 @@ import torch.nn.functional as F
 from lightning import LightningModule
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 
-from src.losses import invariance_loss, sigreg_loss, subreg_loss, susreg_loss
+from src.losses import invariance_loss, sigreg_loss
 
 
 class LeJEPAModule(LightningModule):
@@ -23,13 +23,8 @@ class LeJEPAModule(LightningModule):
     The encoder can be any ``nn.Module`` as long as it maps flattened image views
     ``(N * V, C, H, W)`` to embeddings ``(N * V, embedding_dim)``.
 
-    Supported loss types
-    --------------------
-    sigreg : Sketched Isotropic Gaussian Regularization (original LeJEPA).
-    susreg : Sketched Uniform Spherical Regularization (SPHERE-JEPA).
-    subreg : Subspace Gaussian Regularization (Sub-JEPA). Requires
-             ``num_subspaces`` to be set. Uses frozen orthonormal projection
-             matrices registered as a buffer.
+    The regularizer is Sketched Isotropic Gaussian Regularization (``sigreg``),
+    the original LeJEPA objective.
     """
 
     def __init__(
@@ -42,8 +37,6 @@ class LeJEPAModule(LightningModule):
         projection_dim: int = 128,
         num_classes: int = 10,
         lamb: float = 0.02,
-        loss_type: str = "sigreg",
-        num_subspaces: int = 4,
         num_global_crops: int | None = None,
         use_online_probe: bool = True,
         probe_lr: float = 1e-3,
@@ -64,35 +57,12 @@ class LeJEPAModule(LightningModule):
         self.projection_dim = projection_dim
         self.num_classes = num_classes
         self.lamb = lamb
-        self.loss_type = loss_type
-        self.num_subspaces = num_subspaces
         self.num_global_crops = num_global_crops
         self.use_online_probe = use_online_probe
         self.probe_lr = probe_lr
         self.probe_weight_decay = probe_weight_decay
         self.warmup_epochs = warmup_epochs
         self.compile_model = compile
-
-        # Sub-JEPA: frozen row-orthonormal projection matrices (K, ds, D).
-        # Initialised on CPU here; Lightning moves them to the correct device
-        # automatically when the module is transferred.
-        if loss_type == "subreg":
-            K = num_subspaces
-            ds = projection_dim // K
-            if ds < 1:
-                raise ValueError(
-                    f"num_subspaces={K} is too large for projection_dim={projection_dim}; need num_subspaces ≤ projection_dim."
-                )
-            matrices = []
-            for _ in range(K):
-                g = torch.randn(projection_dim, ds)
-                # QR gives Q with orthonormal columns: (D, ds).
-                q, _ = torch.linalg.qr(g)
-                # Transpose to get orthonormal rows: (ds, D).
-                matrices.append(q.T)
-            self.register_buffer("proj_matrices", torch.stack(matrices, dim=0))
-        else:
-            self.register_buffer("proj_matrices", None)
 
     def encode(self, views: torch.Tensor) -> torch.Tensor:
         """Encode multi-view images into embeddings.
@@ -146,24 +116,8 @@ class LeJEPAModule(LightningModule):
         """
         emb, proj = self.forward(views)
 
-        # For SPHERE-JEPA both the invariance and regularisation losses operate on
-        # normalised embeddings (approximating squared geodesic distance).
-        proj_for_inv = F.normalize(proj, dim=-1) if self.loss_type == "susreg" else proj
-
-        inv_loss = invariance_loss(proj_for_inv, num_global=self.num_global_crops)
-
-        reg_metrics: dict[str, torch.Tensor] = {}
-        if self.loss_type == "sigreg":
-            reg = sigreg_loss(proj)
-            reg_metrics["sigreg_loss"] = reg
-        elif self.loss_type == "susreg":
-            reg = susreg_loss(proj)
-            reg_metrics["susreg_loss"] = reg
-        elif self.loss_type == "subreg":
-            reg = subreg_loss(proj, self.proj_matrices)
-            reg_metrics["subreg_loss"] = reg
-        else:
-            raise ValueError(f"Unknown loss_type: {self.loss_type!r}. Choose 'sigreg', 'susreg', or 'subreg'.")
+        inv_loss = invariance_loss(proj, num_global=self.num_global_crops)
+        reg = sigreg_loss(proj)
 
         # Weighted combination: loss = lamb * reg + (1 - lamb) * inv.
         lejepa_loss = reg * self.lamb + inv_loss * (1.0 - self.lamb)
@@ -188,6 +142,7 @@ class LeJEPAModule(LightningModule):
             "lejepa_loss": lejepa_loss,
             "invariance_loss": inv_loss,
             "reg_loss": reg,
+            "sigreg_loss": reg,
             "inv_contrib": inv_loss * (1.0 - self.lamb),
             "reg_contrib": reg * self.lamb,
             "std_mean": std_mean,
@@ -196,7 +151,6 @@ class LeJEPAModule(LightningModule):
             "cov_diag_mean": cov_diag_mean,
             "cov_offdiag_mean": cov_offdiag_mean,
             "cov_offdiag_sq_mean": cov_offdiag_sq_mean,
-            **reg_metrics,
         }
 
         return emb, metrics
@@ -209,16 +163,8 @@ class LeJEPAModule(LightningModule):
         self.log("train/invariance_loss", metrics["invariance_loss"], sync_dist=True, on_step=True, on_epoch=True)
         self.log("train/loss", metrics["loss"], prog_bar=True, sync_dist=True, on_step=True, on_epoch=True)
         self.log("train/inv_contrib", metrics["inv_contrib"], sync_dist=True, on_step=True, on_epoch=True)
-
-        if self.loss_type == "sigreg":
-            self.log("train/sigreg_loss", metrics["sigreg_loss"], sync_dist=True, on_step=True, on_epoch=True)
-            self.log("train/reg_contrib", metrics["reg_contrib"], sync_dist=True, on_step=True, on_epoch=True)
-        elif self.loss_type == "susreg":
-            self.log("train/susreg_loss", metrics["susreg_loss"], sync_dist=True, on_step=True, on_epoch=True)
-            self.log("train/reg_contrib", metrics["reg_contrib"], sync_dist=True, on_step=True, on_epoch=True)
-        elif self.loss_type == "subreg":
-            self.log("train/subreg_loss", metrics["subreg_loss"], sync_dist=True, on_step=True, on_epoch=True)
-            self.log("train/reg_contrib", metrics["reg_contrib"], sync_dist=True, on_step=True, on_epoch=True)
+        self.log("train/sigreg_loss", metrics["sigreg_loss"], sync_dist=True, on_step=True, on_epoch=True)
+        self.log("train/reg_contrib", metrics["reg_contrib"], sync_dist=True, on_step=True, on_epoch=True)
 
         self.log("train/std_mean", metrics["std_mean"], sync_dist=True, on_step=True, on_epoch=True)
         self.log("train/norm_mean", metrics["norm_mean"], sync_dist=True, on_step=True, on_epoch=True)

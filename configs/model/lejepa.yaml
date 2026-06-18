@@ -10,11 +10,6 @@ num_classes: 10
 
 lamb: 0.02
 
-# Regularization type: "sigreg" | "susreg" | "subreg"
-loss_type: sigreg
-# Sub-JEPA (Zhao et al., arXiv:2605.09241) hyper-parameters
-num_subspaces: 4
-
 num_global_crops: null
 use_online_probe: true
 probe_lr: 1e-3
