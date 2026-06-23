@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH -J BundLeJEPA
-#SBATCH -p gpu,gpu_h200,gpu_requeue,hsph_gpu,hsph_gpu
+#SBATCH -p gpu,gpu_h200,gpu_requeue
 #SBATCH -c 8
 #SBATCH -t 3-00:00
 #SBATCH --mem=64000
@@ -30,8 +30,14 @@
 # Regularization comparison — ImageNet-1K (SphericalViT-S/8, 800 epochs):
 #   svit_in1k_sigreg         : SphericalViT-S/8 + l_inv + l_sigreg  (SIGReg / LeJEPA)
 #
+# Regularization comparison — ImageNet-1K nViT-S/8 (800 epochs):
+#   nvit_in1k_sigreg         : nViT-S/8 + l_inv + l_sigreg  (SIGReg / LeJEPA)
+#   nvit_in1k_subreg         : nViT-S/8 + l_inv + l_subreg  (Sub-JEPA, Zhao et al. 2026)
+#   nvit_in1k_susreg         : nViT-S/8 + l_inv + l_susreg  (SPHERE-JEPA, Nicollier et al. 2026)
+#
 # Regularization comparison — Imagenette SphericalViT-S/8 (800 epochs):
 #   svit_imagenette_sigreg   : SphericalViT-S/8 + l_inv + l_sigreg  (SIGReg / LeJEPA)
+#   svit_imagenette_susreg   : SphericalViT-S/8 + l_inv + l_susreg  (SPHERE-JEPA, Nicollier et al. 2026)
 #
 # Regularization comparison — Imagenette nViT-S/8 (800 epochs):
 #   nvit_imagenette_sigreg   : nViT-S/8 + l_inv + l_sigreg  (SIGReg / LeJEPA)
@@ -117,8 +123,14 @@ if [[ -z "$RUN_MODE" ]]; then
   echo "  Regularization comparison — ImageNet-1K (SphericalViT-S/8, 800 ep):"
   echo "  svit_in1k_sigreg          SphericalViT-S/8  l_inv + l_sigreg (LeJEPA)"
   echo ""
+  echo "  Regularization comparison — ImageNet-1K nViT-S/8 (800 ep):"
+  echo "  nvit_in1k_sigreg          nViT-S/8          l_inv + l_sigreg (LeJEPA)"
+  echo "  nvit_in1k_subreg          nViT-S/8          l_inv + l_subreg (Sub-JEPA)"
+  echo "  nvit_in1k_susreg          nViT-S/8          l_inv + l_susreg (SPHERE-JEPA)"
+  echo ""
   echo "  Regularization comparison — Imagenette SphericalViT-S/8 (800 ep):"
   echo "  svit_imagenette_sigreg    SphericalViT-S/8  l_inv + l_sigreg (LeJEPA)"
+  echo "  svit_imagenette_susreg    SphericalViT-S/8  l_inv + l_susreg (SPHERE-JEPA)"
   echo ""
   echo "  Regularization comparison — Imagenette ViT-S/8 (800 ep):"
   echo "  vit_imagenette_sigreg     ViT-S/8           l_inv + l_sigreg (LeJEPA)"
@@ -143,7 +155,11 @@ case "$RUN_MODE" in
   phc_blob_ep250|\
   phc_gpm_ep250|\
   svit_in1k_sigreg|\
+  nvit_in1k_sigreg|\
+  nvit_in1k_subreg|\
+  nvit_in1k_susreg|\
   svit_imagenette_sigreg|\
+  svit_imagenette_susreg|\
   vit_imagenette_sigreg|\
   nvit_imagenette_sigreg|\
   nvit_imagenette_subreg|\
@@ -151,7 +167,7 @@ case "$RUN_MODE" in
     ;;
   *)
     echo "Unsupported RUN_MODE: $RUN_MODE"
-    echo "Valid options: rn18_stl10_ep500 | rn50_in100_ep500 | vits16_in100_ep500 | vits8_imagenette_ep800 | vits8_in1k_ep800 | svits16_in100_ep500 | svits8_imagenette_ep800 | svits8_in1k_ep800 | phc_blob_ep250 | phc_gpm_ep250 | svit_in1k_sigreg | svit_imagenette_sigreg | vit_imagenette_sigreg | nvit_imagenette_sigreg | nvit_imagenette_subreg | nvit_imagenette_susreg"
+    echo "Valid options: rn18_stl10_ep500 | rn50_in100_ep500 | vits16_in100_ep500 | vits8_imagenette_ep800 | vits8_in1k_ep800 | svits16_in100_ep500 | svits8_imagenette_ep800 | svits8_in1k_ep800 | phc_blob_ep250 | phc_gpm_ep250 | svit_in1k_sigreg | nvit_in1k_sigreg | nvit_in1k_subreg | nvit_in1k_susreg | svit_imagenette_sigreg | svit_imagenette_susreg | vit_imagenette_sigreg | nvit_imagenette_sigreg | nvit_imagenette_subreg | nvit_imagenette_susreg"
     exit 1
     ;;
 esac
@@ -198,11 +214,17 @@ fi
 RUN_CMD=(python src/train.py experiment="lejepa/${RUN_MODE}" logger=wandb)
 HYDRA_OVERRIDES=("${DEFAULT_PRETRAIN_HYDRA_OVERRIDES[@]}")
 
+# Pin checkpoints to a stable, run-named directory so the pretrained weights are
+# easy to locate afterwards for downstream linear probing (instead of the hydra
+# timestamped run dir). Saves best + last.ckpt under checkpoints/<RUN_MODE>/.
+HYDRA_OVERRIDES+=("callbacks.model_checkpoint.dirpath=${SLURM_SUBMIT_DIR}/checkpoints/${RUN_MODE}")
+
 # On this cluster ImageNet lives directly under imagenet/{train,val} — no imagenet_full_size/ subfolder.
 case "$RUN_MODE" in
   rn50_in100_ep500|vits16_in100_ep500|vits8_in1k_ep800|\
   svits16_in100_ep500|svits8_in1k_ep800|\
-  svit_in1k_sigreg)
+  svit_in1k_sigreg|\
+  nvit_in1k_sigreg|nvit_in1k_subreg|nvit_in1k_susreg)
     HYDRA_OVERRIDES+=("++data.image_folder=.")
     ;;
 esac
@@ -211,7 +233,7 @@ esac
 case "$RUN_MODE" in
   vits8_imagenette_ep800|\
   svits8_imagenette_ep800|\
-  svit_imagenette_sigreg|\
+  svit_imagenette_sigreg|svit_imagenette_susreg|\
   vit_imagenette_sigreg|\
   nvit_imagenette_sigreg|nvit_imagenette_subreg|nvit_imagenette_susreg)
     HYDRA_OVERRIDES+=("data.data_dir=${SLURM_SUBMIT_DIR}/data/imagenette")
@@ -225,7 +247,8 @@ case "$RUN_MODE" in
   rn50_in100_ep500|vits16_in100_ep500|vits8_in1k_ep800|vits8_imagenette_ep800|\
   svits16_in100_ep500|svits8_imagenette_ep800|svits8_in1k_ep800|\
   svit_in1k_sigreg|\
-  svit_imagenette_sigreg|\
+  nvit_in1k_sigreg|nvit_in1k_subreg|nvit_in1k_susreg|\
+  svit_imagenette_sigreg|svit_imagenette_susreg|\
   vit_imagenette_sigreg|\
   nvit_imagenette_sigreg|nvit_imagenette_subreg|nvit_imagenette_susreg)
     HYDRA_OVERRIDES+=("data.batch_size=64")
