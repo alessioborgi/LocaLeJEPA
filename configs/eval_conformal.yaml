@@ -1,0 +1,49 @@
+# Conformal-Autoencoder dimension detection on frozen JEPA features.
+# Replicates the bobblehead experiment of Kevrekidis et al., "Thinner Latent
+# Spaces" (arXiv:2408.16138, §3.3), using a frozen pretrained backbone in place
+# of the paper's PCA-60 front-end.  Run with:
+#     python eval_conformal.py --config configs/eval_conformal.yaml
+
+device: null            # null -> cuda if available else cpu
+crop_size: 128          # backbones were pretrained at 128px
+data_dir: data          # contains yoda_dog_images_and_labels.zip
+output_folder: logs/eval_conformal
+cache_dir: logs/eval_conformal/cache   # cache extracted features per backbone
+
+# Dataset options
+labels_name: null       # auto-detect labels.npy (the two rotation angles) inside the archive
+subsample: 2            # keep every k-th frame (1 = all 8097; 2 keeps ~4048). CPU-friendly.
+max_frames: null        # optionally cap the number of frames
+
+# Feature-extraction
+batch_size: 256
+num_workers: 8
+
+# The three frozen baselines to compare.
+backbones:
+  - name: svit_susreg
+    experiment: lejepa/svit_imagenette_susreg
+    checkpoint: checkpoints/svit_imagenette_susreg/last.ckpt
+  - name: nvit_sigreg
+    experiment: lejepa/nvit_imagenette_sigreg
+    checkpoint: checkpoints/nvit_imagenette_sigreg/last.ckpt
+  - name: nvit_subreg
+    experiment: lejepa/nvit_imagenette_subreg
+    checkpoint: checkpoints/nvit_imagenette_subreg/last.ckpt
+
+# Conformal Autoencoder hyper-parameters (Algorithm 1 / Eq. 6).
+cae:
+  latent_dim: 8         # over-specified; paper uses 8 for the bobbleheads
+  width: 64             # paper uses small nets (width ~20) for the bobbleheads
+  n_tanh: 5             # 5 tanh layers + ...
+  n_linear: 2           # ... 2 linear layers (paper §C.3)
+  alpha: 1.0            # orthogonality weight
+  ortho_norm: l2        # "l2" = Eq. 6; "l1" pushes harder toward lower dimension
+  lr: 1.0e-3
+  epochs: 1500
+  batch_size: 256
+  standardize: true
+  active_frac: 0.1      # latent active if grad-norm > 0.1 * max grad-norm
+  patience: 0           # >0 enables loss-plateau early stopping (in log_every units)
+  seed: 0
+  log_every: 100

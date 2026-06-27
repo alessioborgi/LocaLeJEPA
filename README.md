@@ -87,6 +87,41 @@ python eval_voc.py --config configs/eval_voc.yaml
 
 ---
 
+## Conformal-Autoencoder dimension detection (bobblehead)
+
+This evaluation reproduces the bobblehead experiment of Kevrekidis et al.,
+*"Thinner Latent Spaces: Detecting Dimension and Imposing Invariance with
+Conformal Autoencoders"* (arXiv:2408.16138, §3.3) — but replaces the paper's
+PCA-60 front-end with a **frozen pretrained JEPA backbone** as the fixed feature
+extractor:
+
+```
+images --(frozen backbone)--> 512-d features --(Conformal Autoencoder)--> latent
+```
+
+The data set (`data/yoda_dog_images_and_labels.zip`) holds 8097 RGB frames of two
+figures (Yoda + bulldog) rotating at independent fixed frequencies, so the image
+manifold is a **2-torus**.  The Conformal Autoencoder over-specifies its latent
+layer and penalises the orthogonality of latent input-gradients (Algorithm 1 /
+Eq. 6); redundant coordinates collapse, so the number of *active* latent
+coordinates reveals the intrinsic dimension.  `labels.npy` (the two rotation
+angles per frame) is used only for an optional circular-recovery sanity check —
+the dimension-detection task itself is unsupervised.
+
+```bash
+# Compares three frozen baselines (SphereJEPA+SUSReg, nViT+SIGReg, nViT+SubReg).
+# Edit configs/eval_conformal.yaml for backbones / CAE hyper-parameters.
+python eval_conformal.py --config configs/eval_conformal.yaml
+```
+
+Outputs (under `logs/eval_conformal/`): `results.json` / `results.csv` with the
+inferred dimension and angle-recovery metrics per backbone, plus per-backbone
+diagnostic plots (latent-gradient-norm trajectories, latent-variance bars, and
+the recovered torus scatter).  Code: `src/data/bobblehead_datamodule.py`,
+`src/eval/extract.py`, `src/eval/conformal_autoencoder.py`.
+
+---
+
 ## Photonic Crystal (PhC) Pipeline
 
 The PhC pipeline runs in two sequential stages: pre-training (self-supervised) followed by fine-tuning (DOS regression).

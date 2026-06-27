@@ -1,0 +1,35 @@
+# Full-dataset (all 8097 frames) linear-probe comparison of the three frozen
+# backbones on the bobblehead (Yoda + bulldog) rotation angles.
+#     python eval_angle_probe.py --config configs/eval_angle_probe_full.yaml
+
+device: null
+crop_size: 128
+data_dir: data
+output_folder: logs/eval_angle_probe_full
+cache_dir: logs/eval_angle_probe_full/cache   # separate cache (full-resolution features)
+
+subsample: 1            # all 8097 frames
+max_frames: null
+
+batch_size: 256
+num_workers: 8
+
+angle_labels: ["figure 0", "figure 1"]
+
+backbones:
+  - name: svit_susreg
+    experiment: lejepa/svit_imagenette_susreg
+    checkpoint: checkpoints/svit_imagenette_susreg/last.ckpt
+  - name: nvit_sigreg
+    experiment: lejepa/nvit_imagenette_sigreg
+    checkpoint: checkpoints/nvit_imagenette_sigreg/last.ckpt
+  - name: nvit_subreg
+    experiment: lejepa/nvit_imagenette_subreg
+    checkpoint: checkpoints/nvit_imagenette_subreg/last.ckpt
+
+probe:
+  test_frac: 0.2
+  val_frac: 0.2
+  ridge_grid: [0.01, 0.1, 1.0, 10.0, 100.0, 1000.0]
+  standardize: true
+  seed: 0

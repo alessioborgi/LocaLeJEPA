@@ -1,0 +1,38 @@
+# Linear-probe comparison of frozen backbones on the bobblehead rotation angles.
+# Predicts (cos, sin) of each rotation angle from frozen 512-d features and
+# reports held-out test R² / mean angular error per backbone, with figures.
+#     python eval_angle_probe.py --config configs/eval_angle_probe.yaml
+
+device: null
+crop_size: 128
+data_dir: data
+output_folder: logs/eval_angle_probe
+# Reuse the feature cache produced by eval_conformal.py to avoid re-extraction.
+cache_dir: logs/eval_conformal/cache
+
+subsample: 2            # must match the subsample used when the cache was built
+max_frames: null
+
+batch_size: 256
+num_workers: 8
+
+angle_labels: ["figure 0", "figure 1"]   # the two rotation angles (labels.npy rows)
+
+backbones:
+  - name: svit_susreg
+    experiment: lejepa/svit_imagenette_susreg
+    checkpoint: checkpoints/svit_imagenette_susreg/last.ckpt
+  - name: nvit_sigreg
+    experiment: lejepa/nvit_imagenette_sigreg
+    checkpoint: checkpoints/nvit_imagenette_sigreg/last.ckpt
+  - name: nvit_subreg
+    experiment: lejepa/nvit_imagenette_subreg
+    checkpoint: checkpoints/nvit_imagenette_subreg/last.ckpt
+
+# Linear-probe hyper-parameters.
+probe:
+  test_frac: 0.2
+  val_frac: 0.2
+  ridge_grid: [0.01, 0.1, 1.0, 10.0, 100.0, 1000.0]
+  standardize: true
+  seed: 0
