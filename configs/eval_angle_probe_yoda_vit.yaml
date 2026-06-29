@@ -1,0 +1,38 @@
+# Yoda (bobblehead) linear-probe eval of the two newly-trained *plain* ViT-S/8
+# backbones (vit_imagenette_sigreg / vit_imagenette_subreg), to be appended to
+# the comparison table in report.md.
+#
+#   python eval_angle_probe.py --config configs/eval_angle_probe_yoda_vit.yaml
+#
+# Same probe settings (full 8097 frames, seed 0, 60/20/20 split) as
+# eval_angle_probe_full.yaml, so the numbers are directly comparable to the
+# existing svit_susreg / nvit_sigreg / nvit_subreg rows.
+
+device: null
+crop_size: 128
+data_dir: data
+output_folder: logs/eval_angle_probe_yoda_vit
+cache_dir: logs/eval_angle_probe_yoda_vit/cache
+
+subsample: 1            # all 8097 frames
+max_frames: null
+
+batch_size: 256
+num_workers: 8
+
+angle_labels: ["figure 0", "figure 1"]
+
+backbones:
+  - name: vit_sigreg
+    experiment: lejepa/vit_imagenette_sigreg
+    checkpoint: checkpoints/vit_imagenette_sigreg/last.ckpt
+  - name: vit_subreg
+    experiment: lejepa/vit_imagenette_subreg
+    checkpoint: checkpoints/vit_imagenette_subreg/last.ckpt
+
+probe:
+  test_frac: 0.2
+  val_frac: 0.2
+  ridge_grid: [0.01, 0.1, 1.0, 10.0, 100.0, 1000.0]
+  standardize: true
+  seed: 0

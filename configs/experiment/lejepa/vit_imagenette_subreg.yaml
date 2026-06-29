@@ -1,0 +1,45 @@
+# @package _global_
+# Comparison Model (ViT baseline): ViT-S/8 + l_inv + l_subreg on Imagenette (800 epochs)
+# SubReg loss from Zhao et al., "Sub-JEPA: Subspace Gaussian Regularization
+# for Self-Supervised Visual Pre-Training", arXiv 2605.09241 (2026).
+# Standard (non-spherical, non-normalized) timm ViT-S/8 backbone.
+
+defaults:
+  - override /data: imagenette
+  - override /model: subjepa
+  - override /model/encoder: timm_vit
+  - override /optimizer: adamw
+  - override /trainer: gpu
+  - _self_
+
+tags: ["lejepa", "imagenette", "vit-small-p8", "subreg", "comparison"]
+
+trainer:
+  max_epochs: 800
+
+data:
+  batch_size: 256
+  num_workers: 4
+  crop_size: 128
+
+model:
+  embedding_dim: 512
+  projection_dim: 16
+  num_classes: 10
+  use_online_probe: true
+  num_global_crops: null
+  probe_lr: 1e-3
+  probe_weight_decay: 1e-7
+  lamb: 0.02
+  num_subspaces: 4
+  projector:
+    hidden_channels:
+      - 2048
+      - 2048
+      - ${model.projection_dim}
+  encoder:
+    model_name: vit_small_patch8_224
+
+optimizer:
+  lr: 2e-3
+  weight_decay: 5e-2
