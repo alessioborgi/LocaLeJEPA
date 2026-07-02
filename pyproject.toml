@@ -27,4 +27,6 @@ dependencies = [
     "rootutils>=1.0.7",
     "hydra-colorlog>=1.2.0",
     "pytest>=9.0.3",
+    "fast-pytorch-kmeans>=0.2.2",
+    "psutil>=7.2.2",
 ]

@@ -10,7 +10,27 @@ num_classes: 10
 
 lamb: 0.02
 
+# Regularization type: "sigreg" | "susreg" | "local_sigreg" | "local_ballreg"
+loss_type: sigreg
+
 num_global_crops: null
+
+# Local regularization: k-means the batch in projection space, then applies a
+# local regularizer inside each neighborhood. Used when loss_type is
+# local_sigreg or local_ballreg.
+local_sigreg_num_clusters: 8
+local_sigreg_kmeans_iters: 10
+local_sigreg_min_cluster_size: 4
+local_sigreg_weighted: false
+local_sigreg_normalize_for_kmeans: true
+local_sigreg_kmeans_backend: fast_pytorch_kmeans # "fast_pytorch_kmeans" | "torch"
+
+# Local BallReg: radius=null means sqrt(projection_dim + 2), so the target ball
+# has identity covariance. center_clusters=true tests local residual geometry.
+local_ballreg_radius: null
+local_ballreg_center_clusters: true
+local_ballreg_n_quad: 64
+
 use_online_probe: true
 probe_lr: 1e-3
 probe_weight_decay: 1e-7

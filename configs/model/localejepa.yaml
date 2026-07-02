@@ -1,0 +1,52 @@
+defaults:
+  - encoder: resnet18
+  - _self_
+
+_target_: src.models.localejepa_module.LocalLeJEPAModule
+
+embedding_dim: 128 #512
+projection_dim: 16 #* ${model.embedding_dim} for projector: null
+num_classes: 10
+
+lamb: 0.02
+
+num_global_crops: null
+
+# Local SIGReg: k-means the batch in projection space, then applies SIGReg
+# independently inside each local neighborhood.
+local_sigreg_num_clusters: 8
+local_sigreg_kmeans_iters: 10
+local_sigreg_min_cluster_size: 4
+local_sigreg_weighted: false
+local_sigreg_normalize_for_kmeans: true
+local_sigreg_kmeans_backend: fast_pytorch_kmeans # "fast_pytorch_kmeans" | "torch"
+
+use_online_probe: true
+probe_lr: 1e-3
+probe_weight_decay: 1e-7
+warmup_epochs: 1
+
+optimizer: ${optimizer}
+
+#* projector: null for nn.Identity()
+projector:
+  _target_: torchvision.ops.MLP
+  in_channels: ${model.embedding_dim}
+  hidden_channels:
+    - 512 #2048
+    - 512 # 2048
+    - ${model.projection_dim}
+  norm_layer:
+    _target_: hydra.utils.get_class
+    path: torch.nn.BatchNorm1d
+
+online_probe:
+  _target_: torch.nn.Sequential
+  _args_:
+    - _target_: torch.nn.LayerNorm
+      normalized_shape: ${model.embedding_dim}
+    - _target_: torch.nn.Linear
+      in_features: ${model.embedding_dim}
+      out_features: ${model.num_classes}
+
+compile: false
