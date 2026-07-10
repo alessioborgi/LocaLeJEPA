@@ -35,3 +35,9 @@ model:
 optimizer:
   lr: 5e-4
   weight_decay: 1e-4
+
+# No online probe / no validation here (limit_val_batches: 0), so val/probe_acc is
+# never logged: fall back to keeping the last checkpoint.
+callbacks:
+  model_checkpoint:
+    monitor: null

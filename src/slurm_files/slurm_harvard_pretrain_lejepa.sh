@@ -162,6 +162,8 @@ case "$RUN_MODE" in
   svit_imagenette_susreg|\
   vit_imagenette_sigreg|\
   vit_imagenette_subreg|\
+  vit_imagenette_local_sigreg|\
+  vit_imagenette_local_ballreg|\
   nvit_imagenette_sigreg|\
   nvit_imagenette_subreg|\
   nvit_imagenette_susreg)
@@ -237,6 +239,7 @@ case "$RUN_MODE" in
   svit_imagenette_sigreg|svit_imagenette_susreg|\
   vit_imagenette_sigreg|\
   vit_imagenette_subreg|\
+  vit_imagenette_local_sigreg|vit_imagenette_local_ballreg|\
   nvit_imagenette_sigreg|nvit_imagenette_subreg|nvit_imagenette_susreg)
     HYDRA_OVERRIDES+=("data.data_dir=${SLURM_SUBMIT_DIR}/data/imagenette")
     ;;
@@ -253,6 +256,7 @@ case "$RUN_MODE" in
   svit_imagenette_sigreg|svit_imagenette_susreg|\
   vit_imagenette_sigreg|\
   vit_imagenette_subreg|\
+  vit_imagenette_local_sigreg|vit_imagenette_local_ballreg|\
   nvit_imagenette_sigreg|nvit_imagenette_subreg|nvit_imagenette_susreg)
     HYDRA_OVERRIDES+=("data.batch_size=64")
     HYDRA_OVERRIDES+=("+trainer.accumulate_grad_batches=4")

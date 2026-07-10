@@ -6,9 +6,14 @@ defaults:
 
 model_checkpoint:
   dirpath: ${paths.output_dir}/checkpoints
-  filename: "epoch_{epoch:03d}"
-  monitor: "train/loss_epoch"
-  mode: "min"
+  # Keep the BEST checkpoint (by validation online-probe accuracy) at a stable
+  # path best.ckpt, plus last.ckpt for the final-epoch weights. Downstream evals
+  # should load best.ckpt. Runs without an online probe override monitor: null
+  # in their experiment config (they fall back to keeping the last checkpoint).
+  filename: "best"
+  monitor: "val/probe_acc"
+  mode: "max"
+  save_top_k: 1
   save_last: True
   auto_insert_metric_name: False
 

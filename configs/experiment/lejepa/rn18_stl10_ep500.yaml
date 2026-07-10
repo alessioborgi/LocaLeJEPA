@@ -39,3 +39,9 @@ model:
 optimizer:
   lr: 5e-4
   weight_decay: 5e-4
+
+# No online probe here, so val/probe_acc is not logged: fall back to keeping the
+# last checkpoint instead of monitoring the (absent) best-representation metric.
+callbacks:
+  model_checkpoint:
+    monitor: null

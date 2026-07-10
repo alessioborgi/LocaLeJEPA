@@ -1,0 +1,50 @@
+# CORRECTED Yoda eval for the two local-regularizer ViT-S/8 backbones.
+#
+# The original configs/eval_angle_probe_yoda_vit_local.yaml pointed at
+# `last.ckpt`, but the checkpoint dirs were polluted by earlier runs and Lightning
+# versioned the real final checkpoints with -vN suffixes. `last.ckpt` was a STALE
+# epoch-573 (sigreg) / epoch-210 (ballreg) checkpoint from a prior run. The true
+# epoch-799 finals of runs 29276522 / 29276523 are last-v1.ckpt / last-v3.ckpt.
+#
+# This config pins the exact correct checkpoints (verified by stored epoch), plus
+# sigreg's pre-divergence best (epoch_016) for reference. Fresh cache dir so
+# features are re-extracted, not reused.
+#
+#   python eval_angle_probe.py           --config configs/eval_angle_probe_yoda_vit_local_fixed.yaml
+#   python eval_angle_probe_multiseed.py --config configs/eval_angle_probe_yoda_vit_local_fixed.yaml --n-seeds 10
+
+device: null
+crop_size: 128
+data_dir: data
+output_folder: logs/eval_angle_probe_yoda_vit_local_fixed
+cache_dir: logs/eval_angle_probe_yoda_vit_local_fixed/cache
+
+subsample: 1
+max_frames: null
+
+batch_size: 256
+num_workers: 8
+
+angle_labels: ["figure 0", "figure 1"]
+
+backbones:
+  # True final checkpoint of run 29276522 (epoch 799, post loss-spike).
+  # After the 2026-07-10 checkpoint-dir cleanup this is the canonical last.ckpt.
+  - name: vit_localsigreg
+    experiment: lejepa/vit_imagenette_local_sigreg
+    checkpoint: checkpoints/vit_imagenette_local_sigreg/last.ckpt
+  # Pre-divergence checkpoint of the same run (epoch 16), for reference.
+  - name: vit_localsigreg_ep16
+    experiment: lejepa/vit_imagenette_local_sigreg
+    checkpoint: checkpoints/vit_imagenette_local_sigreg/archive/epoch_016.ckpt
+  # True final checkpoint of run 29276523 (epoch 799).
+  - name: vit_localballreg
+    experiment: lejepa/vit_imagenette_local_ballreg
+    checkpoint: checkpoints/vit_imagenette_local_ballreg/last.ckpt
+
+probe:
+  test_frac: 0.2
+  val_frac: 0.2
+  ridge_grid: [0.01, 0.1, 1.0, 10.0, 100.0, 1000.0]
+  standardize: true
+  seed: 0
