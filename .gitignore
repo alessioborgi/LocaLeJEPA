@@ -163,3 +163,9 @@ old/
 
 # report
 report.md
+
+# rendered visualisation figures (regenerate via visualisations/*.py)
+visualisations/figures/
+
+# paper (LaTeX source + build)
+paper/
