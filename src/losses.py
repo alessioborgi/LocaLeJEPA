@@ -16,8 +16,11 @@ ballreg_loss     -- Sketched uniform-ball regularization
 local_ballreg_loss -- uniform-ball regularization on k-means local neighborhoods
 susreg_loss      -- Sketched Uniform Spherical Regularization (SUSReg / SPHERE-JEPA)
 subreg_loss      -- Subspace Gaussian Regularization (Sub-JEPA)
+rdmreg_loss      -- Rectified Distribution Matching Regularization (Rectified LpJEPA)
 nt_xent_loss     -- Normalised Temperature-scaled Cross Entropy (SimCLR)
 """
+
+import math
 
 import torch
 import torch.nn.functional as F
@@ -590,6 +593,147 @@ def subreg_loss(
     # Squared ECF error: real part + imaginary part, averaged over views.
     err = (x_t.cos().mean(-3) - phi).square() + x_t.sin().mean(-3).square()
     return ((err @ weights) * N).mean()
+
+
+def sigma_gn(p: float) -> float:
+    """Scale sigma_GN so the Generalized Gaussian GN_p(0, sigma) has unit variance.
+
+    This is the default scale used in Rectified LpJEPA (paper Section 4.5). It
+    fixes the pre-rectification variance to 1; the post-rectification variance of
+    RGN_p(mu, sigma_GN) then varies with mu and p. Setting p=1 gives 1/sqrt(2)
+    (Laplace) and p=2 gives 1.0 (Gaussian).
+    """
+    return math.gamma(1.0 / p) ** 0.5 / (p ** (1.0 / p) * math.gamma(3.0 / p) ** 0.5)
+
+
+def sample_generalized_gaussian(
+    shape: tuple[int, ...],
+    p: float,
+    loc: float = 0.0,
+    scale: float = 1.0,
+    *,
+    device: torch.device | None = None,
+    dtype: torch.dtype = torch.float32,
+) -> torch.Tensor:
+    """Sample from the Generalized Gaussian GN_p(loc, scale).
+
+    Uses the exact fast paths for the Laplace (p=1) and Gaussian (p=2) special
+    cases, and the sign/Gamma reparameterization of Nardon & Pianca (2009) for a
+    generic p > 0 (paper Algorithm 1, before rectification)::
+
+        S ~ Unif{-1, +1},  G ~ Gamma(1/p, 1),  X = loc + scale * S * (p G)^{1/p}
+
+    Rectify the output with ``relu`` to obtain a Rectified Generalized Gaussian
+    RGN_p(loc, scale).
+    """
+    if p <= 0:
+        raise ValueError(f"lp_norm_parameter p must be > 0, got {p}")
+
+    if p == 1.0:
+        loc_t = torch.as_tensor(loc, device=device, dtype=dtype)
+        scale_t = torch.as_tensor(scale, device=device, dtype=dtype)
+        return torch.distributions.Laplace(loc_t, scale_t).sample(shape)
+    if p == 2.0:
+        return loc + scale * torch.randn(shape, device=device, dtype=dtype)
+
+    sign = torch.empty(shape, device=device, dtype=dtype).bernoulli_(0.5).mul_(2.0).sub_(1.0)
+    gamma = torch.distributions.Gamma(1.0 / p, 1.0).sample(shape).to(device=device, dtype=dtype)
+    return loc + scale * sign * (p * gamma).pow(1.0 / p)
+
+
+def rdmreg_loss(
+    proj: torch.Tensor,
+    *,
+    lp_norm_parameter: float = 1.0,
+    mean_shift_value: float = 0.0,
+    sigma: float | None = None,
+    num_projections: int = 256,
+    rectify_target: bool = True,
+) -> torch.Tensor:
+    """RDMReg: Rectified Distribution Matching Regularization (Rectified LpJEPA).
+
+    Matches the feature distribution to a (Rectified) Generalized Gaussian target
+    ``prod_i RGN_p(mu, sigma)`` using a two-sample sliced 2-Wasserstein distance,
+    the Cramer-Wold device instantiated with random 1-D projections. Because the
+    RGG family is not closed under linear combinations, matching must be
+    nonparametric two-sample; here the 1-D distance is the sorted-sample L2^2
+    (paper Eq. 16).
+
+    Reference: Kuang et al., "Rectified LpJEPA", arXiv:2602.01456 (2026).
+
+    Parameters
+    ----------
+    proj              : (V, N, D) stacked projections from all views. When
+                        matching the Rectified target these should already be
+                        rectified (ReLU) features.
+    lp_norm_parameter : ell_p parameter p of the Generalized Gaussian target
+    mean_shift_value  : location mu of the target; more negative mu => sparser
+    sigma             : target scale; if None, uses sigma_GN(p)
+    num_projections   : number of random 1-D sketch directions on S^{D-1}
+    rectify_target    : if True, ReLU the target samples (Rectified LpJEPA); if
+                        False, match the plain Generalized Gaussian (LpJEPA)
+
+    Returns
+    -------
+    Scalar tensor (float32), averaged over the sliced distances and views.
+    """
+    if proj.ndim != 3:
+        raise ValueError(f"rdmreg_loss expects proj with shape (V, N, D), got {tuple(proj.shape)}")
+
+    proj = proj.float()
+    V, N, D = proj.shape
+    device = proj.device
+    scale = sigma_gn(lp_norm_parameter) if sigma is None else float(sigma)
+
+    # Random unit-norm sketch directions on the ell_2 sphere S^{D-1}: (P, D).
+    directions = torch.randn(num_projections, D, device=device)
+    directions = F.normalize(directions, dim=1)
+
+    losses = []
+    for v in range(V):
+        z = proj[v]  # (N, D)
+        target = sample_generalized_gaussian(
+            (N, D),
+            lp_norm_parameter,
+            loc=mean_shift_value,
+            scale=scale,
+            device=device,
+            dtype=proj.dtype,
+        )
+        if rectify_target:
+            target = F.relu(target)
+
+        # 1-D projected marginals: (N, P).
+        z_proj = z @ directions.T
+        target_proj = target @ directions.T
+
+        # Sliced 2-Wasserstein: sort along the batch dim, take mean squared gap.
+        z_sorted, _ = z_proj.sort(dim=0)
+        target_sorted, _ = target_proj.sort(dim=0)
+        losses.append((z_sorted - target_sorted).square().mean())
+
+    return torch.stack(losses).mean()
+
+
+@torch.no_grad()
+def l1_sparsity_metric(z: torch.Tensor, eps: float = 1e-12) -> torch.Tensor:
+    """ell_1 sparsity metric (1/D) * (||z||_1 / ||z||_2)^2, averaged over samples.
+
+    Attains 1/D for maximally sparse vectors and 1 for dense uniform vectors.
+    ``z`` is any (..., D) tensor; the metric is averaged over all leading dims.
+    """
+    D = z.shape[-1]
+    z = z.float()
+    l1 = z.norm(p=1, dim=-1)
+    l2 = z.norm(p=2, dim=-1)
+    return ((1.0 / D) * (l1 / (l2 + eps)).square()).mean()
+
+
+@torch.no_grad()
+def l0_sparsity_metric(z: torch.Tensor) -> torch.Tensor:
+    """ell_0 sparsity metric (1/D) * ||z||_0: mean fraction of nonzero entries."""
+    D = z.shape[-1]
+    return ((z != 0).sum(dim=-1).float() / D).mean()
 
 
 def nt_xent_loss(proj: torch.Tensor, temperature: float = 0.07) -> torch.Tensor:
