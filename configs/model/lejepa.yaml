@@ -31,6 +31,14 @@ local_ballreg_radius: null
 local_ballreg_center_clusters: true
 local_ballreg_n_quad: 64
 
+# Dynamic k schedule: when enabled, the local k-means neighborhood count is
+# k = min(max, start + epoch // step_epochs), overriding local_sigreg_num_clusters
+# per epoch. Defaults give k=1 -> k=8 (one step every 100 epochs, capped at 700).
+dynamic_num_clusters: false
+dynamic_num_clusters_start: 1
+dynamic_num_clusters_max: 8
+dynamic_num_clusters_step_epochs: 100
+
 use_online_probe: true
 probe_lr: 1e-3
 probe_weight_decay: 1e-7

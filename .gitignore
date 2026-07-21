@@ -161,8 +161,8 @@ outputs/
 # old files
 old/
 
-# report
-report.md
+# reports
+reports/
 
 # rendered visualisation figures (regenerate via visualisations/*.py)
 visualisations/figures/

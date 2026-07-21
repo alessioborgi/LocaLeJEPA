@@ -1,0 +1,10 @@
+# D4-equivariant ResNet-50 (equivision / escnn): group convolutions over
+# regular representations of D4 (rotations by 90 degrees + horizontal flips),
+# ~24.8M params (base_width=25, matched to vanilla ResNet-50). Forward returns
+# a D4-invariant embedding (B, num_classes) via group pool + avg pool + linear.
+_target_: src.models.components.e2resnet.build_e2resnet
+group: d4
+depth: 50
+num_classes: ${model.embedding_dim}
+fixed_params: true
+initialize: true

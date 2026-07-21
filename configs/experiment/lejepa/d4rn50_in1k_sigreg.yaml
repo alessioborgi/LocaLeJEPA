@@ -1,0 +1,44 @@
+# @package _global_
+
+# LeJEPA (SIGReg) pretraining on ImageNet-1K with a D4-equivariant ResNet-50
+# encoder (equivision / escnn) in place of the ViT-S/8. Same SSL protocol as
+# lejepa/vits8_in1k_ep800: crop 128, global batch 256, SIGReg + invariance.
+
+defaults:
+  - override /data: imagenet1k
+  - override /model: lejepa
+  - override /model/encoder: d4resnet50
+  - override /optimizer: adamw
+  - override /trainer: gpu
+  - _self_
+
+tags: ["lejepa", "imagenet1k", "d4resnet50", "equivariant", "sigreg"]
+
+trainer:
+  max_epochs: 800
+
+data:
+  batch_size: 256
+  num_workers: 8
+  crop_size: 128
+  copy_data: false
+
+model:
+  embedding_dim: 512
+  projection_dim: 16
+  num_classes: 1000
+  loss_type: sigreg
+  lamb: 0.02
+  use_online_probe: true
+  num_global_crops: null
+  probe_lr: 1e-3
+  probe_weight_decay: 1e-7
+  projector:
+    hidden_channels:
+      - 2048
+      - 2048
+      - ${model.projection_dim}
+
+optimizer:
+  lr: 1e-3
+  weight_decay: 5e-2

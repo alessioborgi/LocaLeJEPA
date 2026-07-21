@@ -45,7 +45,9 @@ BACKBONES = {
     "nvit_subreg":          "logs/eval_angle_probe_full/cache/nvit_subreg_features.pt",
     "vit_sigreg":           "logs/eval_angle_probe_yoda_vit/cache/vit_sigreg_features.pt",
     "vit_subreg":           "logs/eval_angle_probe_yoda_vit/cache/vit_subreg_features.pt",
+    "vit_rdmreg":           "logs/eval_angle_probe_yoda_rectifiedlpjepa/cache/vit_rdmreg_features.pt",
     "localballreg_l0.1_k2": "logs/eval_angle_probe_yoda_local_healthy/cache/localballreg_l0.1_k2_features.pt",
+    "localballreg_l0.1_dynk": "logs/eval_angle_probe_yoda_localballreg_dynk/cache/localballreg_l0.1_dynk_features.pt",
     "localballreg_l0.1_k4": "logs/eval_angle_probe_yoda_local_healthy/cache/localballreg_l0.1_k4_features.pt",
     "localballreg_l0.3_k2": "logs/eval_angle_probe_yoda_local_healthy/cache/localballreg_l0.3_k2_features.pt",
     "localsigreg_l0.1_k4":  "logs/eval_angle_probe_yoda_local_healthy/cache/localsigreg_l0.1_k4_features.pt",
@@ -174,7 +176,9 @@ def main():
     per_frame_err = err.mean(1)
     p3 = ax3.scatter(px, py, pz, c=per_frame_err, cmap="viridis_r", s=8, alpha=0.9,
                      vmin=0, vmax=max(20.0, np.percentile(per_frame_err, 95)), depthshade=False)
-    style_axes(ax3, f"Probe reconstruction · {name}")
+    # Drop the "_l<lambda>_k<clusters>" suffix from the display label; the exact
+    # hyperparameters live in the LaTeX caption instead.
+    style_axes(ax3, f"Probe reconstruction · {name.split('_l')[0]}")
     cb3 = fig.colorbar(p3, ax=ax3, fraction=0.03, pad=0.02)
     cb3.set_label("angular error (deg)", fontsize=9); cb3.ax.tick_params(labelsize=9)
 

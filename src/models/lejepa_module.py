@@ -51,6 +51,10 @@ class LeJEPAModule(JEPAModule):
         local_ballreg_radius: float | None = None,
         local_ballreg_center_clusters: bool = True,
         local_ballreg_n_quad: int = 64,
+        dynamic_num_clusters: bool = False,
+        dynamic_num_clusters_start: int = 1,
+        dynamic_num_clusters_max: int = 8,
+        dynamic_num_clusters_step_epochs: int = 100,
         use_online_probe: bool = True,
         probe_lr: float = 1e-3,
         probe_weight_decay: float = 1e-7,
@@ -85,6 +89,32 @@ class LeJEPAModule(JEPAModule):
         self.local_ballreg_radius = local_ballreg_radius
         self.local_ballreg_center_clusters = local_ballreg_center_clusters
         self.local_ballreg_n_quad = local_ballreg_n_quad
+        self.dynamic_num_clusters = dynamic_num_clusters
+        self.dynamic_num_clusters_start = dynamic_num_clusters_start
+        self.dynamic_num_clusters_max = dynamic_num_clusters_max
+        self.dynamic_num_clusters_step_epochs = dynamic_num_clusters_step_epochs
+        if self.dynamic_num_clusters:
+            # Start the local-neighborhood count at its scheduled epoch-0 value so
+            # the very first training step already uses the intended k.
+            self.local_sigreg_num_clusters = self._scheduled_num_clusters(0)
+
+    def _scheduled_num_clusters(self, epoch: int) -> int:
+        """Step schedule for the local k-means neighborhood count k.
+
+        ``k = min(max, start + epoch // step_epochs)``. With the defaults
+        (start=1, step=100, max=8) this gives k=1 at epoch 0, k=2 at epoch 100,
+        incrementing by one every 100 epochs and capping at k=8 from epoch 700 on.
+        """
+        k = self.dynamic_num_clusters_start + epoch // self.dynamic_num_clusters_step_epochs
+        return int(min(self.dynamic_num_clusters_max, k))
+
+    def on_train_epoch_start(self) -> None:
+        super().on_train_epoch_start()
+        if self.dynamic_num_clusters:
+            self.local_sigreg_num_clusters = self._scheduled_num_clusters(self.current_epoch)
+            self.log(
+                "train/num_clusters", float(self.local_sigreg_num_clusters), sync_dist=True, on_epoch=True
+            )
 
     def model_step(self, views: torch.Tensor) -> tuple[torch.Tensor, dict[str, Any]]:
         emb, proj = self.forward(views)

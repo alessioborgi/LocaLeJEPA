@@ -43,8 +43,10 @@ BACKBONES = {
     "nvit_subreg":      "logs/eval_angle_probe_full/cache/nvit_subreg_features.pt",
     "vit_sigreg":       "logs/eval_angle_probe_yoda_vit/cache/vit_sigreg_features.pt",
     "vit_subreg":       "logs/eval_angle_probe_yoda_vit/cache/vit_subreg_features.pt",
+    "vit_rdmreg":       "logs/eval_angle_probe_yoda_rectifiedlpjepa/cache/vit_rdmreg_features.pt",
     # collapse-fixed local backbones (healthy sweep checkpoints, lamb=0.1)
     "localballreg_l0.1_k2": "logs/eval_angle_probe_yoda_local_healthy/cache/localballreg_l0.1_k2_features.pt",
+    "localballreg_l0.1_dynk": "logs/eval_angle_probe_yoda_localballreg_dynk/cache/localballreg_l0.1_dynk_features.pt",
     "localballreg_l0.1_k4": "logs/eval_angle_probe_yoda_local_healthy/cache/localballreg_l0.1_k4_features.pt",
     "localballreg_l0.3_k2": "logs/eval_angle_probe_yoda_local_healthy/cache/localballreg_l0.3_k2_features.pt",
     "localsigreg_l0.1_k4":  "logs/eval_angle_probe_yoda_local_healthy/cache/localsigreg_l0.1_k4_features.pt",
