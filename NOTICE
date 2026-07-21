@@ -23,6 +23,11 @@ LeJEPA (galilai-group/lejepa)
   Source: https://github.com/galilai-group/lejepa
 
 ────────────────────────────────────────────────────────────────────────────────
+Hyperbolic Vision Transformers / hyp_metric
+  Copyright (c) 2022 Alexander Ermolov.
+  Poincare-ball operations and the HyperbolicViT output-head architecture.
+  Source: https://github.com/htdt/hyp_metric
+────────────────────────────────────────────────────────────────────────────────
 Photonic crystal experimental setup
   Follows: Dangovski et al., "Equivariant Self-Supervised Learning", ICLR 2022.
   Source:  https://arxiv.org/abs/2111.00899

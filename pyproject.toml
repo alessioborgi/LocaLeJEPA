@@ -11,7 +11,7 @@ maintainers = [
 ]
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.13,<3.14.2"
+requires-python = ">=3.13,<3.14"
 dependencies = [
     # Core dependencies
     "lightning>=2.6.1",

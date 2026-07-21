@@ -15,6 +15,8 @@ The repository currently implements:
 
 - **LeJEPA** — invariance loss + Sketched Isotropic Gaussian Regularisation (SIGReg), with ViT, ResNet-18/50, and a custom photonic crystal (PhC) CNN backbone
 - **I-JEPA** — masked-patch prediction in latent space, with ViT and PhC CNN
+- **Hyperbolic ViT** — the official Hyp-ViT-style timm backbone and Poincaré-ball
+  output head, adapted from `htdt/hyp_metric`
 - **SimCLR** — NT-Xent contrastive baseline with ResNet-50
 - **Supervised PhC baseline** — CNN + DOS regression, no pretraining
 - **Linear evaluation** — 11 downstream vision datasets + VOC07+12 Faster R-CNN detection
@@ -84,6 +86,26 @@ python eval_linear.py --config configs/eval_linear.yaml
 # → edit configs/eval_voc.yaml first (voc_root, checkpoint)
 python eval_voc.py --config configs/eval_voc.yaml
 ```
+
+### Hyperbolic ViT encoder
+
+The HyperbolicViT port follows Ermolov et al. (CVPR 2022): ViT attention remains
+Euclidean, while the pooled feature is projected into the tangent space at the
+origin and mapped into a Poincaré ball with curvature `-hyp_c`. Use it with an
+existing LeJEPA experiment through a Hydra override:
+
+```bash
+uv run python src/train.py \
+  experiment=lejepa/hvit_imagenette_sigreg
+```
+
+Override `model.encoder.hyp_c` or `model.encoder.clip_r` to change the geometry.
+This experiment retains LeJEPA's projector-space SIGReg objective; it is not a
+reproduction of the upstream supervised metric-learning loss.
+
+The reusable geometry functions (`expmap0`, `logmap0`, Poincaré distance, and
+pairwise distance) live in `src/models/components/hyperbolic.py`. The pooled
+upstream architecture intentionally does not implement I-JEPA token masking.
 
 ---
 
