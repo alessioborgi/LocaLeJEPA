@@ -1,0 +1,13 @@
+# Hyperbolic ViT-S/8 (Ermolov et al., CVPR 2022, htdt/hyp_metric): timm ViT
+# body + tangent linear head + exponential map onto the Poincare ball of
+# curvature -hyp_c (ball radius 1/sqrt(c)). Forward returns (B, embedding_dim)
+# points inside the ball. Official defaults: hyp_c=0.1, clip_r=2.3.
+_target_: src.models.components.hyperbolic_vit.HyperbolicViT
+
+model_name: vit_small_patch8_224
+pretrained: false
+embedding_dim: ${model.embedding_dim}
+img_size: ${data.crop_size}
+drop_path_rate: 0.1
+hyp_c: 0.1
+clip_r: 2.3

@@ -36,6 +36,7 @@ def load_backbone(
     crop_size: int = 128,
     config_dir: Optional[str] = None,
     project_root: Optional[str] = None,
+    overrides: Optional[list[str]] = None,
 ) -> tuple[ExtractFn, int]:
     """Rebuild a pretrained encoder from its experiment config and load weights.
 
@@ -48,6 +49,10 @@ def load_backbone(
             ``<project_root>/configs``.
         project_root: Project root used to resolve ``${oc.env:PROJECT_ROOT}`` in
             the Hydra ``paths`` config. Defaults to two levels above this file.
+        overrides: Extra Hydra overrides applied on top of the experiment, e.g.
+            ``["model.encoder.pool=group"]``. Needed when the encoder config has
+            moved on since the checkpoint was trained, so the rebuilt module must
+            be pinned to the architecture variant the weights belong to.
 
     Returns:
         ``(extract_fn, embedding_dim)`` where ``extract_fn(images) -> features``.
@@ -68,7 +73,7 @@ def load_backbone(
     with initialize_config_dir(version_base="1.3", config_dir=os.path.abspath(config_dir)):
         cfg = compose(
             config_name="train",
-            overrides=[f"experiment={experiment}", f"data.crop_size={crop_size}"],
+            overrides=[f"experiment={experiment}", f"data.crop_size={crop_size}", *(overrides or [])],
         )
     encoder = hydra.utils.instantiate(cfg.model.encoder)
     embedding_dim = int(cfg.model.embedding_dim)
@@ -95,7 +100,13 @@ def load_backbone(
             f"missing[:5]={list(missing)[:5]} unexpected[:5]={list(unexpected)[:5]}"
         )
 
-    encoder.eval().to(device)
+    # Move before eval(): escnn conv layers expand their filters from a basis
+    # cache that is *shared between module instances*, and they do so inside
+    # eval(). Once an earlier equivariant backbone in the same process has been
+    # moved to CUDA, that shared basis lives on CUDA, so calling eval() while
+    # these weights are still on CPU einsums a CPU tensor against a CUDA one.
+    encoder.to(device)
+    encoder.eval()
     for param in encoder.parameters():
         param.requires_grad_(False)
 

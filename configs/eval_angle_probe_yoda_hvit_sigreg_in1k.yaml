@@ -1,0 +1,33 @@
+# Yoda (bobblehead) linear-probe eval of the Hyperbolic ViT-S/8 LeJEPA (SIGReg), ImageNet-1K pretrained
+# backbone (lejepa/hvit_in1k_sigreg). Same probe protocol (full 8097 frames, 60/20/20 split,
+# 10 seeds) as the other eval configs so the numbers drop straight into the
+# comparison tables in equivariance_report.md / paper/yoda_probe_paper.tex.
+#
+#   python eval_angle_probe.py           --config configs/eval_angle_probe_yoda_hvit_sigreg_in1k.yaml
+#   python eval_angle_probe_multiseed.py --config configs/eval_angle_probe_yoda_hvit_sigreg_in1k.yaml --n-seeds 10
+
+device: null
+crop_size: 128
+data_dir: data
+output_folder: logs/eval_angle_probe_yoda_hvit_sigreg_in1k
+cache_dir: logs/eval_angle_probe_yoda_hvit_sigreg_in1k/cache
+
+subsample: 1            # all 8097 frames
+max_frames: null
+
+batch_size: 256
+num_workers: 8
+
+angle_labels: ["figure 0", "figure 1"]
+
+backbones:
+  - name: hvit_sigreg_in1k
+    experiment: lejepa/hvit_in1k_sigreg
+    checkpoint: checkpoints/lejepa_hvit_in1k_sigreg/best.ckpt
+
+probe:
+  test_frac: 0.2
+  val_frac: 0.2
+  ridge_grid: [0.01, 0.1, 1.0, 10.0, 100.0, 1000.0]
+  standardize: true
+  seed: 0

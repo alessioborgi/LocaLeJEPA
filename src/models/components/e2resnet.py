@@ -198,9 +198,14 @@ class E2ResNet(torch.nn.Module):
         num_classes: int,
         base_width: int,
         initialize: bool = True,
+        pool: str = "group",
     ):
         super().__init__()
 
+        if pool not in ("group", "equivariant"):
+            raise ValueError(f"pool must be 'group' or 'equivariant', got {pool!r}")
+        self.pool = pool
+        self.num_classes = num_classes
         self.gspace = gspace
         self.in_type = FieldType(gspace, 3 * [gspace.trivial_repr])
 
@@ -229,10 +234,30 @@ class E2ResNet(torch.nn.Module):
         fmap_type = FieldType(
             gspace, block.expansion * base_width * 8 * [gspace.regular_repr]
         )
-        self.avgpool = nn.PointwiseAdaptiveAvgPool(fmap_type, (1, 1))
 
-        self.gpool = nn.GroupPooling(fmap_type)
-        self.fc = torch.nn.Linear(block.expansion * base_width * 8, num_classes)
+        if self.pool == "group":
+            # Classification-style head: spatial pool -> group pool -> linear.
+            # Produces a G-INVARIANT embedding (equivision default).
+            self.avgpool = nn.PointwiseAdaptiveAvgPool(fmap_type, (1, 1))
+            self.gpool = nn.GroupPooling(fmap_type)
+            self.fc = torch.nn.Linear(block.expansion * base_width * 8, num_classes)
+        else:
+            # Equivariant backbone head (equivision-paper `forward_features` usage,
+            # kept G-EQUIVARIANT): an equivariant 1x1 group-conv reduces the field
+            # count so that (#fields * |G|) == num_classes, then spatial pool. No
+            # group pooling, so the embedding still transforms under G by the
+            # regular representation (a section of the bundle, per BundLeJEPA).
+            g_order = int(gspace.regular_repr.size)
+            if num_classes % g_order != 0:
+                raise ValueError(
+                    f"For pool='equivariant', embedding_dim ({num_classes}) must be "
+                    f"divisible by the group order |G|={g_order}."
+                )
+            reduced_type = FieldType(gspace, (num_classes // g_order) * [gspace.regular_repr])
+            self.reduce = conv1x1(fmap_type, reduced_type, initialize=initialize)
+            self.reduce_bn = self.norm_layer(reduced_type)
+            self.reduce_relu = nn.ReLU(reduced_type, inplace=True)
+            self.avgpool = nn.PointwiseAdaptiveAvgPool(reduced_type, (1, 1))
 
         for m in self.modules():
             if isinstance(m, torch.nn.BatchNorm3d):
@@ -304,12 +329,24 @@ class E2ResNet(torch.nn.Module):
         return x
 
     def forward(self, x: Tensor) -> Tensor:
-        """Returns a G-invariant embedding of shape (B, num_classes)"""
+        """Return a (B, num_classes) embedding.
+
+        pool='group'       -> G-invariant  (spatial pool, group pool, linear).
+        pool='equivariant' -> G-equivariant (equiv. 1x1 reduce, spatial pool);
+                              the vector transforms under G by the regular repr.
+        """
         x = self.forward_features(x)
 
+        if self.pool == "group":
+            x = self.avgpool(x)
+            x = self.gpool(x).tensor.squeeze(-2).squeeze(-1)
+            return self.fc(x)
+
+        x = self.reduce(x)
+        x = self.reduce_bn(x)
+        x = self.reduce_relu(x)
         x = self.avgpool(x)
-        x = self.gpool(x).tensor.squeeze(-2).squeeze(-1)
-        return self.fc(x)
+        return x.tensor.flatten(1)
 
 
 # --- equivision model zoo, exposed as a single Hydra-friendly factory ---------
@@ -356,6 +393,7 @@ def build_e2resnet(
     num_classes: int = 512,
     fixed_params: bool = True,
     initialize: bool = True,
+    pool: str = "group",
 ) -> E2ResNet:
     """Build a group-equivariant ResNet encoder from the equivision zoo.
 
@@ -374,6 +412,10 @@ def build_e2resnet(
         initialize: run escnn's equivariant weight initialization (slow at
             construction time; disable only for shape tests or before loading
             a checkpoint).
+        pool: 'group' -> G-invariant embedding (classification-style head);
+            'equivariant' -> G-equivariant embedding via the paper's
+            `forward_features` backbone + an equivariant 1x1 reduction (no group
+            pooling). 'equivariant' requires num_classes divisible by |G|.
     """
     key = (depth, group)
     if group not in _GSPACES or depth not in _ARCHS or key not in _BASE_WIDTHS:
@@ -392,6 +434,9 @@ def build_e2resnet(
         num_classes=num_classes,
         base_width=base_width,
         initialize=initialize,
+        pool=pool,
     )
     model.name = f"{group}resnet{depth}" + ("" if fixed_params else "-fast")
+    if pool == "equivariant":
+        model.name += "-equiv"
     return model
