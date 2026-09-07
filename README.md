@@ -73,8 +73,8 @@ rotation-angle evaluations, the report-generating scripts, the figures and one S
 
 ## Installation
 
-Requires Python 3.12 (managed automatically by `uv`) and Linux x86_64; a CUDA GPU for anything
-beyond smoke tests. Install [`uv`](https://docs.astral.sh/uv/) once
+Requires Python 3.12 (managed automatically by `uv`) and Linux x86_64 or macOS; a CUDA GPU for
+anything beyond smoke tests. Install [`uv`](https://docs.astral.sh/uv/) once
 (`curl -LsSf https://astral.sh/uv/install.sh | sh`), then:
 
 ```bash
@@ -89,6 +89,16 @@ lightning 2.6, timm 1.0). Optional extras:
 ```bash
 uv sync --extra equivariant   # D4-equivariant ResNet-50 (escnn; builds py3nj from source -> needs gfortran + Python headers)
 uv sync --extra imagenet      # scripts/stage_imagenet1k_hf.py (HuggingFace datasets)
+```
+
+On macOS the `equivariant` extra builds `lie-learn` and `py3nj` from source and needs `gcc`
+and `libomp` from Homebrew:
+
+```bash
+brew install gcc libomp
+export LDFLAGS="-L$(brew --prefix libomp)/lib"
+export CPPFLAGS="-I$(brew --prefix libomp)/include"
+uv sync --extra equivariant
 ```
 
 If the venv should not live in the repository (e.g. home-directory quotas), set
@@ -119,7 +129,9 @@ uv run python src/train.py experiment=lejepa/vit_imagenette_localballreg_l01_k4 
 ```
 
 Logging defaults to Weights & Biases (`configs/logger/wandb.yaml`, entity `sheaf_hypergraphs`);
-pass `logger=csv` for a local CSV log or `logger.wandb.entity=<yours>` to log to your own team.
+pass `logger=csv` for a local CSV log. The W&B entity, project and offline mode are read from
+`WANDB_ENTITY`, `WANDB_PROJECT` and `WANDB_OFFLINE` (copy `.env.example` to `.env`), or override
+per run with `logger.wandb.entity=<yours>`.
 
 ## Training
 
