@@ -37,6 +37,7 @@ def load_backbone(
     config_dir: Optional[str] = None,
     project_root: Optional[str] = None,
     overrides: Optional[list[str]] = None,
+    feature: str = "encoder",
 ) -> tuple[ExtractFn, int]:
     """Rebuild a pretrained encoder from its experiment config and load weights.
 
@@ -53,9 +54,16 @@ def load_backbone(
             ``["model.encoder.pool=group"]``. Needed when the encoder config has
             moved on since the checkpoint was trained, so the rebuilt module must
             be pinned to the architecture variant the weights belong to.
+        feature: ``"encoder"`` (default) returns the frozen ``embedding_dim`` backbone
+            output -- the representation used for every downstream probe. ``"projector"``
+            chains the trained projector head and returns its ``projection_dim`` output --
+            the space the JEPA regularizer (SIGReg / BallReg / RDMReg) actually acts on.
+            Note the RectLpJEPA projector output is *pre*-ReLU (the module rectifies in
+            ``model_step``, not in the projector module).
 
     Returns:
-        ``(extract_fn, embedding_dim)`` where ``extract_fn(images) -> features``.
+        ``(extract_fn, feat_dim)`` where ``extract_fn(images) -> features`` and
+        ``feat_dim`` is ``embedding_dim`` (encoder) or ``projection_dim`` (projector).
     """
     # Imported lazily so the rest of the package does not hard-depend on Hydra.
     import hydra
@@ -75,40 +83,61 @@ def load_backbone(
             config_name="train",
             overrides=[f"experiment={experiment}", f"data.crop_size={crop_size}", *(overrides or [])],
         )
+    if feature not in ("encoder", "projector"):
+        raise ValueError(f"feature must be 'encoder' or 'projector', got {feature!r}")
+
     encoder = hydra.utils.instantiate(cfg.model.encoder)
     embedding_dim = int(cfg.model.embedding_dim)
+    projector = (
+        hydra.utils.instantiate(cfg.model.projector)
+        if feature == "projector" and cfg.model.get("projector") is not None
+        else None
+    )
+    feat_dim = int(cfg.model.projection_dim) if feature == "projector" else embedding_dim
     GlobalHydra.instance().clear()
 
     ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     state_dict = ckpt["state_dict"]
-    prefix = "encoder."
-    # Strip the Lightning module prefix; also tolerate a torch.compile ``_orig_mod.`` wrap.
-    encoder_sd = {}
-    for key, value in state_dict.items():
-        if not key.startswith(prefix):
-            continue
-        sub = key[len(prefix):]
-        if sub.startswith("_orig_mod."):
-            sub = sub[len("_orig_mod."):]
-        encoder_sd[sub] = value
 
-    missing, unexpected = encoder.load_state_dict(encoder_sd, strict=False)
+    def _submodule_sd(prefix: str) -> dict:
+        """Pull one Lightning submodule's params, tolerating a torch.compile wrap."""
+        out = {}
+        for key, value in state_dict.items():
+            if not key.startswith(prefix):
+                continue
+            sub = key[len(prefix):]
+            if sub.startswith("_orig_mod."):
+                sub = sub[len("_orig_mod."):]
+            out[sub] = value
+        return out
+
+    missing, unexpected = encoder.load_state_dict(_submodule_sd("encoder."), strict=False)
     if missing or unexpected:
         raise RuntimeError(
             f"Encoder state_dict mismatch for {experiment}: "
             f"{len(missing)} missing, {len(unexpected)} unexpected. "
             f"missing[:5]={list(missing)[:5]} unexpected[:5]={list(unexpected)[:5]}"
         )
+    if projector is not None:
+        p_missing, p_unexpected = projector.load_state_dict(_submodule_sd("projector."), strict=False)
+        if p_missing or p_unexpected:
+            raise RuntimeError(
+                f"Projector state_dict mismatch for {experiment}: "
+                f"{len(p_missing)} missing, {len(p_unexpected)} unexpected. "
+                f"missing[:5]={list(p_missing)[:5]} unexpected[:5]={list(p_unexpected)[:5]}"
+            )
 
     # Move before eval(): escnn conv layers expand their filters from a basis
     # cache that is *shared between module instances*, and they do so inside
     # eval(). Once an earlier equivariant backbone in the same process has been
     # moved to CUDA, that shared basis lives on CUDA, so calling eval() while
     # these weights are still on CPU einsums a CPU tensor against a CUDA one.
-    encoder.to(device)
-    encoder.eval()
-    for param in encoder.parameters():
-        param.requires_grad_(False)
+    modules = [encoder] + ([projector] if projector is not None else [])
+    for mod in modules:
+        mod.to(device)
+        mod.eval()
+        for param in mod.parameters():
+            param.requires_grad_(False)
 
     @torch.no_grad()
     def extract_fn(images: torch.Tensor) -> torch.Tensor:
@@ -119,9 +148,11 @@ def load_backbone(
                 f"Expected encoder to return (B, D) embeddings, got {tuple(feats.shape)}. "
                 "The encoder must be configured with num_classes = embedding_dim (LeJEPA mode)."
             )
+        if projector is not None:
+            feats = projector(feats)
         return feats.float().cpu()
 
-    return extract_fn, embedding_dim
+    return extract_fn, feat_dim
 
 
 def _stack_labels(labels: list) -> torch.Tensor:

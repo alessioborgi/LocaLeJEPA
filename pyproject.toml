@@ -29,5 +29,35 @@ dependencies = [
     "pytest>=9.0.3",
     "fast-pytorch-kmeans>=0.2.2",
     "psutil>=7.2.2",
+    "wandb>=0.18",              # configs/train.yaml defaults to logger=wandb
+]
+
+[project.optional-dependencies]
+# D4-equivariant ResNet encoder (src/models/components/e2resnet.py). Only needed
+# for the `d4resnet50` experiments; pulls escnn -> py3nj (needs a Fortran
+# compiler) + lie-learn (legacy Cython sdist). `uv sync --extra equivariant`.
+equivariant = [
     "escnn>=1.0.11",
 ]
+
+[dependency-groups]
+# EmbedOR / ORC-ManL class-separation analysis (src/eval/embedor.py,
+# eval_embedor.py) plus the visualisations/ plotting stack. All permissive, all
+# with cp313 wheels (no source builds). Installed by every `uv sync` via
+# [tool.uv] default-groups below, so it never needs a flag.
+embedor = [
+    "pot>=0.9.5",           # exact optimal transport for Ollivier-Ricci (MIT)
+    "networkx>=3.3",        # k-NN / pruned graphs (BSD)
+    "scikit-learn>=1.6",    # NearestNeighbors, silhouette (BSD)
+    "scipy>=1.14.1",        # csgraph shortest paths, spectral init (BSD)
+    "matplotlib>=3.9",      # visualisations/plot_*.py (PSF/BSD-like)
+    "umap-learn>=0.5.7",    # UMAP layout alongside t-SNE / EmbedOR (BSD)
+]
+
+[tool.uv]
+default-groups = ["embedor"]
+
+[tool.uv.extra-build-dependencies]
+# lie-learn (via escnn, --extra equivariant) ships a legacy sdist whose setup.py
+# imports numpy and Cython at build time; inject them into its build env.
+lie-learn = ["numpy", "cython"]

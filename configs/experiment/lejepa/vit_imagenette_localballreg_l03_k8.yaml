@@ -1,0 +1,60 @@
+# @package _global_
+# "BallJEPA" (ViT baseline): ViT-S/8 + l_inv + local BallReg on Imagenette,
+# FIXED k=8 (~32 samples/cluster at batch 256), lambda=0.3 -- the strong + local
+# corner of the EmbedOR sweep, the setting the manifold-uniform-on-ball
+# hypothesis most directly predicts.
+#
+# Stabilized recipe (LR 1e-3, 10-epoch warmup); add grad-clip on the CLI:
+#   uv run python src/train.py experiment=lejepa/vit_imagenette_localballreg_l03_k8 \
+#     +trainer.gradient_clip_val=1.0
+
+defaults:
+  - override /data: imagenette
+  - override /model: lejepa
+  - override /model/encoder: timm_vit
+  - override /optimizer: adamw
+  - override /trainer: gpu
+  - _self_
+
+tags: ["lejepa", "imagenette", "vit-small-p8", "local-ballreg", "l0.3", "k8", "comparison"]
+
+trainer:
+  max_epochs: 800
+
+data:
+  batch_size: 256
+  num_workers: 4
+  crop_size: 128
+
+model:
+  embedding_dim: 512
+  projection_dim: 16
+  num_classes: 10
+  use_online_probe: true
+  num_global_crops: null
+  probe_lr: 1e-3
+  probe_weight_decay: 1e-7
+  warmup_epochs: 10
+  lamb: 0.3
+  loss_type: local_ballreg
+  local_sigreg_num_clusters: 8
+  local_sigreg_kmeans_iters: 10
+  local_sigreg_min_cluster_size: 4
+  local_sigreg_weighted: false
+  local_sigreg_normalize_for_kmeans: true
+  local_sigreg_kmeans_backend: fast_pytorch_kmeans
+  local_ballreg_radius: null
+  local_ballreg_center_clusters: true
+  local_ballreg_n_quad: 64
+  dynamic_num_clusters: false
+  projector:
+    hidden_channels:
+      - 2048
+      - 2048
+      - ${model.projection_dim}
+  encoder:
+    model_name: vit_small_patch8_224
+
+optimizer:
+  lr: 1e-3
+  weight_decay: 5e-2

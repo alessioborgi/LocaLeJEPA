@@ -21,6 +21,7 @@ data:
   crop_size: 128
 
 model:
+  warmup_epochs: 10
   embedding_dim: 512
   projection_dim: 16
   num_classes: 10
@@ -45,5 +46,5 @@ model:
     model_name: vit_small_patch8_224
 
 optimizer:
-  lr: 2e-3
+  lr: 1e-3
   weight_decay: 5e-2

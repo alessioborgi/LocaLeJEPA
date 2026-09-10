@@ -1,0 +1,98 @@
+# SPHERE-JEPA Table-4-style in-domain evaluation of the CURRENT Imagenette
+# ViT-S/8 checkpoints: frozen backbone, k-NN over the train feature bank +
+# linear probe. Supersedes configs/eval_indomain_imagenette.yaml, whose backbone
+# list points at checkpoints that no longer exist on the cluster.
+#
+#   sbatch src/slurm_files/slurm_diufrd_eval_indomain_ksweep.sh
+#   # or directly:
+#   python eval_indomain.py --config configs/eval_indomain_imagenette_ksweep.yaml
+#   python eval_indomain.py --config configs/eval_indomain_imagenette_ksweep.yaml --only ball_k8_s0
+#
+# Extracts BOTH splits (train 9469 / val 3925) and caches them keyed by the
+# checkpoint's epoch, so a re-evaluated backbone can never silently reuse stale
+# features. Those caches are also what `eval_structure.py` wants locally -- pull
+# logs/eval_indomain_imagenette_ksweep/cache/ afterwards and the real Table-4
+# protocol (train bank -> val query) runs offline.
+#
+# The ball arms have 3 seeds each, so the table gets mean +/- sd; LeJEPA and
+# RectLpJEPA are single-seed and must be reported as such.
+#
+# NOTE ON RECIPES: lejepa was trained at lr 2e-3 / warmup 1, every ball arm at
+# lr 1e-3 / warmup 10. That is fine for a *final-accuracy* table (each method at
+# its own settings) but is NOT a matched-recipe comparison of learning speed.
+
+device: null
+seed: 0
+
+dataset: imagenette
+data_dir: data/imagenette
+imagenette_variant: 160px
+
+crop_size: 128
+
+batch_size: 256
+num_workers: 8
+
+output_folder: logs/eval_indomain_imagenette_ksweep
+cache_dir: logs/eval_indomain_imagenette_ksweep/cache
+
+train_subset_per_class: null      # null = full 9469-image train bank
+
+knn:
+  k_values: [10, 20, 100, 200]
+  temperature: 0.07
+  report_k: 20                    # the column that goes in the table
+  chunk_size: 512
+
+linear:
+  lr_grid: [0.01, 0.03, 0.1, 0.3, 1.0, 3.0, 10.0]
+  epochs: 100
+  batch_size: 1024
+  weight_decay: 0.0
+  momentum: 0.9
+  standardize: true
+  val_frac: 0.1                   # held out of train to pick the lr
+
+backbones:
+  # --- baselines (single seed) ---------------------------------------------
+  - name: lejepa
+    experiment: lejepa/vit_imagenette_sigreg
+    checkpoint: checkpoints/lejepa/best.ckpt
+
+  - name: rectlpjepa
+    experiment: rectifiedlpjepa/vit_imagenette_rdmreg
+    checkpoint: checkpoints/rectlpjepa/best.ckpt
+
+  # --- BallJEPA locality sweep, 3 seeds each --------------------------------
+  - name: ball_k2_s0
+    experiment: lejepa/vit_imagenette_localballreg_l01_k2
+    checkpoint: checkpoints/ball_l01_k2_s0/best.ckpt
+  - name: ball_k2_s1
+    experiment: lejepa/vit_imagenette_localballreg_l01_k2
+    checkpoint: checkpoints/ball_l01_k2_s1/best.ckpt
+  - name: ball_k2_s2
+    experiment: lejepa/vit_imagenette_localballreg_l01_k2
+    checkpoint: checkpoints/ball_l01_k2_s2/best.ckpt
+
+  - name: ball_k4_s0
+    experiment: lejepa/vit_imagenette_localballreg_l01_k4
+    checkpoint: checkpoints/ball_l01_k4_s0/best.ckpt
+  - name: ball_k4_s1
+    experiment: lejepa/vit_imagenette_localballreg_l01_k4
+    checkpoint: checkpoints/ball_l01_k4_s1/best.ckpt
+  - name: ball_k4_s2
+    experiment: lejepa/vit_imagenette_localballreg_l01_k4
+    checkpoint: checkpoints/ball_l01_k4_s2/best.ckpt
+
+  # k8: the row that has never been evaluated at convergence. The old
+  # checkpoints/ball_l01_k8 (no seed suffix) was an early checkpoint -- LOO k-NN
+  # 0.58 -- and its directory is gone; these are the finished 800-epoch runs.
+  - name: ball_k8_s0
+    experiment: lejepa/vit_imagenette_localballreg_l01_k8
+    checkpoint: checkpoints/ball_l01_k8_s0/best.ckpt
+  - name: ball_k8_s1
+    experiment: lejepa/vit_imagenette_localballreg_l01_k8
+    checkpoint: checkpoints/ball_l01_k8_s1/best.ckpt
+  - name: ball_k8_s2
+    experiment: lejepa/vit_imagenette_localballreg_l01_k8
+    checkpoint: checkpoints/ball_l01_k8_s2/best.ckpt

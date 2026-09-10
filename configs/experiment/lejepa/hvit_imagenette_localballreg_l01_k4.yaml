@@ -1,0 +1,65 @@
+# @package _global_
+# LocaLeReg on an imposed-geometry backbone: Hyperbolic ViT-S/8 (Poincare ball,
+# curvature -0.1, Ermolov et al.) + l_inv + local BallReg on Imagenette (800 epochs),
+# lambda=0.1, fixed k=4 clusters. Uniform-on-the-ball target
+# (radius=null => sqrt(projection_dim + 2)), clusters centered so the target
+# constrains local residual shape and leaves cluster locations free.
+#
+# Same protocol as lejepa/vit_imagenette_localballreg_l01_k4 with only the
+# encoder swapped, and the geometric-backbone counterpart of
+# lejepa/hvit_imagenette_sigreg -- so the three Imagenette objectives
+# (SIGReg / RDMReg / LocaLeReg) are directly comparable on this backbone.
+#
+# Stabilized recipe (LR 1e-3, 10-epoch warmup); add grad-clip on the CLI:
+#   uv run python src/train.py \
+#     experiment=lejepa/hvit_imagenette_localballreg_l01_k4 \
+#     +trainer.gradient_clip_val=1.0
+
+defaults:
+  - override /data: imagenette
+  - override /model: lejepa
+  - override /model/encoder: hvit_small_p8
+  - override /optimizer: adamw
+  - override /trainer: gpu
+  - _self_
+
+tags: ["lejepa", "imagenette", "hvit-small-p8", "hyperbolic", "local-ballreg", "l0.1", "k4", "comparison"]
+
+trainer:
+  max_epochs: 800
+
+data:
+  batch_size: 256
+  num_workers: 4
+  crop_size: 128
+
+model:
+  embedding_dim: 512
+  projection_dim: 16
+  num_classes: 10
+  use_online_probe: true
+  num_global_crops: null
+  probe_lr: 1e-3
+  probe_weight_decay: 1e-7
+  warmup_epochs: 10
+  lamb: 0.1
+  loss_type: local_ballreg
+  local_sigreg_num_clusters: 4
+  local_sigreg_kmeans_iters: 10
+  local_sigreg_min_cluster_size: 4
+  local_sigreg_weighted: false
+  local_sigreg_normalize_for_kmeans: true
+  local_sigreg_kmeans_backend: fast_pytorch_kmeans
+  local_ballreg_radius: null
+  local_ballreg_center_clusters: true
+  local_ballreg_n_quad: 64
+  dynamic_num_clusters: false
+  projector:
+    hidden_channels:
+      - 2048
+      - 2048
+      - ${model.projection_dim}
+
+optimizer:
+  lr: 1e-3
+  weight_decay: 5e-2

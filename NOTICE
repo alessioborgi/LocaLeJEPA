@@ -31,3 +31,17 @@ Hyperbolic Vision Transformers / hyp_metric
 Photonic crystal experimental setup
   Follows: Dangovski et al., "Equivariant Self-Supervised Learning", ICLR 2022.
   Source:  https://arxiv.org/abs/2111.00899
+
+────────────────────────────────────────────────────────────────────────────────
+EmbedOR / ORC-ManL curvature-based embedding analysis
+  src/eval/embedor.py is an independent clean-room reimplementation written from
+  the papers and their public reference code (no source copied; neither upstream
+  package declares a license). Ollivier-Ricci curvature is computed directly from
+  its definition with POT (optimal transport) and scipy.
+  Follows: Saidi et al., "EmbedOR: Provable Cluster-Preserving Visualizations
+           with Curvature-Based Stochastic Neighbor Embeddings",
+           arXiv:2509.03703 (2025).
+           https://github.com/TristanSaidi/embedor
+           Saidi et al., "Recovering Manifold Structure Using Ollivier-Ricci
+           Curvature", ICLR 2025 / arXiv:2410.01149.
+           https://github.com/TristanSaidi/orcml

@@ -1,0 +1,40 @@
+# Learning-curve evaluation for the seeded k-sweep: k-NN top-1 and the
+# within/cross-class Ollivier-Ricci curvature gap on the frozen 512-d encoder at
+# every periodic snapshot (checkpoints/<name>/snapshots/snap_epoch*.ckpt written
+# by callbacks=with_snapshots). Tests "probe learns faster as k grows".
+#
+#   python eval_snapshots.py --config configs/eval_snapshots_ksweep.yaml
+#   python eval_snapshots.py --config configs/eval_snapshots_ksweep.yaml --only ball_l01_k8_s0
+
+device: null
+dataset: imagenette
+data_dir: data/imagenette
+imagenette_variant: 160px
+split: val
+crop_size: 128
+
+batch_size: 128        # fits the 10GB card on diufrd202; inference only, no effect on results
+num_workers: 8
+
+output_folder: logs/eval_embedor_imagenette/learning_curves
+cache_dir: logs/eval_embedor_imagenette/learning_curves/cache
+
+standardize: true
+n_neighbors: 15          # k-NN graph for the curvature gap
+knn_k: 20               # k for the leave-one-out k-NN accuracy
+n_jobs: 8
+epoch_stride: 1         # 1 = every snapshot; 2 = every other, etc.
+
+runs:
+  - {name: ball_l01_k2_s0, experiment: lejepa/vit_imagenette_localballreg_l01_k2, dir: checkpoints/ball_l01_k2_s0}
+  - {name: ball_l01_k2_s1, experiment: lejepa/vit_imagenette_localballreg_l01_k2, dir: checkpoints/ball_l01_k2_s1}
+  - {name: ball_l01_k2_s2, experiment: lejepa/vit_imagenette_localballreg_l01_k2, dir: checkpoints/ball_l01_k2_s2}
+  - {name: ball_l01_k4_s0, experiment: lejepa/vit_imagenette_localballreg_l01_k4, dir: checkpoints/ball_l01_k4_s0}
+  - {name: ball_l01_k4_s1, experiment: lejepa/vit_imagenette_localballreg_l01_k4, dir: checkpoints/ball_l01_k4_s1}
+  - {name: ball_l01_k4_s2, experiment: lejepa/vit_imagenette_localballreg_l01_k4, dir: checkpoints/ball_l01_k4_s2}
+  - {name: ball_l01_k8_s0, experiment: lejepa/vit_imagenette_localballreg_l01_k8, dir: checkpoints/ball_l01_k8_s0}
+  - {name: ball_l01_k8_s1, experiment: lejepa/vit_imagenette_localballreg_l01_k8, dir: checkpoints/ball_l01_k8_s1}
+  - {name: ball_l01_k8_s2, experiment: lejepa/vit_imagenette_localballreg_l01_k8, dir: checkpoints/ball_l01_k8_s2}
+  - {name: lejepa_s0, experiment: lejepa/vit_imagenette_sigreg, dir: checkpoints/lejepa_s0}
+  - {name: lejepa_s1, experiment: lejepa/vit_imagenette_sigreg, dir: checkpoints/lejepa_s1}
+  - {name: lejepa_s2, experiment: lejepa/vit_imagenette_sigreg, dir: checkpoints/lejepa_s2}

@@ -1,0 +1,20 @@
+defaults:
+  - default
+  - _self_
+
+# Periodic weight-only snapshots for learning-curve analysis (k-NN top-1 and
+# Delta-kappa vs epoch, eval_snapshots.py). Independent of model_checkpoint,
+# which keeps best.ckpt (by val/probe_acc) + last.ckpt. Snapshots land in
+# <model_checkpoint.dirpath>/snapshots/snap_epoch{epoch}.ckpt.
+snapshot_checkpoint:
+  _target_: lightning.pytorch.callbacks.ModelCheckpoint
+  dirpath: ${callbacks.model_checkpoint.dirpath}/snapshots
+  filename: "snap_epoch{epoch:04d}"
+  monitor: null
+  save_top_k: -1
+  save_last: false
+  every_n_epochs: 25
+  save_on_train_epoch_end: true
+  save_weights_only: true
+  auto_insert_metric_name: false
+  verbose: false
