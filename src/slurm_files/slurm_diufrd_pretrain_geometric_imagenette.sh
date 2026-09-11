@@ -141,11 +141,16 @@ fi
 python - <<'PY' || exit 1
 import sys, torch
 cap = torch.cuda.get_device_capability()
-arch, have = f"sm_{cap[0]}{cap[1]}", torch.cuda.get_arch_list()
-print(f"GPU {torch.cuda.get_device_name()} ({arch}); torch builds: {' '.join(have)}")
-if arch not in have:
-    sys.exit(f"ERROR: torch has no {arch} kernels for this GPU. Exclude this node.")
-torch.zeros(8, device="cuda").sum().item()
+print(f"GPU {torch.cuda.get_device_name()} (sm_{cap[0]}{cap[1]}); "
+      f"torch builds: {' '.join(torch.cuda.get_arch_list())}")
+# Launch a real kernel rather than string-matching the arch list: CUDA is
+# forward-compatible within a major version, so an sm_89 L40S runs sm_86
+# kernels quite happily and an exact-match test would reject it.
+try:
+    (torch.randn(64, 64, device="cuda") @ torch.randn(64, 64, device="cuda")).sum().item()
+except Exception as exc:
+    sys.exit(f"ERROR: this GPU cannot run kernels from this torch build -- {exc}\n"
+             f"       Exclude this node and resubmit.")
 PY
 
 RESUME=""
