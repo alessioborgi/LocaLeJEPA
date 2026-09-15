@@ -1,0 +1,87 @@
+# SPHERE-JEPA Table-4-style in-domain evaluation of the GEOMETRIC-backbone
+# Imagenette runs: Hyperbolic ViT-S/8 (Poincare ball, c=0.1) x
+# {SIGReg, RDMReg, LocaLeReg k in 2/4/8}, plus the two paper-recipe controls.
+# Names and checkpoint dirs mirror slurm_diufrd_pretrain_geometric_imagenette.sh.
+#
+#   sbatch src/slurm_files/slurm_diufrd_eval_indomain_geometric.sh
+#   # or directly:
+#   python eval_indomain.py --config configs/eval_indomain_imagenette_geometric.yaml
+#   python eval_indomain.py --config configs/eval_indomain_imagenette_geometric.yaml --only hvit_locale_k4
+#
+# Extracts BOTH splits (train 9469 / val 3925) and caches them keyed by the
+# checkpoint's epoch -> logs/eval_indomain_imagenette_geometric/cache/<name>/.
+# That cache is the input to eval_structure.py, which does all the geometry
+# work on CPU. Pull it locally after this job and nothing else needs a GPU.
+#
+# RECIPE CONDITIONS (do not mix them in one ranking):
+#   *_matched : lr 1e-3 / warmup 10 / clip 1.0  -- comparable to the LocaLeReg arms
+#   *_paper   : lr 2e-3 / warmup 1              -- the paper's global recipe
+# The k-sweep (k2/k4/k8) is internally matched; the SIGReg/RDMReg-vs-LocaLeReg
+# comparison is only fair against the *_matched rows.
+#
+# NOTE: these encoders return points INSIDE the Poincare ball, not free vectors.
+# Every probe below (and eval_structure.py) uses cosine/Euclidean geometry, so
+# the radial coordinate -- where a hyperbolic model puts hierarchy depth -- is
+# only read through its effect on the ambient inner product. Same protocol as
+# the plain-ViT table, which makes the numbers comparable across backbones, but
+# it is not an intrinsically hyperbolic evaluation.
+
+device: null
+seed: 0
+
+dataset: imagenette
+data_dir: data/imagenette
+imagenette_variant: 160px
+
+crop_size: 128
+
+batch_size: 256
+num_workers: 8
+
+output_folder: logs/eval_indomain_imagenette_geometric
+cache_dir: logs/eval_indomain_imagenette_geometric/cache
+
+train_subset_per_class: null      # null = full 9469-image train bank
+
+knn:
+  k_values: [10, 20, 100, 200]
+  temperature: 0.07
+  report_k: 20
+  chunk_size: 512
+
+linear:
+  lr_grid: [0.01, 0.03, 0.1, 0.3, 1.0, 3.0, 10.0]
+  epochs: 100
+  batch_size: 1024
+  weight_decay: 0.0
+  momentum: 0.9
+  standardize: true
+  val_frac: 0.1
+
+backbones:
+  # --- matched recipe: the fair three-way objective comparison ---------------
+  - name: hvit_sigreg_matched
+    experiment: lejepa/hvit_imagenette_sigreg
+    checkpoint: checkpoints/hvit_sigreg_matched/best.ckpt
+
+  - name: hvit_rdmreg_matched
+    experiment: rectifiedlpjepa/hvit_imagenette_rdmreg
+    checkpoint: checkpoints/hvit_rdmreg_matched/best.ckpt
+
+  - name: hvit_locale_k2
+    experiment: lejepa/hvit_imagenette_localballreg_l01_k2
+    checkpoint: checkpoints/hvit_locale_k2/best.ckpt
+  - name: hvit_locale_k4
+    experiment: lejepa/hvit_imagenette_localballreg_l01_k4
+    checkpoint: checkpoints/hvit_locale_k4/best.ckpt
+  - name: hvit_locale_k8
+    experiment: lejepa/hvit_imagenette_localballreg_l01_k8
+    checkpoint: checkpoints/hvit_locale_k8/best.ckpt
+
+  # --- paper recipe controls (lr 2e-3 / warmup 1) ---------------------------
+  - name: hvit_sigreg_paper
+    experiment: lejepa/hvit_imagenette_sigreg
+    checkpoint: checkpoints/hvit_sigreg_paper/best.ckpt
+  - name: hvit_rdmreg_paper
+    experiment: rectifiedlpjepa/hvit_imagenette_rdmreg
+    checkpoint: checkpoints/hvit_rdmreg_paper/best.ckpt

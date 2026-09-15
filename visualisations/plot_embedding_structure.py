@@ -67,7 +67,17 @@ LAYOUT_LABEL = {"tsne": "t-SNE", "umap": "UMAP",
 LAYOUT_ORDER = ["tsne", "umap", "embedor", "embedor_pruned"]
 
 # Stable colour per method family; seeds of one arm share a colour.
-FAMILY = [("lejepa", "#8c8c8c", "LeJEPA (SIGReg)"),
+# Hyperbolic-ViT entries come FIRST: "hvit_locale_k2" also contains "k2", so a
+# generic substring rule would colour it as a plain-ViT BallJEPA arm.
+FAMILY = [("hvit_sigreg", "#8c8c8c", "H-ViT SIGReg"),
+          ("hvit_rdmreg", "#3d6fb5", "H-ViT RDMReg"),
+          ("hvit_locale_k2", "#f4a259", "H-ViT LocaLeReg λ0.1 k2"),
+          ("hvit_locale_k4", "#e07a1f", "H-ViT LocaLeReg λ0.1 k4"),
+          ("hvit_locale_k8", "#2a9d8f", "H-ViT LocaLeReg λ0.1 k8"),
+          ("d4rn50_sigreg", "#8c8c8c", "D4-RN50 SIGReg"),
+          ("d4rn50_rdmreg", "#3d6fb5", "D4-RN50 RDMReg"),
+          ("d4rn50_locale_k4", "#e07a1f", "D4-RN50 LocaLeReg λ0.1 k4"),
+          ("lejepa", "#8c8c8c", "LeJEPA (SIGReg)"),
           ("rectlpjepa", "#3d6fb5", "RectLpJEPA (RDMReg)"),
           ("k2", "#f4a259", "BallJEPA λ0.1 k2"),
           ("k4", "#e07a1f", "BallJEPA λ0.1 k4"),
@@ -77,6 +87,10 @@ FAMILY = [("lejepa", "#8c8c8c", "LeJEPA (SIGReg)"),
 def _family(name: str) -> tuple[str, str]:
     for key, colour, label in FAMILY:
         if key in name:
+            # The paper-recipe control shares its objective's colour; the label
+            # carries the recipe, because the two must not be ranked together.
+            if name.endswith("_paper"):
+                label = f"{label} (paper recipe)"
             seed = name.split("_s")[-1] if "_s" in name else None
             return colour, (f"{label} · s{seed}" if seed and seed.isdigit() else label)
     return "#777777", name
@@ -306,13 +320,20 @@ def _one_seed(rows, seed: str):
 
 
 def main() -> None:
+    global DATA, FIG_DIR
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--transpose", action="store_true",
                     help="layout grid with methods as rows and backbones as columns")
     ap.add_argument("--layout-seed", default=None,
                     help="restrict the layout grid to this pretraining seed (e.g. 0); "
                          "the metrics panel and table keep every seed")
+    ap.add_argument("--data", default=DATA,
+                    help="eval_structure.py output directory to plot "
+                         "(default: logs/eval_structure)")
+    ap.add_argument("--fig-dir", default=FIG_DIR,
+                    help="where the figures and structure_table.md are written")
     args = ap.parse_args()
+    DATA, FIG_DIR = args.data, args.fig_dir
     rows, purity, coords = _load()
     plot_layouts(_one_seed(rows, args.layout_seed) if args.layout_seed else rows,
                  coords, transpose=args.transpose)
