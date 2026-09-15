@@ -33,9 +33,26 @@
 # AFTERWARDS, pull results + caches; everything below runs on the laptop:
 #   rsync -avz garciare@diufrd200.unifr.ch:BundLeJEPA/logs/eval_indomain_imagenette_geometric/ \
 #              ~/Documents/Code/BundLeJEPA/logs/eval_indomain_imagenette_geometric/
+#
+# Then run the structure eval TWICE -- once in each geometry. The encoder emits
+# points inside the Poincare ball, so cosine reads only their direction and
+# throws away the norm, which is where a hyperbolic model puts hierarchy depth.
+# The difference between the two tables is the measurement of what the imposed
+# geometry actually bought:
 #   python eval_structure.py --cache logs/eval_indomain_imagenette_geometric/cache \
-#                            --out   logs/eval_structure_geometric
-#   python visualisations/plot_embedding_structure.py   # (--data override, see its --help)
+#                            --out   logs/eval_structure_geometric_cosine
+#   python eval_structure.py --cache logs/eval_indomain_imagenette_geometric/cache \
+#                            --out   logs/eval_structure_geometric_poincare \
+#                            --metric poincare --hyp-c 0.1
+#   python visualisations/plot_embedding_structure.py \
+#       --data logs/eval_structure_geometric_poincare \
+#       --fig-dir visualisations/figures/geometric_poincare
+#
+# Compare the two tables on loo_knn20, kmeans/spectral ARI, Delta-kappa and
+# kappa-AUROC. NOT on the Table-4 knn*/linear columns: the hyperbolic path uses
+# a majority vote and a tangent-space head (no cosine temperature has a
+# hyperbolic equivalent), so those are comparable across backbones but not
+# across metrics. results.csv above is the cosine Table 4 either way.
 
 set -euo pipefail
 

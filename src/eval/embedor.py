@@ -70,27 +70,54 @@ _ORC_K_MIN, _ORC_K_MAX, _ORC_K_CRIT = -2.0, 1.0, 0.0
 # ---------------------------------------------------------------------------
 # k-NN graph
 # ---------------------------------------------------------------------------
-def build_knn_graph(X: np.ndarray, n_neighbors: int = 15) -> nx.Graph:
-    """Symmetric k-NN graph with Euclidean edge weights.
+def build_knn_graph(
+    X: np.ndarray | None,
+    n_neighbors: int = 15,
+    *,
+    distances: np.ndarray | None = None,
+) -> nx.Graph:
+    """Symmetric k-NN graph with metric edge weights.
 
     An edge (i, j) exists iff j is among the k nearest neighbours of i *or*
     vice versa (the "OR" / mutual-union rule used by EmbedOR). Node labels are
     integer row indices ``0 .. N-1``.
+
+    Neighbours are Euclidean in ``X`` by default. Pass ``distances`` -- a dense
+    ``(N, N)`` matrix -- to build the graph under any other metric (e.g.
+    :func:`src.eval.poincare.poincare_distances` for a hyperbolic backbone);
+    ``X`` is then unused and may be ``None``. The edge weights carried into the
+    curvature and the layout are whichever metric was used here.
     """
-    from sklearn.neighbors import NearestNeighbors
+    if distances is not None:
+        D = np.asarray(distances, dtype=np.float64)
+        if D.ndim != 2 or D.shape[0] != D.shape[1]:
+            raise ValueError(f"distances must be a square (N, N) matrix, got {D.shape}")
+        n = D.shape[0]
+        k = int(min(max(n_neighbors, 1), n - 1))
+        # argpartition rather than a sort: only the k+1 smallest are needed, and
+        # the self-distance is among them (it is 0 on the diagonal).
+        idx = np.argpartition(D, kth=k, axis=1)[:, : k + 1]
+        row = np.arange(n)[:, None]
+        order = np.argsort(D[row, idx], axis=1)
+        idx = idx[row, order]
+        dist = D[row, idx]
+    else:
+        from sklearn.neighbors import NearestNeighbors
 
-    X = np.ascontiguousarray(X, dtype=np.float64)
-    n = X.shape[0]
-    k = int(min(max(n_neighbors, 1), n - 1))
+        X = np.ascontiguousarray(X, dtype=np.float64)
+        n = X.shape[0]
+        k = int(min(max(n_neighbors, 1), n - 1))
 
-    nn = NearestNeighbors(n_neighbors=k + 1, metric="euclidean").fit(X)
-    dist, idx = nn.kneighbors(X)  # (N, k+1), first column is the point itself
+        nn = NearestNeighbors(n_neighbors=k + 1, metric="euclidean").fit(X)
+        dist, idx = nn.kneighbors(X)  # (N, k+1), first column is the point itself
 
     G = nx.Graph()
     G.add_nodes_from(range(n))
     for i in range(n):
-        for d, j in zip(dist[i, 1:], idx[i, 1:]):
+        for d, j in zip(dist[i], idx[i]):
             j = int(j)
+            if j == i:  # the point itself; exactly one such column per row
+                continue
             # OR rule: keep the shorter weight if the reverse edge already set it.
             if G.has_edge(i, j):
                 if d < G[i][j]["weight"]:
@@ -378,26 +405,30 @@ class PruneInfo:
 
 
 def orcml_prune(
-    X: np.ndarray,
+    X: np.ndarray | None,
     G: nx.Graph,
     orc: dict[tuple[int, int], float],
     *,
     delta: float = 0.8,
     lda: float = 0.01,
     reattach: bool = True,
+    distances: np.ndarray | None = None,
 ) -> tuple[nx.Graph, PruneInfo]:
     """Drop manifold-shortcut edges (ORC-ManL, Alg. 1).
 
     Parameters
     ----------
     X       : (N, D) embeddings the graph was built on (for re-attachment).
-    G       : symmetric k-NN graph with Euclidean ``weight`` edge attributes.
+              Unused, and may be ``None``, when ``distances`` is given.
+    G       : symmetric k-NN graph with metric ``weight`` edge attributes.
     orc     : edge -> Ollivier-Ricci curvature (:func:`compute_orc`).
     delta   : curvature-confidence parameter; candidates have
               ``kappa < -1 + 4(1 - delta)``.
     lda     : metric-distortion parameter; the detour bound is
               ``(1 - lda) pi^2 / (2 sqrt(24 lda)) . ||x - y||``.
     reattach: reconnect any node left isolated to its nearest neighbour.
+    distances: dense ``(N, N)`` distances, when the graph was built under a
+              non-Euclidean metric -- re-attachment must use the same one.
     """
     kappa_thr = -1.0 + 4.0 * (1.0 - delta)
     lambda_thr = ((1.0 - lda) * math.pi**2) / (2.0 * math.sqrt(24.0 * lda))
@@ -434,10 +465,18 @@ def orcml_prune(
     if reattach:
         isolated = [node for node in G_pruned.nodes() if G_pruned.degree(node) == 0]
         if isolated:
-            from sklearn.neighbors import NearestNeighbors
+            if distances is not None:
+                sub = np.asarray(distances, dtype=np.float64)[isolated]
+                sub[np.arange(len(isolated)), isolated] = np.inf  # exclude self
+                idx = np.argmin(sub, axis=1)[:, None]
+                dist = sub[np.arange(len(isolated))[:, None], idx]
+                dist = np.hstack([np.zeros_like(dist), dist])
+                idx = np.hstack([np.array(isolated)[:, None], idx])
+            else:
+                from sklearn.neighbors import NearestNeighbors
 
-            nn = NearestNeighbors(n_neighbors=2, metric="euclidean").fit(X)
-            dist, idx = nn.kneighbors(X[isolated])
+                nn = NearestNeighbors(n_neighbors=2, metric="euclidean").fit(X)
+                dist, idx = nn.kneighbors(X[isolated])
             for node, d, j in zip(isolated, dist[:, 1], idx[:, 1]):
                 G_pruned.add_edge(int(node), int(j), weight=float(d), orc=0.0)
                 n_reattached += 1
@@ -485,19 +524,27 @@ def run_embedor(
     n_jobs: int = 1,
     device: str | None = None,
     verbose: bool = True,
+    distances: np.ndarray | None = None,
 ) -> EmbedORResult:
     """Run the full EmbedOR pipeline (optionally ORC-ManL-pruned) on ``X``.
 
     ``X`` should already be whatever representation you want visualised (e.g.
     z-scored frozen backbone features). ``y`` is only carried through for the
     downstream metrics/plots.
+
+    ``distances`` supplies a dense ``(N, N)`` matrix to use instead of Euclidean
+    distances on ``X`` -- the hyperbolic path passes Poincare distances here.
+    The k-NN graph, the ORC-ManL re-attachment and hence the EmbedOR geodesic
+    are then all in that metric; only ``X`` itself goes unused.
     """
     t: dict[str, float] = {}
     log = (lambda *a: print("[embedor]", *a)) if verbose else (lambda *a: None)
 
-    X = np.ascontiguousarray(X, dtype=np.float64)
+    X = None if X is None else np.ascontiguousarray(X, dtype=np.float64)
+    if X is None and distances is None:
+        raise ValueError("run_embedor needs either X or a precomputed `distances` matrix")
     _t = time.time()
-    G = build_knn_graph(X, n_neighbors)
+    G = build_knn_graph(X, n_neighbors, distances=distances)
     t["knn_graph"] = time.time() - _t
     log(f"k-NN graph: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges "
         f"({t['knn_graph']:.1f}s)")
@@ -510,7 +557,8 @@ def run_embedor(
     prune_info: PruneInfo | None = None
     if prune:
         _t = time.time()
-        G, prune_info = orcml_prune(X, G, orc, delta=prune_delta, lda=prune_lda)
+        G, prune_info = orcml_prune(X, G, orc, delta=prune_delta, lda=prune_lda,
+                                    distances=distances)
         t["prune"] = time.time() - _t
         log(f"ORC-ManL: {prune_info.n_pruned}/{prune_info.n_edges_before} edges pruned "
             f"({100 * prune_info.prune_rate:.1f}%), {prune_info.n_reattached} re-attached "
@@ -550,7 +598,7 @@ def run_embedor(
         params=dict(
             n_neighbors=n_neighbors, perplexity=perplexity, p=p, epochs=epochs,
             seed=seed, prune=prune, prune_delta=prune_delta, prune_lda=prune_lda,
-            n_jobs=n_jobs,
+            n_jobs=n_jobs, metric="precomputed" if distances is not None else "euclidean",
         ),
         timings=t,
     )

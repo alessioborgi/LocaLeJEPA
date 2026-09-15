@@ -19,12 +19,18 @@
 # The k-sweep (k2/k4/k8) is internally matched; the SIGReg/RDMReg-vs-LocaLeReg
 # comparison is only fair against the *_matched rows.
 #
-# NOTE: these encoders return points INSIDE the Poincare ball, not free vectors.
-# Every probe below (and eval_structure.py) uses cosine/Euclidean geometry, so
-# the radial coordinate -- where a hyperbolic model puts hierarchy depth -- is
-# only read through its effect on the ambient inner product. Same protocol as
-# the plain-ViT table, which makes the numbers comparable across backbones, but
-# it is not an intrinsically hyperbolic evaluation.
+# NOTE: these encoders return points INSIDE the Poincare ball (c=0.1), not free
+# vectors. The probes below are cosine, exactly as in the plain-ViT table, which
+# is what keeps the two tables comparable -- but cosine reads only a feature's
+# direction and discards its norm, where a hyperbolic model puts hierarchy
+# depth. This config is therefore the Euclidean *reference*, not an intrinsic
+# hyperbolic evaluation. For that, run the structure eval on these same caches
+# with the ball metric:
+#   python eval_structure.py --cache logs/eval_indomain_imagenette_geometric/cache \
+#                            --out   logs/eval_structure_geometric_poincare \
+#                            --metric poincare --hyp-c 0.1
+# The cached features are raw encoder outputs, which is what that path needs --
+# it refuses standardised input rather than returning a meaningless number.
 
 device: null
 seed: 0

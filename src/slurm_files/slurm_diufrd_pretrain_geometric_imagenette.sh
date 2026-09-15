@@ -3,11 +3,18 @@
 #SBATCH --output=/HOME/garciare/BundLeJEPA/logs/embedor/output_%x_%A_%a.log
 #SBATCH --error=/HOME/garciare/BundLeJEPA/logs/embedor/error_%x_%A_%a.log
 #SBATCH --array=0-6%4
+# MEMORY: 64GB killed every LocaLeReg arm of job 23032 at epoch ~40-52 --
+# OUT_OF_MEMORY, exit 0:125, MaxRSS 66.7-66.9GB against a 64G cgroup limit,
+# surfacing as "DataLoader worker killed by signal: Killed". The SIGReg and
+# RDMReg arms (tasks 0-3) completed in 8h45-10h53 under the same limit, so the
+# local_ballreg path costs ~3GB more host RAM than the global objectives. 96GB
+# leaves ~29GB of headroom. This changes no training hyperparameter, so the
+# matched-recipe comparison is unaffected.
 #SBATCH --ntasks=1
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=8
 #SBATCH --time=48:00:00
-#SBATCH --mem=64GB
+#SBATCH --mem=96GB
 #SBATCH --partition=GPU
 #SBATCH --exclude=diufrd202,diufrd204
 #SBATCH --chdir=/HOME/garciare/BundLeJEPA
@@ -59,7 +66,16 @@
 # recipe, which would defeat the point of the matched-recipe design.
 #
 #   sbatch src/slurm_files/slurm_diufrd_pretrain_geometric_imagenette.sh
-#   sbatch --array=4-6%4 ...    # just the LocaLeReg k-sweep
+#   sbatch --array=4-6%4 ...    # just the LocaLeReg k-sweep (resumes last.ckpt)
+#   NUM_WORKERS=2 sbatch ...    # halve the dataloader processes if RAM is still tight
+#
+# The runs killed as job 23032 logged under the OLD id scheme
+# (blj_geom_<name>_23032). To append their resumed epochs to that same wandb run
+# instead of opening a fresh one, submit each task with the old id -- one task
+# per submission, since the id names a single run:
+#   WANDB_ID_OVERRIDE=blj_geom_hvit_locale_k2_23032 sbatch --array=4 <this script>
+#   WANDB_ID_OVERRIDE=blj_geom_hvit_locale_k4_23032 sbatch --array=5 <this script>
+#   WANDB_ID_OVERRIDE=blj_geom_hvit_locale_k8_23032 sbatch --array=6 <this script>
 #   sbatch --array=7-11%4 ...   # the D4 extension, once hyperbolic is in
 #
 # D4 PRECONDITION (tasks 7-11 only): the equivariant encoder needs escnn, an
@@ -156,7 +172,11 @@ PY
 RESUME=""
 [[ -f "${CKPT_DIR}/last.ckpt" ]] && RESUME="ckpt_path=${CKPT_DIR}/last.ckpt"
 
-WANDB_ID="blj_geom_${NAME}_${SLURM_ARRAY_JOB_ID:-manual}"
+# Keyed on the run NAME, not the array job id: a resubmitted task resumes from
+# last.ckpt, and with an id that changed between submissions `resume=allow`
+# would have nothing to resume and would open a SECOND run -- splitting the
+# learning curve exactly where the 100-epoch comparison reads it.
+WANDB_ID="${WANDB_ID_OVERRIDE:-blj_geom_${NAME}}"
 
 echo "=== [$i] ${NAME}  (${EXP}, ${RECIPE} recipe, seed ${SEED})  start $(date) on $(hostname) ==="
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader || true
@@ -165,6 +185,7 @@ python src/train.py \
   experiment="${EXP}" \
   seed="${SEED}" \
   callbacks=with_snapshots \
+  data.num_workers="${NUM_WORKERS:-4}" \
   "${RECIPE_ARGS[@]}" \
   logger=many_loggers \
   "logger.wandb.name=blj_geom_${NAME}" \
