@@ -35,6 +35,12 @@ runs:
   - {name: ball_l01_k8_s0, experiment: lejepa/vit_imagenette_localballreg_l01_k8, dir: checkpoints/ball_l01_k8_s0}
   - {name: ball_l01_k8_s1, experiment: lejepa/vit_imagenette_localballreg_l01_k8, dir: checkpoints/ball_l01_k8_s1}
   - {name: ball_l01_k8_s2, experiment: lejepa/vit_imagenette_localballreg_l01_k8, dir: checkpoints/ball_l01_k8_s2}
+  - {name: ball_l01_k16_s0, experiment: lejepa/vit_imagenette_localballreg_l01_k16, dir: checkpoints/ball_l01_k16_s0}
+  - {name: ball_l01_k16_s1, experiment: lejepa/vit_imagenette_localballreg_l01_k16, dir: checkpoints/ball_l01_k16_s1}
+  - {name: ball_l01_k16_s2, experiment: lejepa/vit_imagenette_localballreg_l01_k16, dir: checkpoints/ball_l01_k16_s2}
+  - {name: ball_l01_k32_s0, experiment: lejepa/vit_imagenette_localballreg_l01_k32, dir: checkpoints/ball_l01_k32_s0}
+  - {name: ball_l01_k32_s1, experiment: lejepa/vit_imagenette_localballreg_l01_k32, dir: checkpoints/ball_l01_k32_s1}
+  - {name: ball_l01_k32_s2, experiment: lejepa/vit_imagenette_localballreg_l01_k32, dir: checkpoints/ball_l01_k32_s2}
   - {name: lejepa_s0, experiment: lejepa/vit_imagenette_sigreg, dir: checkpoints/lejepa_s0}
   - {name: lejepa_s1, experiment: lejepa/vit_imagenette_sigreg, dir: checkpoints/lejepa_s1}
   - {name: lejepa_s2, experiment: lejepa/vit_imagenette_sigreg, dir: checkpoints/lejepa_s2}

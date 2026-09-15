@@ -79,6 +79,10 @@ FAMILY = [("hvit_sigreg", "#8c8c8c", "H-ViT SIGReg"),
           ("d4rn50_locale_k4", "#e07a1f", "D4-RN50 LocaLeReg λ0.1 k4"),
           ("lejepa", "#8c8c8c", "LeJEPA (SIGReg)"),
           ("rectlpjepa", "#3d6fb5", "RectLpJEPA (RDMReg)"),
+          # k16/k32 before the short keys: no substring clash today ("k2" is not
+          # inside "k32"), but keeping the longer keys first makes that robust.
+          ("k16", "#6a4c93", "BallJEPA λ0.1 k16"),
+          ("k32", "#b5179e", "BallJEPA λ0.1 k32"),
           ("k2", "#f4a259", "BallJEPA λ0.1 k2"),
           ("k4", "#e07a1f", "BallJEPA λ0.1 k4"),
           ("k8", "#2a9d8f", "BallJEPA λ0.1 k8")]

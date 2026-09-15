@@ -96,3 +96,26 @@ backbones:
   - name: ball_k8_s2
     experiment: lejepa/vit_imagenette_localballreg_l01_k8
     checkpoint: checkpoints/ball_l01_k8_s2/best.ckpt
+
+  # k16 / k32: the extension past #classes (10). Through k=8 the frozen k-NN
+  # rises monotonically in k; these decide whether it keeps rising or turns
+  # over. 3 seeds each so every k enters the trend test at the same n.
+  - name: ball_k16_s0
+    experiment: lejepa/vit_imagenette_localballreg_l01_k16
+    checkpoint: checkpoints/ball_l01_k16_s0/best.ckpt
+  - name: ball_k16_s1
+    experiment: lejepa/vit_imagenette_localballreg_l01_k16
+    checkpoint: checkpoints/ball_l01_k16_s1/best.ckpt
+  - name: ball_k16_s2
+    experiment: lejepa/vit_imagenette_localballreg_l01_k16
+    checkpoint: checkpoints/ball_l01_k16_s2/best.ckpt
+
+  - name: ball_k32_s0
+    experiment: lejepa/vit_imagenette_localballreg_l01_k32
+    checkpoint: checkpoints/ball_l01_k32_s0/best.ckpt
+  - name: ball_k32_s1
+    experiment: lejepa/vit_imagenette_localballreg_l01_k32
+    checkpoint: checkpoints/ball_l01_k32_s1/best.ckpt
+  - name: ball_k32_s2
+    experiment: lejepa/vit_imagenette_localballreg_l01_k32
+    checkpoint: checkpoints/ball_l01_k32_s2/best.ckpt

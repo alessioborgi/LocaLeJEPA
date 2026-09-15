@@ -1,0 +1,75 @@
+# @package _global_
+# "BallJEPA" (ViT baseline): ViT-S/8 + l_inv + local BallReg on Imagenette,
+# FIXED k=32, lambda=0.1. Extends the k in {2,4,8} ablation to the range where
+# k exceeds the number of Imagenette classes (10) -- the arm that tests whether
+# the monotone-in-k trend (Jonckheere-Terpstra p=0.0058 on frozen k-NN top-1
+# through k=8) keeps rising or turns over near #classes.
+#
+# CLUSTER SIZE: k-means splits the batch, so clusters average batch/k = 256/32
+# = 8 points in the 16-d projector. Two consequences to carry into the
+# reading of this arm:
+#   * the per-cluster covariance is rank-8 at best (rank-7 after
+#     center_clusters), so a single cluster cannot span the 16-d ball target.
+#     Aggregate power across the 32 clusters still holds up
+#     (scripts/ball_statistic_power.py), but this is a different test from k=2,
+#     not merely a more local one.
+#   * local_sigreg_min_cluster_size stays at 4 to match every banked arm, so
+#     k-means clusters that fall below 4 points are skipped
+#     (src/losses.py) and the EFFECTIVE k is somewhat below 32.
+# Neither is a reason to change the setting -- changing it would break the
+# matched ablation -- but both belong in the caption.
+#
+# Stabilized recipe (LR 1e-3, 10-epoch warmup); add grad-clip on the CLI:
+#   uv run python src/train.py experiment=lejepa/vit_imagenette_localballreg_l01_k32 \
+#     +trainer.gradient_clip_val=1.0
+
+defaults:
+  - override /data: imagenette
+  - override /model: lejepa
+  - override /model/encoder: timm_vit
+  - override /optimizer: adamw
+  - override /trainer: gpu
+  - _self_
+
+tags: ["lejepa", "imagenette", "vit-small-p8", "local-ballreg", "l0.1", "k32", "comparison"]
+
+trainer:
+  max_epochs: 800
+
+data:
+  batch_size: 256
+  num_workers: 4
+  crop_size: 128
+
+model:
+  embedding_dim: 512
+  projection_dim: 16
+  num_classes: 10
+  use_online_probe: true
+  num_global_crops: null
+  probe_lr: 1e-3
+  probe_weight_decay: 1e-7
+  warmup_epochs: 10
+  lamb: 0.1
+  loss_type: local_ballreg
+  local_sigreg_num_clusters: 32
+  local_sigreg_kmeans_iters: 10
+  local_sigreg_min_cluster_size: 4
+  local_sigreg_weighted: false
+  local_sigreg_normalize_for_kmeans: true
+  local_sigreg_kmeans_backend: fast_pytorch_kmeans
+  local_ballreg_radius: null
+  local_ballreg_center_clusters: true
+  local_ballreg_n_quad: 64
+  dynamic_num_clusters: false
+  projector:
+    hidden_channels:
+      - 2048
+      - 2048
+      - ${model.projection_dim}
+  encoder:
+    model_name: vit_small_patch8_224
+
+optimizer:
+  lr: 1e-3
+  weight_decay: 5e-2
