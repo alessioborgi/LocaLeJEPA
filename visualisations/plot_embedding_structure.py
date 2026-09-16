@@ -88,12 +88,19 @@ FAMILY = [("hvit_sigreg", "#8c8c8c", "H-ViT SIGReg"),
           ("k8", "#2a9d8f", "BallJEPA λ0.1 k8")]
 
 
+# Set by main() when --recipe filters the plot to a single optimizer recipe: the
+# suffix then says nothing (every arm shown is at that recipe) and actively
+# misleads, because LocaLeReg has no suffix to carry and would read as the odd
+# one out. State the recipe in the caption instead.
+SHOW_RECIPE_SUFFIX = True
+
+
 def _family(name: str) -> tuple[str, str]:
     for key, colour, label in FAMILY:
         if key in name:
             # The paper-recipe control shares its objective's colour; the label
             # carries the recipe, because the two must not be ranked together.
-            if name.endswith("_paper"):
+            if name.endswith("_paper") and SHOW_RECIPE_SUFFIX:
                 label = f"{label} (paper recipe)"
             seed = name.split("_s")[-1] if "_s" in name else None
             return colour, (f"{label} · s{seed}" if seed and seed.isdigit() else label)
@@ -323,8 +330,32 @@ def _one_seed(rows, seed: str):
     return keep
 
 
+def _select(rows, recipe, only, exclude):
+    """Filter the backbone rows for the figures and the table.
+
+    The recipe filter keeps arms with no ``_matched``/``_paper`` suffix in either
+    case: LocaLeReg contributes exactly one run per k because its paper recipe is
+    the stabilized one, so dropping untwinned arms would empty the k-sweep out of
+    whichever plot you asked for.
+    """
+    kept = rows
+    if recipe:
+        other = "matched" if recipe == "paper" else "paper"
+        kept = [r for r in kept if not r["backbone"].endswith(f"_{other}")]
+    if only:
+        want = {n.strip() for n in only.split(",")}
+        kept = [r for r in kept if r["backbone"] in want]
+    if exclude:
+        drop = {n.strip() for n in exclude.split(",")}
+        kept = [r for r in kept if r["backbone"] not in drop]
+    dropped = [r["backbone"] for r in rows if r not in kept]
+    if dropped:
+        print(f"filtered out {len(dropped)}: {', '.join(sorted(dropped))}")
+    return kept
+
+
 def main() -> None:
-    global DATA, FIG_DIR
+    global DATA, FIG_DIR, SHOW_RECIPE_SUFFIX
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--transpose", action="store_true",
                     help="layout grid with methods as rows and backbones as columns")
@@ -336,9 +367,24 @@ def main() -> None:
                          "(default: logs/eval_structure)")
     ap.add_argument("--fig-dir", default=FIG_DIR,
                     help="where the figures and structure_table.md are written")
+    ap.add_argument("--recipe", default=None, choices=["paper", "matched"],
+                    help="keep only one optimizer recipe of the geometric sweep. "
+                         "'paper' keeps *_paper plus every arm that has no _matched/_paper "
+                         "twin (LocaLeReg, whose paper recipe IS the stabilized one); "
+                         "'matched' keeps *_matched plus those same untwinned arms. "
+                         "NOTE: 'paper' reinstates the objective-plus-optimizer confound "
+                         "the matched arms were run to remove -- fine for reproducing the "
+                         "paper's comparison, not for claiming local beats global.")
+    ap.add_argument("--only", default=None,
+                    help="comma-separated backbone names to keep (applied after --recipe)")
+    ap.add_argument("--exclude", default=None, help="comma-separated backbone names to drop")
     args = ap.parse_args()
     DATA, FIG_DIR = args.data, args.fig_dir
     rows, purity, coords = _load()
+    SHOW_RECIPE_SUFFIX = args.recipe is None
+    rows = _select(rows, args.recipe, args.only, args.exclude)
+    if not rows:
+        sys.exit("no backbones left after filtering -- check --recipe/--only/--exclude")
     plot_layouts(_one_seed(rows, args.layout_seed) if args.layout_seed else rows,
                  coords, transpose=args.transpose)
     plot_metrics(rows, purity)
