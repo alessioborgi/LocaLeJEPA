@@ -73,6 +73,15 @@ def _snapshots(run_dir: str, stride: int) -> list[tuple[int, str]]:
 
 def main(cfg: dict, only: list[str] | None) -> None:
     device = torch.device(cfg.get("device") or ("cuda:0" if torch.cuda.is_available() else "cpu"))
+    if device.type == "cpu":
+        # Feature extraction is ~1300s per snapshot on CPU against ~15s on a GPU,
+        # so a silent fallback turns a 25-minute run into a half-day one that a
+        # scheduler kills part-way, leaving a truncated curve that looks real.
+        logger.warning(
+            "RUNNING ON CPU -- roughly 80x slower than a GPU (~1300s per snapshot, "
+            "measured). If this was meant to use a GPU, check torch.cuda.is_available(): "
+            "a driver older than the torch build needs reports CUDA unavailable here."
+        )
     crop_size = int(cfg.get("crop_size", 128))
     out_dir = cfg["output_folder"]
     cache_dir = cfg.get("cache_dir")

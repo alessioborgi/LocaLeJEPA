@@ -9,7 +9,7 @@
 #SBATCH --time=04:00:00
 #SBATCH --mem=48GB
 #SBATCH --partition=GPU
-#SBATCH --nodelist=diufrd202
+#SBATCH --exclude=diufrd202,diufrd204
 #SBATCH --chdir=/HOME/garciare/BundLeJEPA
 
 # Learning curves over the Hyperbolic-ViT snapshots -- one array task per run
@@ -27,17 +27,41 @@
 # Then on the login node (or locally after rsync):
 #   python scripts/snapshot_horizon_table.py --data logs/eval_snapshots_geometric
 #
-# NODE: diufrd202 (RTX 3080, 10GB) at batch_size 128 -- inference only, so the
-# small card is enough and 203/205 stay free for pretraining. Override with
-#   sbatch --nodelist=diufrd203 src/slurm_files/slurm_diufrd_eval_snapshots_geometric.sh
-# Not 204: this rebuilds the encoder through the same torch build that has no
-# sm_70 kernels.
+# NODE: any GPU node except 202 and 204, NEITHER of which can run this torch
+# build -- 204 is the V100 (no sm_70 kernels in a cu13 wheel) and 202's driver
+# reports CUDA 12080 against a build needing >= 580 (measured 2026-09-16, job
+# 23298: torch fell back to CPU and took 1300s per snapshot instead of ~15s).
+# That leaves 203 and 205. Inference only, so it does not compete for memory
+# with pretraining; pin one with --nodelist on the CLI if you want to keep a
+# node free.
 
 set -euo pipefail
 source "$HOME/.local/bin/env" 2>/dev/null || true
 source .venv/bin/activate
 export RICH_NO_COLOR=1 NO_COLOR=1 OMP_NUM_THREADS=1 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 mkdir -p logs/embedor
+
+# HARD CUDA CHECK. eval_snapshots.py falls back to CPU when torch.cuda is
+# unavailable, which in a job that asked for --gres=gpu:1 is never what you
+# want: feature extraction goes from ~15s to ~1300s per snapshot, so a 25-minute
+# run becomes 11.5 hours and dies on the time limit having silently produced a
+# partial curve. Measured on diufrd202 (2026-09-16): driver reports CUDA 12080
+# against a cu13 torch build, which needs driver >= 580 -- so that node cannot
+# run this build at all, the same way 204 cannot for sm_70.
+python - <<'PYCHK' || exit 1
+import sys, torch
+if not torch.cuda.is_available():
+    sys.exit("ERROR: CUDA unavailable -- this job would run on CPU and time out.\n"
+             "       Usually the node's driver is older than this torch build needs\n"
+             f"       (torch {torch.version.cuda=}). Resubmit excluding that node.")
+cap = torch.cuda.get_device_capability()
+print(f"GPU {torch.cuda.get_device_name()} (sm_{cap[0]}{cap[1]}); "
+      f"torch cuda {torch.version.cuda}")
+try:
+    (torch.randn(64, 64, device="cuda") @ torch.randn(64, 64, device="cuda")).sum().item()
+except Exception as exc:
+    sys.exit(f"ERROR: this GPU cannot run kernels from this torch build -- {exc}")
+PYCHK
 
 # Index map matches configs/eval_snapshots_geometric.yaml and the NAMES order of
 # slurm_diufrd_pretrain_geometric_imagenette.sh is NOT the same -- this one

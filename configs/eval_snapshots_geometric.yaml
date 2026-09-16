@@ -34,7 +34,7 @@ imagenette_variant: 160px
 split: val
 crop_size: 128
 
-batch_size: 128        # sized for the 10GB card on diufrd202; inference only
+batch_size: 256        # inference only; 203/205 have 48GB+, and 202 is excluded
 num_workers: 8
 
 output_folder: logs/eval_snapshots_geometric
