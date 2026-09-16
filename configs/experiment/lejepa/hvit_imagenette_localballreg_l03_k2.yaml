@@ -1,0 +1,74 @@
+# @package _global_
+# The configuration the manuscript's Table 2 actually reports for the hyperbolic
+# encoder: Hyperbolic ViT-S/8 (Poincare ball, curvature -0.1) + l_inv + local
+# BallReg at lambda=0.3, K=2 -- the row giving LeJEPA 25.1 -> 29.4 k-NN@20 and
+# 41.1 -> 43.8 linear on ImageNet-1K at 100 epochs.
+#
+# WHY THIS ARM EXISTS. Our hvit_locale_k{2,4,8} runs are all lambda=0.1, so they
+# test a neighboring setting rather than the paper's claim; the paper notes its
+# other hyperbolic neighborhood settings "remain incomplete", so lambda=0.1 was
+# never reported for this encoder. Without this run we cannot say we failed to
+# reproduce the hyperbolic result -- only that we tested something else.
+#
+# WHAT TO EXPECT. The paper's own D4-ResNet-50 numbers make lambda=0.3 the WEAKER
+# setting where both were measured: at K=2, linear top-1 falls from 41.9
+# (lambda=0.1) to 38.2 (lambda=0.3). So this arm is not predicted to rescue the
+# comparison on Imagenette -- it is run because it is the stated one.
+#
+# Identical to hvit_imagenette_localballreg_l01_k2 except for `lamb`, so the
+# pair is a clean lambda contrast at fixed K on this backbone.
+#
+# Stabilized recipe (LR 1e-3, 10-epoch warmup) -- which for the local objective
+# IS the paper recipe; add grad-clip on the CLI:
+#   uv run python src/train.py \
+#     experiment=lejepa/hvit_imagenette_localballreg_l03_k2 \
+#     +trainer.gradient_clip_val=1.0
+
+defaults:
+  - override /data: imagenette
+  - override /model: lejepa
+  - override /model/encoder: hvit_small_p8
+  - override /optimizer: adamw
+  - override /trainer: gpu
+  - _self_
+
+tags: ["lejepa", "imagenette", "hvit-small-p8", "hyperbolic", "local-ballreg", "l0.3", "k2", "comparison"]
+
+trainer:
+  max_epochs: 800
+
+data:
+  batch_size: 256
+  num_workers: 4
+  crop_size: 128
+
+model:
+  embedding_dim: 512
+  projection_dim: 16
+  num_classes: 10
+  use_online_probe: true
+  num_global_crops: null
+  probe_lr: 1e-3
+  probe_weight_decay: 1e-7
+  warmup_epochs: 10
+  lamb: 0.3
+  loss_type: local_ballreg
+  local_sigreg_num_clusters: 2
+  local_sigreg_kmeans_iters: 10
+  local_sigreg_min_cluster_size: 4
+  local_sigreg_weighted: false
+  local_sigreg_normalize_for_kmeans: true
+  local_sigreg_kmeans_backend: fast_pytorch_kmeans
+  local_ballreg_radius: null
+  local_ballreg_center_clusters: true
+  local_ballreg_n_quad: 64
+  dynamic_num_clusters: false
+  projector:
+    hidden_channels:
+      - 2048
+      - 2048
+      - ${model.projection_dim}
+
+optimizer:
+  lr: 1e-3
+  weight_decay: 5e-2

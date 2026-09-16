@@ -66,6 +66,7 @@
 # recipe, which would defeat the point of the matched-recipe design.
 #
 #   sbatch src/slurm_files/slurm_diufrd_pretrain_geometric_imagenette.sh
+#   sbatch --array=12 ...       # just the lambda=0.3 K=2 arm (one GPU, ~10h)
 #   sbatch --array=4-6%4 ...    # just the LocaLeReg k-sweep (resumes last.ckpt)
 #   NUM_WORKERS=2 sbatch ...    # halve the dataloader processes if RAM is still tight
 #
@@ -108,11 +109,17 @@ python -c "import wandb, lightning, timm, hydra" || { echo "ERROR: run 'uv sync'
 #        replicating on a hyperbolic backbone the monotone-in-k trend found on
 #        the plain ViT (Jonckheere-Terpstra p=0.0058 on frozen k-NN top-1)
 #   7-11 D4-equivariant ResNet-50, same shape but LocaLeReg at k=4 only
+#   12   Hyperbolic LocaLeReg lambda=0.3, K=2 -- the configuration Table 2 of
+#        the manuscript actually reports for this encoder. Our k-sweep is all
+#        lambda=0.1, so without this one run we can only say we tested a
+#        different setting, not that the paper's result fails to transfer.
+#        ONE run, ~9-11h on one GPU (measured: tasks 0-3 took 8h45-10h53).
 NAMES=(
   hvit_sigreg_matched     hvit_sigreg_paper     hvit_rdmreg_matched     hvit_rdmreg_paper
   hvit_locale_k2          hvit_locale_k4        hvit_locale_k8
   d4rn50_sigreg_matched   d4rn50_sigreg_paper   d4rn50_rdmreg_matched   d4rn50_rdmreg_paper
   d4rn50_locale_k4
+  hvit_locale_l03_k2
 )
 EXPERIMENTS=(
   lejepa/hvit_imagenette_sigreg            lejepa/hvit_imagenette_sigreg
@@ -123,11 +130,13 @@ EXPERIMENTS=(
   lejepa/d4rn50_imagenette_sigreg          lejepa/d4rn50_imagenette_sigreg
   rectifiedlpjepa/d4rn50_imagenette_rdmreg rectifiedlpjepa/d4rn50_imagenette_rdmreg
   lejepa/d4rn50_imagenette_localballreg_l01_k4
+  lejepa/hvit_imagenette_localballreg_l03_k2
 )
 # matched = lr 1e-3 / warmup 10 / clip 1.0 ; paper = lr 2e-3 / warmup 1 / no clip
 RECIPES=(matched paper matched paper
          matched matched matched
          matched paper matched paper
+         matched
          matched)
 
 i="${SLURM_ARRAY_TASK_ID:?run as an array job}"

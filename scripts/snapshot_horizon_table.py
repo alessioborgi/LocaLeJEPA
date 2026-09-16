@@ -36,6 +36,11 @@ import sys
 
 import numpy as np
 
+# np.trapezoid is numpy >= 2.0; np.trapz is the <2.0 spelling and is deprecated
+# in >= 2.0. Bind once so the script runs under either (the cluster venv has
+# numpy 2.4, a stock conda python may still be on 1.26).
+_trapz = getattr(np, "trapezoid", None) or np.trapz
+
 
 def load(data_dir: str) -> dict[str, list[dict]]:
     """{run: [row, ...]} from the per-run CSVs, ignoring the merged file."""
@@ -78,7 +83,7 @@ def aulc(rows: list[dict], metric: str, cap: int) -> float | None:
     if len(pts) < 2:
         return None
     ep, val = np.array([p[0] for p in pts], float), np.array([p[1] for p in pts], float)
-    return float(np.trapezoid(val, ep) / (ep[-1] - ep[0]))
+    return float(_trapz(val, ep) / (ep[-1] - ep[0]))
 
 
 def main() -> None:
