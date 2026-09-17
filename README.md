@@ -8,8 +8,9 @@ projection space instead of on the whole batch. The proposed variant is
 neighbourhood — which on ImageNet-1K (ViT-S/8, 100 epochs) lifts LeJEPA's frozen-feature
 k-NN / linear top-1 from 24.3 / 40.7 to 34.1 / 49.5 with the same backbone and schedule.
 
-Authors: Alessio Borgi, Paul Snopov, Kartik Tandon, Ines Garcia Redondo, Sebastiano Cultrera
-di Montesano, Fabrizio Silvestri, Pietro Liò, Randall Balestriero, Claudio Battiloro.
+Authors: Alessio Borgi, Kartik Tandon, Pavel Snopov, Inés García-Redondo, Davide D'Ascenzo,
+Sebastiano Cultrera di Montesano, Fabrizio Silvestri, Pietro Lio, Francesca Dominici,
+Randall Balestriero, Claudio Battiloro.
 
 ## Overview
 
@@ -235,5 +236,5 @@ there. In short:
 Built on [LeJEPA](https://github.com/galilai-group/lejepa) (Balestriero & LeCun),
 [lightning-hydra-template](https://github.com/ashleve/lightning-hydra-template), the
 [hyp_metric](https://github.com/htdt/hyp_metric) hyperbolic ViT head and the
-[equivision](https://github.com/dmklee/equivision) D4-ResNet; see `NOTICE`. Licensed under the
+[equivision](https://github.com/dmklee/equivision) D4-ResNet; third-party notices in `src/NOTICE`. Licensed under the
 terms in `LICENSE`.
