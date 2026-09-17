@@ -11,6 +11,15 @@ from src.eval.patch_pca import pca_colors
 
 
 def select_images(args):
+    # Imagenette archives normally use WordNet synset IDs as directory names.
+    # Accept the human-readable names used in the paper/readme as well.
+    aliases = {
+        'tench': 'n01440764', 'English springer': 'n02102040',
+        'cassette player': 'n02979186', 'chain saw': 'n03000684',
+        'church': 'n03028079', 'French horn': 'n03394916',
+        'garbage truck': 'n03417042', 'gas pump': 'n03425413',
+        'golf ball': 'n03445777', 'parachute': 'n03888257',
+    }
     if args.images:
         groups={'selected':[Path(p).resolve() for p in args.images]}
     else:
@@ -20,8 +29,14 @@ def select_images(args):
         if not classes:raise ValueError('Expected class subdirectories, or use --images FILE ...')
         rng=np.random.default_rng(args.seed)
         if args.classes:
-            wanted=set(args.classes);classes=[p for p in classes if p.name in wanted]
-            if {p.name for p in classes}!=wanted:raise ValueError('Requested image classes not found')
+            wanted=set(args.classes)
+            resolved={aliases.get(name, name) for name in wanted}
+            classes=[p for p in classes if p.name in resolved]
+            found={p.name for p in classes}
+            if found!=resolved:
+                available=', '.join(p.name for p in sorted(Path(args.image_root).iterdir()) if p.is_dir())
+                raise ValueError('Requested image classes not found. Use human names or synset IDs. '
+                                 f'Requested: {sorted(wanted)}; available directory names: {available}')
         else:
             classes=[classes[i] for i in sorted(rng.choice(len(classes),min(3,len(classes)),replace=False))]
         groups={}
