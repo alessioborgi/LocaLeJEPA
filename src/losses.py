@@ -44,18 +44,21 @@ def invariance_loss(proj: torch.Tensor, num_global: int | None = None) -> torch.
     return (proj - ref).square().mean()
 
 
-def sigreg_loss(proj: torch.Tensor, knots: int = 17) -> torch.Tensor:
+def sigreg_loss(proj: torch.Tensor, knots: int = 17, num_slices: int = 256, t_max: float = 3.0) -> torch.Tensor:
     """SIGReg: Sketched Isotropic Gaussian Regularization (LeJEPA).
 
     Enforces an isotropic Gaussian distribution on projection embeddings via
     the Epps-Pulley characteristic function test along random 1-D projections.
     Integrates on [0, t_max] using the trapezoid rule and exploits ECF symmetry
-    by doubling the inner weights.
+    by doubling the inner weights (so [0, t_max] equals the paper's [-t_max, t_max]).
 
     Parameters
     ----------
-    proj  : (V, N, D) stacked projections from all views (any dtype)
-    knots : number of integration knots (default 17)
+    proj       : (V, N, D) stacked projections from all views (any dtype)
+    knots      : number of integration knots (default 17)
+    num_slices : number of random sketch directions |A| (default 256; the LeJEPA
+                 paper recommends 1024 for ViT-L/14 on ImageNet-1K)
+    t_max      : half-width of the integration domain (default 3.0; paper uses 5.0)
 
     Returns
     -------
@@ -64,9 +67,9 @@ def sigreg_loss(proj: torch.Tensor, knots: int = 17) -> torch.Tensor:
     proj = proj.float()
     device = proj.device
 
-    # Integration grid and trapezoid weights on [0, 3].
-    t = torch.linspace(0, 3, knots, device=device)
-    dt = 3.0 / (knots - 1)
+    # Integration grid and trapezoid weights on [0, t_max].
+    t = torch.linspace(0, t_max, knots, device=device)
+    dt = t_max / (knots - 1)
     weights = torch.full((knots,), 2.0 * dt, device=device)
     # Boundary correction for trapezoid rule.
     weights[[0, -1]] = dt
@@ -75,9 +78,9 @@ def sigreg_loss(proj: torch.Tensor, knots: int = 17) -> torch.Tensor:
     weights = weights * phi
 
     # Random unit-norm sketch directions in R^D.
-    A = torch.randn(proj.size(-1), 256, device=device)
+    A = torch.randn(proj.size(-1), num_slices, device=device)
     A = A.div_(A.norm(p=2, dim=0))
-    # 1-D projections at each integration knot: (V, N, 256, knots).
+    # 1-D projections at each integration knot: (V, N, num_slices, knots).
     x_t = (proj @ A).unsqueeze(-1) * t
     # Squared ECF error: real part + imaginary part.
     err = (x_t.cos().mean(-3) - phi).square() + x_t.sin().mean(-3).square()

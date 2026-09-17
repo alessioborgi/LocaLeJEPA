@@ -1,0 +1,105 @@
+# RankMe (Garrido et al., ICML 2023) of the 100-epoch ImageNet-1K pretrains.
+#
+# Effective (entropic) rank of the frozen features on 25,600 ImageNet-1K train
+# images (the paper's protocol, Appendix G) and on the train split of each
+# transfer dataset (paper Tables S20-S25). Headline = 512-d encoder output; the
+# 16-d projector output (the paper's "embeddings") is reported too but is capped
+# at 16 by our projector width.
+#
+# Features come from the in-domain / transfer eval caches when present (CPU
+# only). Backbones without a cache are embedded on a GPU node:
+#   python eval_rankme.py --config configs/eval_rankme_in1k_ep100.yaml --cached-only   # login node, cached ones
+#   sbatch src/slurm_files/slurm_harvard_eval_rankme_in1k_ep100.sh                     # the rest
+#   python eval_rankme.py --config configs/eval_rankme_in1k_ep100.yaml --merge-only
+#   python scripts/make_rankme_results.py
+
+device: null
+seed: 0
+n_samples: 25600
+save_spectrum: true
+
+dataset: imagenet1k
+data_dir: data/imagenet
+image_folder: imagenet_full_size/061417/
+crop_size: 128
+batch_size: 256
+num_workers: 8
+
+transfer_datasets: [dtd, aircraft, cifar10, cifar100, flowers, food, pets]
+transfer_data_root: /n/netscratch/dominici_lab/Lab/aborgi/transfer_datasets
+
+indomain_cache_dir: /n/netscratch/dominici_lab/Lab/aborgi/eval_indomain_in1k_cache
+transfer_cache_dir: /n/netscratch/dominici_lab/Lab/aborgi/eval_transfer_in1k_cache
+cache_dir: /n/netscratch/dominici_lab/Lab/aborgi/eval_rankme_in1k_cache
+output_folder: logs/eval_rankme_in1k_ep100
+
+backbones:
+  # ---- D4-equivariant ResNet-50 --------------------------------------------
+  - name: d4rn50_sigreg
+    family: d4rn50
+    experiment: lejepa/d4rn50_in1k_sigreg
+    checkpoint: checkpoints/lejepa_d4rn50_in1k_sigreg/last.ckpt
+  - name: d4rn50_rdmreg
+    family: d4rn50
+    experiment: rectifiedlpjepa/d4rn50_in1k_rdmreg
+    checkpoint: checkpoints/rectifiedlpjepa_d4rn50_in1k_rdmreg/last.ckpt
+  - name: d4rn50_localballreg_l01_k2
+    family: d4rn50
+    experiment: lejepa/d4rn50_in1k_localballreg_l01_k2
+    checkpoint: checkpoints/lejepa_d4rn50_in1k_localballreg_l01_k2/last.ckpt
+  - name: d4rn50_localballreg_l01_k4
+    family: d4rn50
+    experiment: lejepa/d4rn50_in1k_localballreg_l01_k4
+    checkpoint: checkpoints/lejepa_d4rn50_in1k_localballreg_l01_k4/last.ckpt
+  - name: d4rn50_localballreg_l03_k2
+    family: d4rn50
+    experiment: lejepa/d4rn50_in1k_localballreg_l03_k2
+    checkpoint: checkpoints/lejepa_d4rn50_in1k_localballreg_l03_k2/last.ckpt
+  - name: d4rn50_localsigreg_l01_k4
+    family: d4rn50
+    experiment: lejepa/d4rn50_in1k_localsigreg_l01_k4
+    checkpoint: checkpoints/lejepa_d4rn50_in1k_localsigreg_l01_k4/last.ckpt
+  - name: d4rn50_localballreg_l01_dynk
+    family: d4rn50
+    experiment: lejepa/d4rn50_in1k_localballreg_l01_dynk
+    checkpoint: checkpoints/lejepa_d4rn50_in1k_localballreg_l01_dynk/last.ckpt
+
+  # ---- Hyperbolic ViT-S/8 ----------------------------------------------------
+  - name: hvit_sigreg
+    family: hvit
+    experiment: lejepa/hvit_in1k_sigreg
+    checkpoint: checkpoints/lejepa_hvit_in1k_sigreg/last.ckpt
+  - name: hvit_rdmreg
+    family: hvit
+    experiment: rectifiedlpjepa/hvit_in1k_rdmreg
+    checkpoint: checkpoints/rectifiedlpjepa_hvit_in1k_rdmreg/last.ckpt
+  - name: hvit_localballreg_l01_k2
+    family: hvit
+    experiment: lejepa/hvit_in1k_localballreg_l01_k2
+    checkpoint: checkpoints/lejepa_hvit_in1k_localballreg_l01_k2/last.ckpt
+  - name: hvit_localballreg_l01_k4
+    family: hvit
+    experiment: lejepa/hvit_in1k_localballreg_l01_k4
+    checkpoint: checkpoints/lejepa_hvit_in1k_localballreg_l01_k4/last.ckpt
+  - name: hvit_localballreg_l03_k2
+    family: hvit
+    experiment: lejepa/hvit_in1k_localballreg_l03_k2
+    checkpoint: checkpoints/lejepa_hvit_in1k_localballreg_l03_k2/last.ckpt
+  - name: hvit_localsigreg_l01_k4
+    family: hvit
+    experiment: lejepa/hvit_in1k_localsigreg_l01_k4
+    checkpoint: checkpoints/lejepa_hvit_in1k_localsigreg_l01_k4/last.ckpt
+  - name: hvit_localballreg_l01_dynk
+    family: hvit
+    experiment: lejepa/hvit_in1k_localballreg_l01_dynk
+    checkpoint: checkpoints/lejepa_hvit_in1k_localballreg_l01_dynk/last.ckpt
+
+  # ---- plain ViT-S/8 ---------------------------------------------------------
+  - name: vit_sigreg
+    family: vit
+    experiment: lejepa/vit_in1k_sigreg
+    checkpoint: checkpoints/lejepa_vit_in1k_sigreg/last.ckpt
+  - name: vit_localballreg_l01_k4
+    family: vit
+    experiment: lejepa/vit_in1k_localballreg_l01_k4
+    checkpoint: checkpoints/lejepa_vit_in1k_localballreg_l01_k4/last.ckpt

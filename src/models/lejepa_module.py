@@ -41,6 +41,8 @@ class LeJEPAModule(JEPAModule):
         num_classes: int = 10,
         lamb: float = 0.02,
         loss_type: str = "sigreg",
+        sigreg_num_slices: int = 256,
+        sigreg_t_max: float = 3.0,
         num_global_crops: int | None = None,
         local_sigreg_num_clusters: int = 8,
         local_sigreg_kmeans_iters: int = 10,
@@ -80,6 +82,8 @@ class LeJEPAModule(JEPAModule):
         self.save_hyperparameters(ignore=["encoder", "projector", "online_probe", "optimizer"], logger=False)
 
         self.loss_type = loss_type
+        self.sigreg_num_slices = sigreg_num_slices
+        self.sigreg_t_max = sigreg_t_max
         self.local_sigreg_num_clusters = local_sigreg_num_clusters
         self.local_sigreg_kmeans_iters = local_sigreg_kmeans_iters
         self.local_sigreg_min_cluster_size = local_sigreg_min_cluster_size
@@ -126,7 +130,7 @@ class LeJEPAModule(JEPAModule):
 
         reg_metrics: dict[str, torch.Tensor] = {}
         if self.loss_type == "sigreg":
-            reg = sigreg_loss(proj)
+            reg = sigreg_loss(proj, num_slices=self.sigreg_num_slices, t_max=self.sigreg_t_max)
             reg_metrics["sigreg_loss"] = reg
         elif self.loss_type == "susreg":
             reg = susreg_loss(proj)

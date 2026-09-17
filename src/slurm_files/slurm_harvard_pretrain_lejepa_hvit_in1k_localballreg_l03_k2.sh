@@ -5,7 +5,7 @@
 #SBATCH -t 3-00:00
 #SBATCH --mem=64000
 #SBATCH --gres=gpu:1
-#SBATCH --constraint="a100|h200"
+#SBATCH --constraint="a100|h200|a40|rtxa6000"
 #SBATCH -o logs/BLJ_hvit_localballreg_l03_k2_%j.out
 #SBATCH -e logs/BLJ_hvit_localballreg_l03_k2_%j.err
 
@@ -37,6 +37,15 @@ RESUME=""
 
 SELF="src/slurm_files/slurm_harvard_pretrain_lejepa_hvit_in1k_localballreg_l03_k2.sh"
 EVAL_SCRIPT="src/slurm_files/slurm_harvard_eval_yoda_hvit_localballreg_l03_k2_in1k.sh"
+
+# Drop any stale successor before queueing a new one. A preempted job is requeued
+# under the SAME job id and re-runs this line, so without this every preemption
+# leaves another successor behind -- they then all fire together and race on one
+# checkpoint dirpath (the last-v1/last-v2 symptom). Held jobs are left alone:
+# those are experiments deliberately deferred by scripts/pretrain_queue.sh.
+for _old in $(squeue -u "$USER" -h -t PENDING -o "%i|%j|%r" 2>/dev/null | grep "|${SLURM_JOB_NAME}|" | grep -vi held | cut -d"|" -f1); do
+  [ "$_old" != "${SLURM_JOB_ID}" ] && scancel "$_old" 2>/dev/null || true
+done
 SUCCESSOR=$(sbatch --parsable --dependency=afterany:${SLURM_JOB_ID} "$SELF")
 echo "Queued successor ${SUCCESSOR} (afterany:${SLURM_JOB_ID})"
 set +e
@@ -58,7 +67,13 @@ if [ $STATUS -eq 0 ]; then
   echo "=== Reached max_epochs $(date): cancel successor, launch eval ==="
   scancel "${SUCCESSOR}" 2>/dev/null || true
   sbatch "$EVAL_SCRIPT"
-  bash scripts/pretrain_queue.sh refill --yes || true   # free this slot for the next held run
+  # Priority ordering complete (D4 then HViT localballreg l03 k2): restore the
+  # concurrency cap to 5 and release every run held for this ordering.
+  echo 5 > "${SLURM_SUBMIT_DIR}/.pretrain_cap"
+  for _h in $(squeue -u "$(whoami)" -h -t PENDING -o "%i|%r" | grep -i held | cut -d"|" -f1); do
+    scontrol release "$_h" 2>/dev/null || true
+  done
+  bash scripts/pretrain_queue.sh refill --yes || true
 else
   ATTEMPTS_FILE="${CKPT_DIR}/.crash_attempts"
   n=$(cat "$ATTEMPTS_FILE" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$ATTEMPTS_FILE"

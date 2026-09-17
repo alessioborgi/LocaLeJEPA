@@ -1,0 +1,27 @@
+# Yoda (bobblehead) linear-probe eval of the ViT-L/14 LeJEPA + local BallReg (l0.1, k4), paper IN1K setting, ImageNet-1K
+# pretrained backbone (lejepa/vitl14_in1k_localballreg_l01_k4_paper). Same probe protocol (full 8097 frames,
+# 60/20/20 split, 10 seeds) as the other eval configs so the numbers drop straight
+# into the comparison tables in report_equivariance.md.
+#
+#   python eval_angle_probe.py           --config configs/eval_angle_probe_yoda_vitl14_localballreg_l01_k4_in1k_paper.yaml
+#   python eval_angle_probe_multiseed.py --config configs/eval_angle_probe_yoda_vitl14_localballreg_l01_k4_in1k_paper.yaml --n-seeds 10
+device: null
+crop_size: 224   # paper eval resolution (ViT-L/14)
+data_dir: data
+output_folder: logs/eval_angle_probe_yoda_vitl14_localballreg_l01_k4_in1k_paper
+cache_dir: logs/eval_angle_probe_yoda_vitl14_localballreg_l01_k4_in1k_paper/cache
+subsample: 1
+max_frames: null
+batch_size: 128
+num_workers: 8
+angle_labels: ["figure 0", "figure 1"]
+backbones:
+  - name: vitl14_localballreg_l01_k4_in1k_paper
+    experiment: lejepa/vitl14_in1k_localballreg_l01_k4_paper
+    checkpoint: checkpoints/vitl14_in1k_localballreg_l01_k4_paper/best.ckpt
+probe:
+  test_frac: 0.2
+  val_frac: 0.2
+  ridge_grid: [0.01, 0.1, 1.0, 10.0, 100.0, 1000.0]
+  standardize: true
+  seed: 0

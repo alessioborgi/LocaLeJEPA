@@ -5,7 +5,7 @@
 #SBATCH -t 3-00:00
 #SBATCH --mem=64000
 #SBATCH --gres=gpu:1
-#SBATCH --constraint="a100|h200"
+#SBATCH --constraint="a100|h200|a40"
 #SBATCH -o logs/BLJ_rectifiedlpjepa_d4rn50_in1k_%j.out
 #SBATCH -e logs/BLJ_rectifiedlpjepa_d4rn50_in1k_%j.err
 
@@ -65,6 +65,15 @@ EVAL_SCRIPT="src/slurm_files/slurm_harvard_eval_yoda_d4rn50_rdmreg_in1k.sh"
 # reason (afterany). If this allocation times out before reaching
 # max_epochs, the script is killed here and the successor resumes from
 # last.ckpt. On a clean finish or a crash we cancel it below.
+
+# Drop any stale successor before queueing a new one. A preempted job is requeued
+# under the SAME job id and re-runs this line, so without this every preemption
+# leaves another successor behind -- they then all fire together and race on one
+# checkpoint dirpath (the last-v1/last-v2 symptom). Held jobs are left alone:
+# those are experiments deliberately deferred by scripts/pretrain_queue.sh.
+for _old in $(squeue -u "$USER" -h -t PENDING -o "%i|%j|%r" 2>/dev/null | grep "|${SLURM_JOB_NAME}|" | grep -vi held | cut -d"|" -f1); do
+  [ "$_old" != "${SLURM_JOB_ID}" ] && scancel "$_old" 2>/dev/null || true
+done
 SUCCESSOR=$(sbatch --parsable --dependency=afterany:${SLURM_JOB_ID} "$SELF")
 echo "Queued successor ${SUCCESSOR} (afterany:${SLURM_JOB_ID}) to continue toward max_epochs"
 set +e
@@ -86,7 +95,10 @@ if [ $STATUS -eq 0 ]; then
   echo "=== Reached max_epochs $(date): cancel successor ${SUCCESSOR}, launch eval ==="
   scancel "${SUCCESSOR}" 2>/dev/null || true
   sbatch "$EVAL_SCRIPT"
-  bash scripts/pretrain_queue.sh refill --yes || true   # free this slot for the next held run
+  # RDMReg was the priority run: restore the concurrency cap and let the
+  # deferred runs resume (refill releases UP TO the cap, never more).
+  echo 5 > "${SLURM_SUBMIT_DIR}/.pretrain_cap"
+  bash scripts/pretrain_queue.sh refill --yes || true
 else
   # A nonzero exit here is a real crash (a timeout would have killed the
   # script before this point). Transient infra failures happen (e.g. "CUDA

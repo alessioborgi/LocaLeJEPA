@@ -41,12 +41,31 @@ _maybe() {                          # echo in dry-run, execute with --yes
   if [ "$DRY" -eq 1 ]; then echo "  [dry-run] $*"; else echo "  + $*"; eval "$@"; fi
 }
 
-# Pretrain jobs only: exclude the eval jobs, which are short and not throttled.
-_jobs() {  # $1 = state
-  squeue -u "$USER_ID" -h -t "$1" -o "%i|%j|%T" 2>/dev/null | grep "|${PREFIX}" | grep -v "|${PREFIX}eval"
+# ONE squeue call for the whole run: id|name|state|reason|dependency. Per-job
+# squeue/scontrol lookups cost a Slurm RPC each and made this take minutes on a
+# 20-job queue. Pretrain jobs only -- eval jobs are short and not throttled.
+SNAP=""
+_snapshot() {
+  [ -n "$SNAP" ] && return
+  # Exclude evals (BLJ_eval_*, BLJ_ev_*), report jobs and the watchdogs: none of
+  # them is a pretrain experiment, and counting them makes cap/refill think the
+  # slots are full.
+  SNAP=$(squeue -u "$USER_ID" -h -o "%i|%j|%T|%r|%E" 2>/dev/null | grep "|${PREFIX}" | grep -vE "\|${PREFIX}(eval|ev_|report_)|watchdog")
 }
 
-_parent_of() { scontrol show job "$1" 2>/dev/null | grep -oE "afterany:[0-9]+" | head -1 | cut -d: -f2; }
+_jobs() {  # $1 = state
+  _snapshot; echo "$SNAP" | awk -F'|' -v s="$1" '$3==s'
+}
+
+_parent_of() { _snapshot; echo "$SNAP" | awk -F'|' -v i="$1" '$1==i {print $5}' | grep -oE "afterany:[0-9]+" | head -1 | cut -d: -f2; }
+
+# Pending jobs that are NOT user-held. These start on their own as soon as
+# resources appear, so they occupy a slot just as surely as a RUNNING job -- the
+# cap has to count them, or refill over-releases.
+_pending_active() { _jobs PENDING | awk -F'|' 'tolower($4) !~ /held/'; }
+
+# Unique experiment names currently holding a slot (running or queued-and-eligible).
+_active_names() { { _jobs RUNNING; _pending_active; } | cut -d'|' -f2 | sort -u; }
 
 cmd_status() {
   echo "=== running ==="
@@ -69,20 +88,29 @@ cmd_status() {
 cmd_dedupe() {
   echo "== de-duplicating (successors cancelled before parents) =="
   local kill_succ="" kill_run=""
-  for nm in $(_jobs RUNNING | cut -d'|' -f2 | sort -u); do
-    # keep the oldest running copy (smallest job id) of this experiment
-    local ids keep
-    ids=$(_jobs RUNNING | awk -F'|' -v n="$nm" '$2==n {print $1}' | sort -n)
-    keep=$(echo "$ids" | head -1)
-    for id in $ids; do [ "$id" != "$keep" ] && kill_run="$kill_run $id"; done
-    # keep exactly one successor, preferring one whose parent is the surviving job
-    local succ skeep
-    succ=$(_jobs PENDING | awk -F'|' -v n="$nm" '$2==n {print $1}' | sort -n)
-    skeep=""
+  # Iterate over every experiment seen in EITHER state: an experiment whose parent
+  # is merely queued-for-resources still accumulates one successor per preemption,
+  # and looking only at RUNNING would miss it entirely.
+  for nm in $( { _jobs RUNNING; _pending_active; } | cut -d'|' -f2 | sort -u); do
+    local run_ids keep
+    run_ids=$(_jobs RUNNING | awk -F'|' -v n="$nm" '$2==n {print $1}' | sort -n)
+    if [ -n "$run_ids" ]; then
+      keep=$(echo "$run_ids" | head -1)                     # oldest running copy wins
+      for id in $run_ids; do [ "$id" != "$keep" ] && kill_run="$kill_run $id"; done
+    else
+      # No running copy: the lowest-id eligible pending job is the live one.
+      keep=$(_pending_active | awk -F'|' -v n="$nm" '$2==n {print $1}' | sort -n | head -1)
+    fi
+    # Candidate successors: eligible pending jobs of this name other than `keep`.
+    # HELD jobs are deliberately excluded -- those are the deferred experiments.
+    local succ skeep=""
+    succ=$(_pending_active | awk -F'|' -v n="$nm" -v k="$keep" '$2==n && $1!=k {print $1}' | sort -n)
     for s in $succ; do [ "$(_parent_of "$s")" = "$keep" ] && skeep="$s" && break; done
     [ -z "$skeep" ] && skeep=$(echo "$succ" | head -1)
     for s in $succ; do [ "$s" != "$skeep" ] && kill_succ="$kill_succ $s"; done
-    [ -n "$(echo "$ids" | sed -n 2p)$succ" ] && printf "  %-40s keep run=%s succ=%s\n" "$nm" "$keep" "${skeep:-none}"
+    if [ -n "$(echo "$run_ids" | sed -n 2p)" ] || [ "$(echo "$succ" | wc -w)" -gt 1 ]; then
+      printf "  %-40s keep=%s succ=%s\n" "$nm" "$keep" "${skeep:-none}"
+    fi
   done
   [ -n "$kill_succ" ] && _maybe "scancel$kill_succ" || echo "  no duplicate successors"
   [ -n "$kill_run" ]  && _maybe "scancel$kill_run"  || echo "  no duplicate running copies"
@@ -107,11 +135,13 @@ cmd_cap() {
   fi
   echo "$n" > "$CAP_FILE"
   echo "== capping concurrency at $n (cap recorded in $CAP_FILE) =="
-  local running; running=$(_jobs RUNNING | cut -d'|' -f2 | sort -u)
+  local running; running=$(_active_names)
   local total; total=$(echo "$running" | wc -l)
   [ "$total" -le "$n" ] && { echo "  $total running <= cap $n, nothing to defer"; return; }
   # Defer the LAST (total-n) names in KEEP_ORDER; anything unlisted is deferred first.
-  local keep_list="${KEEP_ORDER:-}"
+  # KEEP_ORDER env var, else .pretrain_priority (one job name per line, highest
+  # priority first: RDMReg, then the two plain-ViT IN1K runs).
+  local keep_list="${KEEP_ORDER:-$(tr '\n' ' ' < "${SLURM_SUBMIT_DIR:-$(pwd)}/.pretrain_priority" 2>/dev/null)}"
   local keep="" defer=""
   for nm in $keep_list; do
     echo "$running" | grep -qx "$nm" && [ "$(echo "$keep" | wc -w)" -lt "$n" ] && keep="$keep $nm"
@@ -135,7 +165,7 @@ cmd_cap() {
 cmd_refill() {
   local n; n=$(cat "$CAP_FILE" 2>/dev/null || echo 0)
   [ "$n" -le 0 ] && { echo "no cap set ($CAP_FILE); nothing to do"; return; }
-  local cur; cur=$(_jobs RUNNING | cut -d'|' -f2 | sort -u | wc -l)
+  local cur; cur=$(_active_names | wc -l)   # running OR queued-and-eligible both occupy a slot
   echo "== refill: $cur running, cap $n =="
   local slots=$((n - cur))
   [ "$slots" -le 0 ] && { echo "  no free slots"; return; }

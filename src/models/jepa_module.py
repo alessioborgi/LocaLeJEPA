@@ -76,21 +76,51 @@ class JEPAModule(LightningModule):
     # Encoding
     # ------------------------------------------------------------------
 
-    def encode(self, views: torch.Tensor) -> torch.Tensor:
+    @staticmethod
+    def _view_groups(views: torch.Tensor | list[torch.Tensor] | tuple[torch.Tensor, ...]) -> tuple[list[torch.Tensor], int, int]:
+        """Normalize the views batch to a list of (N, V_i, C, H_i, W_i) resolution groups.
+
+        A single (N, V, C, H, W) tensor is the historical layout. A list/tuple of such
+        tensors is the mixed-resolution multi-crop layout (see MultiCropTransform):
+        each group shares one resolution, the global views come first, and the
+        logical view index runs over the groups in order.
+
+        Returns:
+            (groups, batch_size, total number of views)
+        """
+        groups = list(views) if isinstance(views, (list, tuple)) else [views]
+        if not groups:
+            raise RuntimeError("Expected at least one group of views")
+        for group in groups:
+            if group.ndim != 5:
+                raise RuntimeError(f"Expected views with shape (N, V, C, H, W), got {tuple(group.shape)}")
+            if group.shape[0] != groups[0].shape[0]:
+                raise RuntimeError("All view groups must share the same batch size")
+        batch_size = groups[0].shape[0]
+        num_views = sum(group.shape[1] for group in groups)
+        return groups, batch_size, num_views
+
+    def encode(self, views: torch.Tensor | list[torch.Tensor] | tuple[torch.Tensor, ...]) -> torch.Tensor:
         """Encode multi-view images into embeddings.
 
         Args:
-            views: (N, V, C, H, W)
+            views: (N, V, C, H, W), or a list/tuple of such tensors, one per
+                resolution group (mixed-resolution multi-crop).
 
         Returns:
-            (N * V, embedding_dim)
+            (N * V, embedding_dim), sample-major: row ``n * V + v`` is view ``v`` of
+            sample ``n`` (global views first).
         """
-        if views.ndim != 5:
-            raise RuntimeError(f"Expected views with shape (N, V, C, H, W), got {tuple(views.shape)}")
-
-        batch_size, num_views = views.shape[:2]
-        flat_views = views.flatten(0, 1)
-        emb = self.encoder(flat_views)
+        groups, batch_size, num_views = self._view_groups(views)
+        group_embs = []
+        for group in groups:
+            emb_g = self.encoder(group.flatten(0, 1))
+            if emb_g.ndim != 2 or emb_g.shape[-1] != self.embedding_dim:
+                raise RuntimeError(
+                    f"Expected embeddings with shape (N * V, {self.embedding_dim}), got {tuple(emb_g.shape)}"
+                )
+            group_embs.append(emb_g.reshape(batch_size, group.shape[1], self.embedding_dim))
+        emb = torch.cat(group_embs, dim=1).flatten(0, 1) if len(group_embs) > 1 else group_embs[0].flatten(0, 1)
 
         expected_shape = (batch_size * num_views, self.embedding_dim)
         if emb.shape != expected_shape:
@@ -98,16 +128,16 @@ class JEPAModule(LightningModule):
 
         return emb
 
-    def forward(self, views: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, views: torch.Tensor | list[torch.Tensor] | tuple[torch.Tensor, ...]) -> tuple[torch.Tensor, torch.Tensor]:
         """Encode and project multi-view images.
 
         Args:
-            views: (N, V, C, H, W)
+            views: (N, V, C, H, W), or a list/tuple of per-resolution groups.
 
         Returns:
             emb (N * V, embedding_dim) and proj (V, N, projection_dim)
         """
-        batch_size, num_views = views.shape[:2]
+        _, batch_size, num_views = self._view_groups(views)
         emb = self.encode(views)
         proj = self.projector(emb)
         if proj.ndim != 2 or proj.shape[-1] != self.projection_dim:
@@ -132,7 +162,7 @@ class JEPAModule(LightningModule):
     def _probe_training_loss(
         self,
         emb: torch.Tensor,
-        views: torch.Tensor,
+        views: torch.Tensor | list[torch.Tensor] | tuple[torch.Tensor, ...],
         labels: torch.Tensor,
         metrics: dict[str, torch.Tensor],
     ) -> torch.Tensor:
@@ -141,7 +171,7 @@ class JEPAModule(LightningModule):
         Default: uses only the first-view embedding matched to original labels.
         LeJEPAModule overrides this to probe across all views with repeated labels.
         """
-        batch_size, num_views = views.shape[:2]
+        _, batch_size, num_views = self._view_groups(views)
         # Extract first-view embedding for the probe.
         emb_first = emb.reshape(batch_size, num_views, self.embedding_dim)[:, 0]
         y_hat = self.online_probe(emb_first.detach())

@@ -5,7 +5,7 @@
 #SBATCH -t 0-02:00
 #SBATCH --mem=64000
 #SBATCH --gres=gpu:1
-#SBATCH --constraint="a100|h200"
+#SBATCH --constraint="a100|h200|a40"
 #SBATCH -o logs/BLJ_eval_yoda_d4rn50_rdmreg_in1k_%j.out
 #SBATCH -e logs/BLJ_eval_yoda_d4rn50_rdmreg_in1k_%j.err
 

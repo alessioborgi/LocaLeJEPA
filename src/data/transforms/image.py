@@ -41,12 +41,20 @@ class MultiCropTransform:
         self.num_global_crops = num_global_crops
         self.num_local_crops = num_local_crops
 
-    def __call__(self, image: Any) -> torch.Tensor:
-        views = []
-
-        for transform, num_crops in ((self.global_transform, self.num_global_crops), (self.local_transform, self.num_local_crops)):
-            if transform is None:
-                continue
-            for _ in range(num_crops):
-                views.append(transform(image))
-        return torch.stack(views)
+    def __call__(self, image: Any) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+        global_views = [self.global_transform(image) for _ in range(self.num_global_crops)]
+        local_views = (
+            [self.local_transform(image) for _ in range(self.num_local_crops)]
+            if self.local_transform is not None
+            else []
+        )
+        if not local_views:
+            return torch.stack(global_views)
+        if global_views[0].shape == local_views[0].shape:
+            # Same resolution for every view: keep the historical (V, C, H, W) layout.
+            return torch.stack(global_views + local_views)
+        # Mixed resolutions (e.g. 224 px global / 98 px local as in the LeJEPA paper):
+        # return one stacked tensor per resolution group. The default collate turns this
+        # into ``[(N, V_g, C, H_g, W_g), (N, V_l, C, H_l, W_l)]`` and JEPAModule.encode
+        # accepts that grouped layout (global views still come first).
+        return torch.stack(global_views), torch.stack(local_views)

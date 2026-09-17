@@ -13,6 +13,11 @@ lamb: 0.02
 # Regularization type: "sigreg" | "susreg" | "local_sigreg" | "local_ballreg"
 loss_type: sigreg
 
+# SIGReg sketch: number of random directions |A| and integration half-width
+# (paper defaults for ViT-L/14 IN1K: 1024 slices, [-5, 5], 17 knots).
+sigreg_num_slices: 256
+sigreg_t_max: 3.0
+
 num_global_crops: null
 
 # Local regularization: k-means the batch in projection space, then applies a
