@@ -1,0 +1,21 @@
+# Default: your diufrd LocaLeJEPA plain ViT. Optional baselines via --only.
+crop_size: 128
+backbones:
+  - name: LocaLe_K2
+    experiment: lejepa/vit_imagenette_localballreg_l01_k2
+    checkpoint: checkpoints/ball_l01_k2_s0/best.ckpt
+  - name: LocaLe_K4
+    experiment: lejepa/vit_imagenette_localballreg_l01_k4
+    checkpoint: checkpoints/ball_l01_k4_s0/best.ckpt
+  - name: LocaLe_K8
+    experiment: lejepa/vit_imagenette_localballreg_l01_k8
+    checkpoint: checkpoints/ball_l01_k8_s0/best.ckpt
+  - name: SIGReg
+    experiment: lejepa/vit_imagenette_sigreg
+    checkpoint: checkpoints/lejepa/best.ckpt
+  - name: RDMReg
+    experiment: rectifiedlpjepa/vit_imagenette_rdmreg
+    checkpoint: checkpoints/rectlpjepa/best.ckpt
+  - name: H_LocaLe_K4
+    experiment: lejepa/hvit_imagenette_localballreg_l01_k4
+    checkpoint: checkpoints/hvit_locale_k4/best.ckpt

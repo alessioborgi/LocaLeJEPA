@@ -58,6 +58,9 @@ def load_backbone(
             output -- the representation used for every downstream probe. ``"projector"``
             chains the trained projector head and returns its ``projection_dim`` output --
             the space the JEPA regularizer (SIGReg / BallReg / RDMReg) actually acts on.
+            ``"patch"`` returns post-final-norm spatial tokens (B,H*W,D),
+            excluding all prefix tokens and bypassing pooling/output heads.
+            H-ViT uses the Euclidean transformer body, not ball coordinates.
             Note the RectLpJEPA projector output is *pre*-ReLU (the module rectifies in
             ``model_step``, not in the projector module).
 
@@ -83,17 +86,27 @@ def load_backbone(
             config_name="train",
             overrides=[f"experiment={experiment}", f"data.crop_size={crop_size}", *(overrides or [])],
         )
-    if feature not in ("encoder", "projector"):
-        raise ValueError(f"feature must be 'encoder' or 'projector', got {feature!r}")
+    if feature not in ("encoder", "projector", "patch"):
+        raise ValueError(f"feature must be 'encoder', 'projector', or 'patch', got {feature!r}")
 
     encoder = hydra.utils.instantiate(cfg.model.encoder)
     embedding_dim = int(cfg.model.embedding_dim)
+    patch_body = None
+    if feature == "patch":
+        # H-ViT's spatial tokens belong to its Euclidean transformer body;
+        # its tangent head and Poincare map act only on the pooled output.
+        patch_body = encoder.body if hasattr(encoder, "to_poincare") else encoder
+        if not all(hasattr(patch_body, a) for a in
+                   ("forward_features", "patch_embed", "num_prefix_tokens", "num_features")):
+            raise ValueError("Patch extraction supports timm ViTs and this repo's HyperbolicViT only")
     projector = (
         hydra.utils.instantiate(cfg.model.projector)
         if feature == "projector" and cfg.model.get("projector") is not None
         else None
     )
     feat_dim = int(cfg.model.projection_dim) if feature == "projector" else embedding_dim
+    if feature == "patch":
+        feat_dim = int(patch_body.num_features)
     GlobalHydra.instance().clear()
 
     ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
@@ -142,6 +155,8 @@ def load_backbone(
     @torch.no_grad()
     def extract_fn(images: torch.Tensor) -> torch.Tensor:
         images = images.to(device, non_blocking=True)
+        if patch_body is not None:
+            return spatial_patch_tokens(patch_body, images).float().cpu()
         feats = encoder(images)
         if feats.ndim != 2:
             raise RuntimeError(
@@ -223,3 +238,15 @@ def extract_features(
         torch.save({"X": X, "y": y}, cache_path)
 
     return X, y
+
+
+def spatial_patch_tokens(body, images):
+    """Post-norm timm ViT tokens, excluding CLS/register tokens, in raster order."""
+    tokens = body.forward_features(images)
+    if not isinstance(tokens, torch.Tensor) or tokens.ndim != 3:
+        raise ValueError("Expected forward_features to return (B,N,D) tokens")
+    tokens = tokens[:, body.num_prefix_tokens:]
+    expected = int(body.patch_embed.grid_size[0] * body.patch_embed.grid_size[1])
+    if tokens.shape[1] != expected:
+        raise ValueError(f"Expected {expected} spatial tokens, got {tokens.shape[1]}")
+    return tokens

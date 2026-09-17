@@ -60,3 +60,10 @@ EmbedOR / ORC-ManL implementation: [`src/eval/embedor.py`](../src/eval/embedor.p
 
 - `logs/eval_angle_probe_lowdata/results_lowdata.{json,csv}` — learning-curve metrics (produced by `eval_angle_probe_lowdata.py` at the repo root).
 - `logs/eval_angle_probe_*/cache/*_features.pt` — cached frozen 512-d features + angle labels per backbone.
+
+## Patch-feature PCA maps
+
+For LeJEPA Figure 14 / DINOv2 Figure 1-style spatial PCA coloring, see
+[PATCH_PCA.md](PATCH_PCA.md). `visualize_patch_pca.py` extracts last-layer
+spatial tokens from trained ViT checkpoints and renders per-image or shared
+RGB PCA maps. A diufrd Slurm wrapper is included.
