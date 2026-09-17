@@ -15,10 +15,11 @@ defaults:
 tags: ["lejepa", "imagenet1k", "hvit-small-p8", "hyperbolic", "sigreg"]
 
 trainer:
-  max_epochs: 800
+  max_epochs: 100   # launched with trainer.max_epochs=100 (config previously said 800)
+  accumulate_grad_batches: 4
 
 data:
-  batch_size: 256
+  batch_size: 64    # per-step batch; x accumulate_grad_batches=4 -> effective 256 (as launched)
   num_workers: 8
   crop_size: 128
   copy_data: false

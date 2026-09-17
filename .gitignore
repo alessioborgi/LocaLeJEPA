@@ -153,8 +153,8 @@ checkpoints/
 
 # Lightning-Hydra-Template
 configs/local/default.yaml
-/data/
-/logs/
+/data
+/logs
 outputs/
 .env
 
@@ -169,3 +169,11 @@ visualisations/figures/
 
 # paper (LaTeX source + build)
 paper/
+# BundLeJEPA: run-time state, environments and generated artifacts
+.venv/
+*.ckpt
+wandb/
+lightning_logs/
+results/figures/
+.pretrain_*
+*_watchdog_last_free

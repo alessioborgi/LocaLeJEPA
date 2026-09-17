@@ -1,0 +1,50 @@
+# In-domain k-NN + linear evaluation on Imagenette, same protocol as
+# configs/eval/indomain_in1k.yaml (SPHERE-JEPA Table 3) but on the small
+# 9469-train / 3925-val 10-class dataset the Imagenette backbones were
+# pretrained on. Runs in minutes, so it also serves as the smoke test for the
+# ImageNet-1K jobs.
+#
+#   python eval_indomain.py --config configs/eval/indomain_imagenette.yaml
+
+device: null
+seed: 0
+
+dataset: imagenette
+data_dir: data/imagenette
+imagenette_variant: 160px
+
+crop_size: 128
+
+batch_size: 256
+num_workers: 8
+
+output_folder: logs/eval_indomain_imagenette
+cache_dir: logs/eval_indomain_imagenette/cache
+
+train_subset_per_class: null
+
+knn:
+  k_values: [10, 20, 100, 200]
+  temperature: 0.07
+  report_k: 20
+  chunk_size: 512
+
+linear:
+  lr_grid: [0.01, 0.03, 0.1, 0.3, 1.0, 3.0, 10.0]
+  epochs: 100
+  batch_size: 1024
+  weight_decay: 0.0
+  momentum: 0.9
+  standardize: true
+  val_frac: 0.1
+
+backbones:
+  # LeJEPA baseline (SIGReg) and ours (local BallReg lambda 0.1, k 4), both ViT-S/8 on
+  # Imagenette. `experiment` is the config the checkpoint was trained with; point
+  # `checkpoint` at the best.ckpt / last.ckpt written by that run.
+  - name: vit_sigreg
+    experiment: lejepa/vit_imagenette_sigreg
+    checkpoint: checkpoints/lejepa_vit_imagenette_sigreg/best.ckpt
+  - name: vit_localballreg_l01_k4
+    experiment: lejepa/vit_imagenette_localballreg_l01_k4
+    checkpoint: checkpoints/lejepa_vit_imagenette_localballreg_l01_k4/best.ckpt

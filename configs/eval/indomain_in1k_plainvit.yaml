@@ -1,0 +1,57 @@
+# In-domain ImageNet-1K k-NN (classification) + linear-probe evaluation of the
+# two plain timm ViT-S/8 100-epoch pretrains (LeJEPA SIGReg and LeJEPA + local
+# BallReg λ0.1 k4). Same SPHERE-JEPA Table 3 protocol as
+# configs/eval/indomain_in1k_ep100.yaml: frozen backbone, full 1.28M-image train
+# split as k-NN bank / probe train set, top-1 on the 50k val split.
+#
+# Headline rows = final checkpoint (epoch 99 = 100 ep., last.ckpt); *_best rows =
+# online-probe-selected checkpoint (best val/probe_acc, best.ckpt).
+#
+#   sbatch --export=ALL,CMD="python eval_indomain.py --config configs/eval/indomain_in1k_plainvit.yaml --only <name>" scripts/slurm_submit.sh
+#   python eval_indomain.py --config configs/eval/indomain_in1k_plainvit.yaml --merge-only
+#   python scripts/make_plainvit_report.py
+
+device: null
+seed: 0
+
+dataset: imagenet1k
+data_dir: data/imagenet
+image_folder: imagenet_full_size/061417/
+crop_size: 128
+
+batch_size: 256
+num_workers: 8
+
+output_folder: logs/eval_indomain_in1k_plainvit
+cache_dir: /n/netscratch/dominici_lab/Lab/aborgi/eval_indomain_in1k_cache
+
+train_subset_per_class: null
+
+knn:
+  k_values: [10, 20, 100, 200]
+  temperature: 0.07
+  report_k: 20
+  chunk_size: 128
+
+linear:
+  lr_grid: [0.01, 0.03, 0.1, 0.3, 1.0, 3.0, 10.0]
+  epochs: 50
+  batch_size: 4096
+  weight_decay: 0.0
+  momentum: 0.9
+  standardize: true
+  val_frac: 0.02
+
+backbones:
+  - name: vit_sigreg
+    experiment: lejepa/vit_in1k_sigreg
+    checkpoint: checkpoints/lejepa_vit_in1k_sigreg/last.ckpt
+  - name: vit_localballreg_l01_k4
+    experiment: lejepa/vit_in1k_localballreg_l01_k4
+    checkpoint: checkpoints/lejepa_vit_in1k_localballreg_l01_k4/last.ckpt
+  - name: vit_sigreg_best
+    experiment: lejepa/vit_in1k_sigreg
+    checkpoint: checkpoints/lejepa_vit_in1k_sigreg/best.ckpt
+  - name: vit_localballreg_l01_k4_best
+    experiment: lejepa/vit_in1k_localballreg_l01_k4
+    checkpoint: checkpoints/lejepa_vit_in1k_localballreg_l01_k4/best.ckpt

@@ -5,8 +5,7 @@
 # global batch 256, AdamW lr 5e-4 / wd 0.1 (paper grid {5e-3, 5e-4} x {1e-1, 1e-2, 1e-5}),
 # linear warm-up + cosine, lambda 0.05, SIGReg with 1024 slices, 17 knots on [-5, 5],
 # 3-layer projector -> 64-d (Table 1d best), no predictor / registers / EMA.
-# Run with trainer=ddp (4 GPUs, 64 samples per GPU), see
-# src/slurm_files/slurm_harvard_pretrain_lejepa_vitl14_in1k_paper.sh
+# Run with trainer=ddp (4 GPUs, 64 samples per GPU): scripts/slurm_submit.sh with GPUS=4.
 
 defaults:
   - override /data: imagenet1k

@@ -1,33 +1,53 @@
 BundLeJEPA
-Copyright (c) 2025 Alessio Borgioli
+Copyright (c) 2026 Alessio Borgi, Pavel Snopov, Kartik Tendon, Ines Garcia Redondo,
+Randall Balestriero, Claudio Battiloro
 
 This product includes software developed by third parties:
+
+────────────────────────────────────────────────────────────────────────────────
+LeJEPA (galilai-group/lejepa)
+  Balestriero & LeCun, "LeJEPA", arXiv:2511.08544.
+  SIGReg objective, multi-view augmentation recipe and training protocol adapted
+  for this codebase (src/losses.py, src/models/lejepa_module.py,
+  configs/data/transform/image/).
+  Source: https://github.com/galilai-group/lejepa
 
 ────────────────────────────────────────────────────────────────────────────────
 I-JEPA (Image Joint-Embedding Predictive Architecture)
   Copyright (c) Meta Platforms, Inc. and affiliates.
   Source: https://github.com/facebookresearch/ijepa
-  Files:  src/ijepa/
-          src/utils/distributed.py
-          src/utils/logging.py
-          src/utils/schedulers.py
-          src/utils/tensors.py
-          src/datasets/imagenet1k.py
-          src/transforms.py  (base augmentation pipeline; extended by Alessio Borgioli)
-          main.py            (base entry point; extended by Alessio Borgioli)
-          main_distributed.py (base entry point; extended by Alessio Borgioli)
-
-────────────────────────────────────────────────────────────────────────────────
-LeJEPA (galilai-group/lejepa)
-  Architecture and training protocol adapted for this codebase.
-  Source: https://github.com/galilai-group/lejepa
+  Files (experiments branch): src/models/ijepa_module.py,
+          src/models/components/vision_transformer.py,
+          src/models/components/tensor_ops.py,
+          src/data/transforms/mask_collator.py
 
 ────────────────────────────────────────────────────────────────────────────────
 Hyperbolic Vision Transformers / hyp_metric
-  Copyright (c) 2022 Alexander Ermolov.
-  Poincare-ball operations and the HyperbolicViT output-head architecture.
+  Copyright (c) 2022 Alexander Ermolov (MIT License).
+  Poincaré-ball operations and the HyperbolicViT output head
+  (src/models/components/hyperbolic.py, src/models/components/hyperbolic_vit.py).
   Source: https://github.com/htdt/hyp_metric
+
 ────────────────────────────────────────────────────────────────────────────────
-Photonic crystal experimental setup
-  Follows: Dangovski et al., "Equivariant Self-Supervised Learning", ICLR 2022.
-  Source:  https://arxiv.org/abs/2111.00899
+equivision (E2ResNet)
+  Copyright (c) 2023 David Klee (MIT License).
+  D4-equivariant ResNet vendored in src/models/components/e2resnet.py, built on
+  escnn (https://github.com/QUVA-Lab/escnn).
+  Source: https://github.com/dmklee/equivision
+
+────────────────────────────────────────────────────────────────────────────────
+nGPT (experiments branch)
+  Loshchilov et al., "nGPT: Normalized Transformer with Representation Learning
+  on the Hypersphere", ICLR 2025. Reference design followed by
+  src/models/components/nvit.py and src/models/components/spherical_vit.py.
+
+────────────────────────────────────────────────────────────────────────────────
+Lightning-Hydra-Template
+  Copyright (c) 2021 ashleve (MIT License). Project scaffold
+  (src/train.py, src/utils/, configs/{callbacks,debug,extras,hydra,logger,paths,trainer}).
+  Source: https://github.com/ashleve/lightning-hydra-template
+
+────────────────────────────────────────────────────────────────────────────────
+Photonic crystal experimental setup (experiments branch)
+  Follows Dangovski et al., "Equivariant Self-Supervised Learning", ICLR 2022
+  (https://arxiv.org/abs/2111.00899).

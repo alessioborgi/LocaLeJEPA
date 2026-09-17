@@ -19,8 +19,8 @@ eval transform and cached to disk.
 
 Usage
 -----
-    python eval_indomain.py --config configs/eval_indomain_in1k.yaml
-    python eval_indomain.py --config configs/eval_indomain_in1k.yaml --only hvit_sigreg
+    python eval_indomain.py --config configs/eval/indomain_in1k.yaml
+    python eval_indomain.py --config configs/eval/indomain_in1k.yaml --only hvit_sigreg
 """
 
 import argparse
@@ -253,7 +253,7 @@ def main(cfg: dict, only: list[str] | None, merge_only: bool = False) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="BundLeJEPA in-domain k-NN + linear evaluation")
-    parser.add_argument("--config", type=str, default="configs/eval_indomain_in1k.yaml")
+    parser.add_argument("--config", type=str, default="configs/eval/indomain_in1k.yaml")
     parser.add_argument("--only", type=str, default=None,
                         help="Comma-separated backbone names to run (default: all in the config).")
     parser.add_argument("--merge-only", action="store_true",

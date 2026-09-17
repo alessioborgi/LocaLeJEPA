@@ -1,239 +1,239 @@
-# BundLeJEPA – Two Symmetries, One Bundle: Invariance and Equivariance Packaged Together
+# BundLeJEPA
 
-A implementation of the paper "BundLeJEPA: .."
+Self-supervised pretraining in the [LeJEPA](https://arxiv.org/abs/2511.08544) family
+(invariance loss + distribution-matching regularizer, no teacher/EMA, no predictor),
+with **local regularizers**: the regularizer is applied inside k-means neighbourhoods of the
+projection space instead of on the whole batch. The proposed variant is
+**LeJEPA + local BallReg** — a sketched uniform-ball characteristic-function test on each
+neighbourhood — which on ImageNet-1K (ViT-S/8, 100 epochs) lifts LeJEPA's frozen-feature
+k-NN / linear top-1 from 24.3 / 40.7 to 34.1 / 49.5 with the same backbone and schedule.
 
-**Copyright © 2026, _BundLeJEPA_.**
-Authors: Alessio Borgi, Paul Snopov, Kartik Tandon, Ines Garcia, Sebastiano Cultrera di Montesano, Fabrizio Silvestri, Pietro Liò, Randall Balestriero, Claudio Battiloro.
+Authors: Alessio Borgi, Paul Snopov, Kartik Tandon, Ines Garcia Redondo, Sebastiano Cultrera
+di Montesano, Fabrizio Silvestri, Pietro Liò, Randall Balestriero, Claudio Battiloro.
 
----
+## Overview
 
-## What is BundLeJEPA?
+LeJEPA trains an encoder `f` and projector `g` on `V` augmented views of each image with
 
-**BundLeJEPA** (Bundle LeJEPA) is a self-supervised representation learning framework that extends **LeJEPA** with fibre-bundle geometry.  Instead of learning a single invariant representation, it learns a section of a principal bundle — an embedding that transforms predictably (equivariantly) under the symmetry group of the data.
-
-The repository currently implements:
-
-- **LeJEPA** — invariance loss + Sketched Isotropic Gaussian Regularisation (SIGReg), with ViT, ResNet-18/50, and a custom photonic crystal (PhC) CNN backbone
-- **I-JEPA** — masked-patch prediction in latent space, with ViT and PhC CNN
-- **Hyperbolic ViT** — the official Hyp-ViT-style timm backbone and Poincaré-ball
-  output head, adapted from `htdt/hyp_metric`
-- **SimCLR** — NT-Xent contrastive baseline with ResNet-50
-- **Supervised PhC baseline** — CNN + DOS regression, no pretraining
-- **Linear evaluation** — 11 downstream vision datasets + VOC07+12 Faster R-CNN detection
-- **DOS regression** — frozen and fine-tuned evaluation on PhC datasets
-
----
-
-## Installation
-
-```bash
-pip install torch torchvision timm
-pip install scikit-learn pyyaml numpy pillow
-
-# Optional
-pip install 'git+https://github.com/facebookresearch/detectron2.git'  # VOC detection
-pip install submitit                                                    # SLURM submission
-pip install wandb                                                       # experiment tracking
+```
+loss = (1 - λ) · L_inv(z) + λ · L_reg(z),      z = g(f(view))  ∈ R^{V × N × D}
 ```
 
-**Python 3.10+** and **PyTorch 2.0+** required.
+`L_inv` pulls every view towards the mean of the views of the same image; `L_reg` matches the
+distribution of the projections to a fixed target through the Epps–Pulley characteristic-
+function statistic along random 1-D sketches (SIGReg: isotropic Gaussian target).
 
----
+This repository keeps that scaffold ([`src/models/jepa_module.py`](src/models/jepa_module.py),
+[`src/models/lejepa_module.py`](src/models/lejepa_module.py)) and swaps the regularizer through
+`model.loss_type` ([`src/losses.py`](src/losses.py)):
+
+| `loss_type`     | regularizer                                                                 |
+|-----------------|-----------------------------------------------------------------------------|
+| `sigreg`        | SIGReg, isotropic-Gaussian target (LeJEPA baseline)                          |
+| `susreg`        | SUSReg, uniform-on-the-sphere target (SPHERE-JEPA)                          |
+| `local_sigreg`  | SIGReg computed independently in `k` k-means neighbourhoods of the batch     |
+| `local_ballreg` | **ours**: uniform-ball target in `k` k-means neighbourhoods (centred per cluster) |
+
+Everything else — multi-view augmentation, projector, online linear probe used for checkpoint
+selection, AdamW + linear warm-up + cosine schedule — is shared by all variants, so a
+comparison between `loss_type` values isolates the regularizer.
+
+Backbones used in the reported experiments: plain timm ViT-S/8 and ViT-L/14
+(`configs/model/encoder/timm_vit.yaml`), a hyperbolic (Poincaré-ball head) ViT-S/8
+(`hvit_small_p8.yaml`) and a D4-equivariant ResNet-50 (`d4resnet50.yaml`, needs the
+`equivariant` extra). Any `nn.Module` mapping `(B, C, H, W) -> (B, embedding_dim)` works.
 
 ## Repository structure
 
 ```
-BundLeJEPA/
-├── main.py / main_distributed.py   # single-machine and SLURM entry points
-├── eval_linear.py / eval_voc.py    # downstream evaluation entry points
-├── configs/                        # YAML experiment configs
-└── src/
-    ├── losses.py                   # invariance_loss, sigreg_loss, nt_xent_loss
-    ├── transforms.py               # DINO-style multi-crop augmentation
-    ├── lejepa/                     # LeJEPA training loop and encoders
-    ├── ijepa/                      # I-JEPA training loop, masks, and ViT
-    ├── phc/                        # PhC encoder, domain transforms, DOS eval
-    ├── baselines/                  # SimCLR and supervised PhC baseline
-    ├── datasets/                   # ImageNet, STL10, Imagenette, PhC loaders
-    ├── eval/                       # linear probe, feature extraction, VOC detection
-    └── utils/                      # distributed, logging, schedulers
+src/
+  train.py                     Hydra + Lightning entry point (pretraining)
+  losses.py                    invariance, SIGReg, SUSReg, BallReg, local variants, ...
+  models/jepa_module.py        shared LightningModule scaffold (encode, probe, optimizer, schedule)
+  models/lejepa_module.py      LeJEPAModule: loss_type ∈ {sigreg, susreg, local_sigreg, local_ballreg}
+  models/components/           hyperbolic ViT head, D4-equivariant ResNet (escnn)
+  data/                        Imagenette / ImageNet-1K datamodules, multi-view transforms
+  eval/                        frozen-backbone loading, feature extraction, k-NN and linear probes
+  utils/                       Hydra/Lightning helpers (from lightning-hydra-template)
+configs/
+  train.yaml                   root config; `experiment=<name>` selects a full experiment
+  experiment/lejepa/           the experiments (see configs/experiment/README.md)
+  model/, data/, optimizer/,   Hydra config groups
+  trainer/, callbacks/, ...
+  eval/                        YAML configs for eval_indomain.py
+eval_indomain.py               frozen-backbone k-NN + linear-probe evaluation
+scripts/
+  stage_imagenet1k_hf.py       stage ImageNet-1K from HuggingFace into the expected layout
 ```
 
----
+The `experiments` branch adds the baselines (Rectified LpJEPA, Sub-JEPA, SPHERE-JEPA, I-JEPA,
+nGPT-style ViTs, photonic-crystal experiments), the ablation configs, the transfer / RankMe /
+rotation-angle evaluations, the report-generating scripts, the figures and one SLURM launcher.
 
-## Running experiments
+## Installation
+
+Requires Python 3.12 (managed automatically by `uv`) and Linux x86_64; a CUDA GPU for anything
+beyond smoke tests. Install [`uv`](https://docs.astral.sh/uv/) once
+(`curl -LsSf https://astral.sh/uv/install.sh | sh`), then:
 
 ```bash
-# LeJEPA — single machine
-python main.py --fname configs/lejepa_rn50_in100_ep500.yaml \
-               --devices cuda:0 cuda:1
-
-# LeJEPA — SLURM cluster
-python main_distributed.py --fname configs/lejepa_rn50_in100_ep500.yaml \
-    --nodes 2 --tasks-per-node 8 --partition gpu
-
-# I-JEPA on PhC data
-python main.py --fname configs/ijepa_phc_blob_ep250.yaml
-
-# SimCLR baseline
-python main.py --fname configs/simclr_rn50_in100_ep500.yaml
-
-# Linear evaluation (11 datasets)
-# → edit configs/eval_linear.yaml first (checkpoint, datasets_root)
-python eval_linear.py --config configs/eval_linear.yaml
-
-# VOC07+12 detection
-# → edit configs/eval_voc.yaml first (voc_root, checkpoint)
-python eval_voc.py --config configs/eval_voc.yaml
+git clone https://github.com/alessioborgi/BundLeJEPA.git
+cd BundLeJEPA
+uv sync
 ```
 
-### Hyperbolic ViT encoder
-
-The HyperbolicViT port follows Ermolov et al. (CVPR 2022): ViT attention remains
-Euclidean, while the pooled feature is projected into the tangent space at the
-origin and mapped into a Poincaré ball with curvature `-hyp_c`. Use it with an
-existing LeJEPA experiment through a Hydra override:
+`uv sync` creates `.venv/` from the committed `uv.lock` (torch 2.14 with CUDA 13 wheels,
+lightning 2.6, timm 1.0). Optional extras:
 
 ```bash
-uv run python src/train.py \
-  experiment=lejepa/hvit_imagenette_sigreg
+uv sync --extra equivariant   # D4-equivariant ResNet-50 (escnn; builds py3nj from source -> needs gfortran + Python headers)
+uv sync --extra imagenet      # scripts/stage_imagenet1k_hf.py (HuggingFace datasets)
 ```
 
-Override `model.encoder.hyp_c` or `model.encoder.clip_r` to change the geometry.
-This experiment retains LeJEPA's projector-space SIGReg objective; it is not a
-reproduction of the upstream supervised metric-learning loss.
+If the venv should not live in the repository (e.g. home-directory quotas), set
+`UV_PROJECT_ENVIRONMENT=/path/to/venv` before `uv sync` / `uv run`.
 
-The reusable geometry functions (`expmap0`, `logmap0`, Poincaré distance, and
-pairwise distance) live in `src/models/components/hyperbolic.py`. The pooled
-upstream architecture intentionally does not implement I-JEPA token masking.
+The experiments reported in the paper were run in a conda environment with Python 3.10,
+torch 2.8.0+cu128, lightning 2.2.4, timm 1.0.27, escnn 1.0.11 and numpy 1.26; the code is
+unchanged, but bit-exact reproduction across these library versions is not guaranteed.
 
----
+## Quick start
 
-## Conformal-Autoencoder dimension detection (bobblehead)
-
-This evaluation reproduces the bobblehead experiment of Kevrekidis et al.,
-*"Thinner Latent Spaces: Detecting Dimension and Imposing Invariance with
-Conformal Autoencoders"* (arXiv:2408.16138, §3.3) — but replaces the paper's
-PCA-60 front-end with a **frozen pretrained JEPA backbone** as the fixed feature
-extractor:
-
-```
-images --(frozen backbone)--> 512-d features --(Conformal Autoencoder)--> latent
-```
-
-The data set (`data/yoda_dog_images_and_labels.zip`) holds 8097 RGB frames of two
-figures (Yoda + bulldog) rotating at independent fixed frequencies, so the image
-manifold is a **2-torus**.  The Conformal Autoencoder over-specifies its latent
-layer and penalises the orthogonality of latent input-gradients (Algorithm 1 /
-Eq. 6); redundant coordinates collapse, so the number of *active* latent
-coordinates reveals the intrinsic dimension.  `labels.npy` (the two rotation
-angles per frame) is used only for an optional circular-recovery sanity check —
-the dimension-detection task itself is unsupervised.
+Imagenette (160 px) is downloaded automatically into `data/imagenette/` on first use.
 
 ```bash
-# Compares three frozen baselines (SphereJEPA+SUSReg, nViT+SIGReg, nViT+SubReg).
-# Edit configs/eval_conformal.yaml for backbones / CAE hyper-parameters.
-python eval_conformal.py --config configs/eval_conformal.yaml
+# LeJEPA baseline: ViT-S/8 + SIGReg, Imagenette, 800 epochs, 1 GPU
+uv run python src/train.py experiment=lejepa/vit_imagenette_sigreg logger=csv
+
+# Ours: ViT-S/8 + local BallReg (λ=0.1, k=4), same data / schedule
+uv run python src/train.py experiment=lejepa/vit_imagenette_localballreg_l01_k4 logger=csv
 ```
 
-Outputs (under `logs/eval_conformal/`): `results.json` / `results.csv` with the
-inferred dimension and angle-recovery metrics per backbone, plus per-backbone
-diagnostic plots (latent-gradient-norm trajectories, latent-variance bars, and
-the recovered torus scatter).  Code: `src/data/bobblehead_datamodule.py`,
-`src/eval/extract.py`, `src/eval/conformal_autoencoder.py`.
-
----
-
-## Photonic Crystal (PhC) Pipeline
-
-The PhC pipeline runs in two sequential stages: pre-training (self-supervised) followed by fine-tuning (DOS regression).
-
-### 1. Download the dataset (once, on the login node)
+A 30-second CPU smoke test of the whole pipeline (3 train batches, 1 epoch):
 
 ```bash
-python scripts/download_phc.py --output-dir data/phc
+uv run python src/train.py experiment=lejepa/vit_imagenette_localballreg_l01_k4 \
+  trainer=cpu trainer.max_epochs=1 +trainer.limit_train_batches=3 +trainer.limit_val_batches=2 \
+  +trainer.limit_test_batches=2 data.batch_size=8 data.num_workers=0 logger=csv
 ```
 
-This downloads five HDF5 files (~few GB total) from Dropbox into `data/phc/`.
+Logging defaults to Weights & Biases (`configs/logger/wandb.yaml`, entity `sheaf_hypergraphs`);
+pass `logger=csv` for a local CSV log or `logger.wandb.entity=<yours>` to log to your own team.
 
-### 2. Pre-train
+## Training
 
 ```bash
-# Blob
-sbatch src/slurm_files/slurm_harvard_phc_pretrain.sh
-
-# GPM
-sbatch --export=ALL,DATASET=gpm src/slurm_files/slurm_harvard_phc_pretrain.sh
+uv run python src/train.py experiment=<group>/<name> [hydra overrides ...]
 ```
 
-Checkpoint is saved to `logs/pretrain/phc_{blob|gpm}_ep250/checkpoints/last.ckpt`.
+An experiment config (`configs/experiment/<group>/<name>.yaml`) fixes the dataset, encoder,
+regularizer, hyper-parameters and schedule. Anything can be overridden on the command line,
+e.g. `trainer.max_epochs=100 model.lamb=0.05 optimizer.lr=1e-3 data.batch_size=128`.
 
-### 3. Fine-tune (after pre-training finishes)
+ImageNet-1K runs read `data/imagenet/imagenet_full_size/061417/{train,val}/<class>/*.JPEG`
+(`configs/data/imagenet1k.yaml`); `uv run python scripts/stage_imagenet1k_hf.py --dest data/imagenet`
+creates that layout from the gated HuggingFace dataset. `paths.data_dir=/elsewhere` moves the
+data root. The principal ImageNet-1K configs are
 
 ```bash
-# Blob
-sbatch src/slurm_files/slurm_harvard_phc_finetune.sh
-
-# GPM
-sbatch --export=ALL,DATASET=gpm src/slurm_files/slurm_harvard_phc_finetune.sh
+uv run python src/train.py experiment=lejepa/vit_in1k_sigreg                 # LeJEPA (SIGReg), 100 ep.
+uv run python src/train.py experiment=lejepa/vit_in1k_localballreg_l01_k4    # ours, 100 ep.
 ```
 
-The fine-tune script automatically picks up the checkpoint from step 2.  To use a custom checkpoint path:
+Multi-GPU (the ViT-L/14 "paper setting" configs use 4 GPUs, one process per GPU):
 
 ```bash
-sbatch --export=ALL,DATASET=blob,CKPT_PATH=logs/pretrain/phc_blob_ep250/checkpoints/last.ckpt \
-       src/slurm_files/slurm_harvard_phc_finetune.sh
+uv run python src/train.py experiment=lejepa/vitl14_in1k_localballreg_l01_k4_paper trainer=ddp trainer.devices=4
 ```
 
-### Submit all four jobs at once (with SLURM dependencies)
+Training resumes from a Lightning checkpoint with `ckpt_path=<path>/last.ckpt`.
 
-Pre-training and fine-tuning for both datasets can be submitted together; SLURM holds each fine-tune job until its pre-train job succeeds.
+## Evaluation
+
+`eval_indomain.py` freezes a pretrained encoder, extracts features with the deterministic
+eval transform, and reports **weighted k-NN** (cosine, `exp(sim/T)` votes, T = 0.07, k = 20)
+and a **linear probe** on standardized features (SGD, learning rate picked on a held-out slice),
+following the SPHERE-JEPA Table 3 protocol:
 
 ```bash
-# Blob
-BLOB_PRETRAIN=$(sbatch --parsable src/slurm_files/slurm_harvard_phc_pretrain.sh)
-sbatch --dependency=afterok:$BLOB_PRETRAIN src/slurm_files/slurm_harvard_phc_finetune.sh
-
-# GPM
-GPM_PRETRAIN=$(sbatch --parsable --export=ALL,DATASET=gpm src/slurm_files/slurm_harvard_phc_pretrain.sh)
-sbatch --dependency=afterok:$GPM_PRETRAIN --export=ALL,DATASET=gpm src/slurm_files/slurm_harvard_phc_finetune.sh
+uv run python eval_indomain.py --config configs/eval/indomain_in1k_plainvit.yaml            # all backbones in the config
+uv run python eval_indomain.py --config configs/eval/indomain_in1k_plainvit.yaml --only vit_sigreg
+uv run python eval_indomain.py --config configs/eval/indomain_in1k_plainvit.yaml --merge-only  # rebuild results.{json,csv}
 ```
 
----
+Each `backbones:` entry names the Hydra experiment the checkpoint was trained with (the encoder
+is rebuilt from that config) and the checkpoint path; per-backbone results are written to
+`<output_folder>/per_backbone/<name>.json` and merged into `results.json` / `results.csv`.
+`configs/eval/indomain_imagenette.yaml` is the same protocol on Imagenette.
 
-## Configuration
+## Configurations
 
-All experiments are driven by YAML files.  The `method` key selects the training loop (`lejepa`, `ijepa`, `simclr`, `phc_supervised`).  A minimal LeJEPA config:
+* `configs/train.yaml` composes `data`, `model` (with `model/encoder`), `optimizer`, `trainer`,
+  `callbacks`, `logger`, `paths`, `extras`; `experiment=...` overrides a full set of them.
+* `configs/model/lejepa.yaml` documents every `LeJEPAModule` hyper-parameter (`lamb`,
+  `loss_type`, `local_sigreg_num_clusters` = k, `local_ballreg_*`, the dynamic-k schedule, the
+  online probe).
+* `configs/experiment/README.md` lists every experiment config, which one is the LeJEPA baseline
+  and which one is ours for each backbone / dataset, and what differs between them.
+* The experiment configs contain everything that was passed to the runs, including the per-step
+  batch (64 × `accumulate_grad_batches: 4` = 256 effective) and the gradient clipping used by the
+  local regularizers, so `experiment=<name>` alone reproduces a run.
 
-```yaml
-method: lejepa
+## Outputs
 
-backbone:
-  name:     resnet50
-  emb_dim:  2048
-  proj_dim: 128
+* Hydra run directory: `logs/train/runs/<date>_<time>/` (config dump, `train.log`, logger files).
+* Checkpoints: `<run dir>/checkpoints/best.ckpt` (best `val/probe_acc` of the online linear
+  probe) and `last.ckpt`; `callbacks.model_checkpoint.dirpath=checkpoints/<name>` pins them to a
+  stable path.
+* Metrics: W&B (default) or `<run dir>/csv/` with `logger=csv`.
+* Evaluation: `logs/eval_indomain_*/` (`results.json`, `results.csv`, `per_backbone/`, feature cache).
 
-data:
-  dataset:          imagenet100
-  root_path:        /path/to/imagenet
-  batch_size:       256
-  num_global_crops: 2
-  num_local_crops:  6
+## Reproducing results
 
-lejepa:
-  lamb: 0.02        # SIGReg weight
+The full experimental infrastructure lives on the `experiments` branch:
 
-optimization:
-  epochs:       500
-  lr:           5.0e-4
-  weight_decay: 5.0e-4
-  use_bfloat16: true
-
-logging:
-  folder:    logs/run_name/
-  use_wandb: false
+```bash
+git checkout experiments
+uv sync --all-extras
 ```
 
----
+It contains all ImageNet-1K / Imagenette configs (LeJEPA, ours, ablations over λ and k, dynamic k,
+local SIGReg, Rectified LpJEPA, SUSReg/SubReg, three backbones), the ViT-L/14 paper-setting
+configs, the evaluations behind every reported table (in-domain k-NN/linear, 7-dataset transfer,
+RankMe, Yoda rotation-angle probe), the scripts that regenerate the result tables in `results/`,
+the plotting scripts and the SLURM launcher `scripts/slurm_submit.sh`. See `EXPERIMENTS.md`
+there. In short:
 
-*Built on [I-JEPA](https://github.com/facebookresearch/ijepa) (Meta AI) and LeJEPA (Galilei Group).  Photonic crystal setup follows [Dangovski et al., ICLR 2022](https://arxiv.org/abs/2111.00899).*
+| setting | config | command |
+|---|---|---|
+| LeJEPA (SIGReg), ViT-S/8, IN1K 100 ep. | `lejepa/vit_in1k_sigreg` | `uv run python src/train.py experiment=lejepa/vit_in1k_sigreg` |
+| **Ours**, local BallReg λ0.1 k4, ViT-S/8, IN1K 100 ep. | `lejepa/vit_in1k_localballreg_l01_k4` | `uv run python src/train.py experiment=lejepa/vit_in1k_localballreg_l01_k4` |
+| LeJEPA paper setting, ViT-L/14, 2×224 + 8×98 views | `lejepa/vitl14_in1k_sigreg_paper` | `... experiment=lejepa/vitl14_in1k_sigreg_paper trainer=ddp trainer.devices=4` |
+| Ours, paper setting | `lejepa/vitl14_in1k_localballreg_l01_k4_paper` | `... experiment=lejepa/vitl14_in1k_localballreg_l01_k4_paper trainer=ddp trainer.devices=4` |
+
+## Reproducibility notes
+
+* **Seeds.** `seed` is `null` by default (no seeding); pass `seed=<int>` to call
+  `lightning.seed_everything`. The sketch directions of SIGReg/BallReg, k-means initialisation
+  and data augmentation are random per step, and `trainer.deterministic` is `False`, so runs
+  with the same seed are close but not bit-identical on GPU.
+* **Data.** Imagenette downloads itself. ImageNet-1K must be staged (see Training). All datasets
+  are read from `paths.data_dir` (default `<repo>/data/`).
+* **Effective batch.** The single-GPU ImageNet-1K / Imagenette runs use `data.batch_size: 64`
+  with `trainer.accumulate_grad_batches: 4`. For the local regularizers the k-means clustering
+  sees the per-step batch (64 samples), so changing `batch_size` changes the method, not only
+  the memory footprint.
+* **Precision.** `trainer=gpu` / `trainer=ddp` use `bf16-mixed`; the losses upcast to fp32 internally.
+* **Hardware.** The single-GPU configs were run on one A100/H200 (per-step batch 64 × 4 views
+  at 128 px, bf16). The ViT-L/14 paper-setting configs use 4 GPUs (`trainer=ddp`, 64 samples per
+  GPU); their checkpoints are ~3.7 GB each.
+* **Checkpoint selection.** Reported "final" numbers use `last.ckpt` (epoch 99 of 100);
+  `best.ckpt` is the online-probe-selected checkpoint and is reported alongside.
+
+## Citation and acknowledgements
+
+Built on [LeJEPA](https://github.com/galilai-group/lejepa) (Balestriero & LeCun),
+[lightning-hydra-template](https://github.com/ashleve/lightning-hydra-template), the
+[hyp_metric](https://github.com/htdt/hyp_metric) hyperbolic ViT head and the
+[equivision](https://github.com/dmklee/equivision) D4-ResNet; see `NOTICE`. Licensed under the
+terms in `LICENSE`.
