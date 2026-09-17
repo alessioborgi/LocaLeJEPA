@@ -100,6 +100,33 @@ def standardize(X: np.ndarray) -> np.ndarray:
     return (X - X.mean(0, keepdims=True)) / sd
 
 
+def discover_snapshots(cache_dir: str, epoch: int) -> dict[str, dict[str, str]]:
+    """{backbone: {"val": path}} from a SNAPSHOT cache written by eval_snapshots.py.
+
+    That cache is laid out ``<cache>/<name>/val_<crop>_ep<N>.pt`` -- val only, one
+    file per training epoch -- whereas eval_indomain.py writes
+    ``<ds>_<split>_<crop>_ep<N>.pt`` with both splits. Selecting an epoch here is
+    what lets the layouts and cluster metrics be read at a training horizon
+    (e.g. epoch 99, the manuscript's 100-epoch reading) rather than only at the
+    best checkpoint. The Table-4 columns are unavailable, since no train split
+    was cached.
+    """
+    found: dict[str, dict[str, str]] = {}
+    for path in sorted(glob.glob(os.path.join(cache_dir, "*", f"val_*_ep{epoch}.pt"))):
+        found[os.path.basename(os.path.dirname(path))] = {"val": path}
+    return found
+
+
+def available_epochs(cache_dir: str) -> list[int]:
+    """Epochs present in a snapshot cache, for error messages."""
+    eps = set()
+    for path in glob.glob(os.path.join(cache_dir, "*", "val_*_ep*.pt")):
+        m = re.search(r"_ep(\d+)\.pt$", path)
+        if m:
+            eps.add(int(m.group(1)))
+    return sorted(eps)
+
+
 def discover(cache_dir: str) -> dict[str, dict[str, str]]:
     """{backbone: {split: path}} from ``<cache>/<name>/<ds>_<split>_<crop>_ep<N>.pt``."""
     found: dict[str, dict[str, str]] = {}
@@ -330,6 +357,11 @@ def main() -> None:
     ap.add_argument("--prune-lda", type=float, default=0.01,
                     help="ORC-ManL metric distortion; detour bound (1-lda)pi^2/(2 sqrt(24 lda))")
     ap.add_argument("--only", default=None, help="comma-separated backbone names")
+    ap.add_argument("--epoch", type=int, default=None,
+                    help="read a SNAPSHOT cache (eval_snapshots.py layout) at this training "
+                         "epoch instead of the eval_indomain.py best-checkpoint cache. "
+                         "Val split only, so the Table-4 columns are omitted. Early-epoch "
+                         "features score below the default --min-loo gate, so lower it")
     ap.add_argument("--metric", default="cosine", choices=list(METRICS),
                     help="geometry every metric and layout is computed in. "
                          "'poincare' is for hyperbolic backbones only (H-ViT): it uses "
@@ -346,10 +378,21 @@ def main() -> None:
     hyper = args.metric == "poincare"
 
     only = {n.strip() for n in args.only.split(",")} if args.only else None
-    caches = discover(args.cache)
-    if not caches:
-        sys.exit(f"no feature caches under {args.cache}\n"
-                 f"Run eval_indomain.py on the cluster first, then rsync its cache/ directory.")
+    if args.epoch is not None:
+        caches = discover_snapshots(args.cache, args.epoch)
+        if not caches:
+            eps = available_epochs(args.cache)
+            sys.exit(f"no snapshot features for epoch {args.epoch} under {args.cache}\n"
+                     + (f"available epochs: {eps}" if eps else
+                        "no snapshot cache here at all -- this flag expects the cache/ "
+                        "directory written by eval_snapshots.py."))
+        print(f"snapshot cache at epoch {args.epoch}: {len(caches)} backbones "
+              f"(val split only -- no Table-4 columns)")
+    else:
+        caches = discover(args.cache)
+        if not caches:
+            sys.exit(f"no feature caches under {args.cache}\n"
+                     f"Run eval_indomain.py on the cluster first, then rsync its cache/ directory.")
 
     os.makedirs(args.out, exist_ok=True)
     rows, purity, coords = [], {}, {}
@@ -375,8 +418,9 @@ def main() -> None:
             continue
 
         t0 = time.time()
-        row = {"backbone": name, "metric": args.metric, "n_val": len(yva),
-               "dim": Xva.shape[1], "loo_knn20": round(100 * loo, 2)}
+        row = {"backbone": name, "metric": args.metric,
+               "epoch": args.epoch if args.epoch is not None else "best",
+               "n_val": len(yva), "dim": Xva.shape[1], "loo_knn20": round(100 * loo, 2)}
 
         if "train" in splits:
             Xtr_raw, ytr = load(splits["train"])
@@ -414,7 +458,7 @@ def main() -> None:
         sys.exit("no usable backbones found")
 
     cols = sorted({k for r in rows for k in r},
-                  key=lambda c: (c not in ("backbone", "metric"), c))
+                  key=lambda c: (c not in ("backbone", "metric", "epoch"), c))
     with open(os.path.join(args.out, "metrics.csv"), "w", newline="", encoding="utf-8") as fh:
         w = csv.DictWriter(fh, fieldnames=cols)
         w.writeheader()
