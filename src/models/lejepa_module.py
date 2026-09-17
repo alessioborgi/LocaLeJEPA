@@ -61,6 +61,7 @@ class LeJEPAModule(JEPAModule):
         probe_lr: float = 1e-3,
         probe_weight_decay: float = 1e-7,
         warmup_epochs: int = 0,
+        lr_eta_min: float = 1e-3,
         compile: bool = False,
     ) -> None:
         super().__init__(
@@ -77,6 +78,7 @@ class LeJEPAModule(JEPAModule):
             probe_lr=probe_lr,
             probe_weight_decay=probe_weight_decay,
             warmup_epochs=warmup_epochs,
+            lr_eta_min=lr_eta_min,
             compile=compile,
         )
         self.save_hyperparameters(ignore=["encoder", "projector", "online_probe", "optimizer"], logger=False)

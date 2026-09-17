@@ -52,6 +52,7 @@ class JEPAModule(LightningModule):
         probe_lr: float = 1e-3,
         probe_weight_decay: float = 1e-7,
         warmup_epochs: int = 0,
+        lr_eta_min: float = 1e-3,
         compile: bool = False,
     ) -> None:
         super().__init__()
@@ -70,6 +71,7 @@ class JEPAModule(LightningModule):
         self.probe_lr = probe_lr
         self.probe_weight_decay = probe_weight_decay
         self.warmup_epochs = warmup_epochs
+        self.lr_eta_min = lr_eta_min
         self.compile_model = compile
 
     # ------------------------------------------------------------------
@@ -291,11 +293,11 @@ class JEPAModule(LightningModule):
         warmup_steps = min(total_steps, steps_per_epoch * self.warmup_epochs)
 
         if warmup_steps <= 0:
-            return CosineAnnealingLR(optimizer, T_max=total_steps, eta_min=1e-3)
+            return CosineAnnealingLR(optimizer, T_max=total_steps, eta_min=self.lr_eta_min)
 
         warmup = LinearLR(optimizer, start_factor=0.01, total_iters=warmup_steps)
         if warmup_steps >= total_steps:
             return warmup
 
-        cosine = CosineAnnealingLR(optimizer, T_max=total_steps - warmup_steps, eta_min=1e-3)
+        cosine = CosineAnnealingLR(optimizer, T_max=total_steps - warmup_steps, eta_min=self.lr_eta_min)
         return SequentialLR(optimizer, schedulers=[warmup, cosine], milestones=[warmup_steps])

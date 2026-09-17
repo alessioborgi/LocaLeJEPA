@@ -21,6 +21,7 @@ nt_xent_loss     -- Normalised Temperature-scaled Cross Entropy (SimCLR)
 """
 
 import math
+from functools import lru_cache
 
 import torch
 import torch.nn.functional as F
@@ -240,23 +241,22 @@ def local_sigreg_loss(
             normalize=normalize_for_kmeans,
         )
     else:
-        raise ValueError(
-            f"Unknown kmeans_backend: {kmeans_backend!r}. Choose 'fast_pytorch_kmeans' or 'torch'."
-        )
+        raise ValueError(f"Unknown kmeans_backend: {kmeans_backend!r}. Choose 'fast_pytorch_kmeans' or 'torch'.")
 
     losses: list[torch.Tensor] = []
     weights: list[int] = []
     min_size = max(int(min_cluster_size), 1)
     K = min(max(int(num_clusters), 1), N)
+    # One host synchronization for every cluster size, instead of one per cluster.
+    sizes = torch.bincount(labels, minlength=K).tolist()
 
     for cluster_idx in range(K):
-        mask = labels == cluster_idx
-        cluster_size = int(mask.sum().item())
-        if cluster_size < min_size:
+        if sizes[cluster_idx] < min_size:
             continue
 
+        mask = labels == cluster_idx
         losses.append(sigreg_loss(proj[:, mask, :], knots=knots))
-        weights.append(cluster_size)
+        weights.append(sizes[cluster_idx])
 
     if len(losses) == 0:
         return sigreg_loss(proj, knots=knots)
@@ -267,6 +267,17 @@ def local_sigreg_loss(
         return (local_losses * (w / w.sum())).sum()
 
     return local_losses.mean()
+
+
+@lru_cache(maxsize=32)
+def _ball_quadrature(d: int, n_quad: int, device: str) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Gauss-Legendre nodes and density weights, which depend on neither the grid nor the radius."""
+    x_np, w_np = leggauss(n_quad)
+    x = torch.tensor(x_np, dtype=torch.float32, device=device)
+    w = torch.tensor(w_np, dtype=torch.float32, device=device)
+
+    weights = (1.0 - x.square()).clamp(min=0.0).pow((d - 1) / 2.0) * w
+    return x, weights, weights.sum()
 
 
 def _ball_d_cf(
@@ -291,16 +302,10 @@ def _ball_d_cf(
     if R <= 0:
         raise ValueError(f"ball radius must be positive, got {R}")
 
-    x_np, w_np = leggauss(n_quad)
-    x = torch.tensor(x_np, dtype=torch.float32, device=t.device)
-    w = torch.tensor(w_np, dtype=torch.float32, device=t.device)
-
-    exponent = (d - 1) / 2.0
-    density = (1.0 - x.square()).clamp(min=0.0).pow(exponent)
-    norm = (density * w).sum()
+    x, weights, norm = _ball_quadrature(d, n_quad, str(t.device))
 
     cos_vals = torch.cos((R * t).unsqueeze(-1) * x.unsqueeze(0))
-    return (cos_vals * (density * w).unsqueeze(0)).sum(-1) / norm
+    return (cos_vals * weights.unsqueeze(0)).sum(-1) / norm
 
 
 def ballreg_loss(
@@ -417,21 +422,20 @@ def local_ballreg_loss(
             normalize=normalize_for_kmeans,
         )
     else:
-        raise ValueError(
-            f"Unknown kmeans_backend: {kmeans_backend!r}. Choose 'fast_pytorch_kmeans' or 'torch'."
-        )
+        raise ValueError(f"Unknown kmeans_backend: {kmeans_backend!r}. Choose 'fast_pytorch_kmeans' or 'torch'.")
 
     losses: list[torch.Tensor] = []
     weights: list[int] = []
     min_size = max(int(min_cluster_size), 1)
     K = min(max(int(num_clusters), 1), N)
+    # One host synchronization for every cluster size, instead of one per cluster.
+    sizes = torch.bincount(labels, minlength=K).tolist()
 
     for cluster_idx in range(K):
-        mask = labels == cluster_idx
-        cluster_size = int(mask.sum().item())
-        if cluster_size < min_size:
+        if sizes[cluster_idx] < min_size:
             continue
 
+        mask = labels == cluster_idx
         losses.append(
             ballreg_loss(
                 proj[:, mask, :],
@@ -441,7 +445,7 @@ def local_ballreg_loss(
                 n_quad=n_quad,
             )
         )
-        weights.append(cluster_size)
+        weights.append(sizes[cluster_idx])
 
     if len(losses) == 0:
         return ballreg_loss(proj, knots=knots, radius=radius, center=center_clusters, n_quad=n_quad)
