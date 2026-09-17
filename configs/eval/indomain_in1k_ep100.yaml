@@ -1,0 +1,111 @@
+# In-domain k-NN + linear evaluation on ImageNet-1K of the *finished* 100-epoch
+# pretrains, reproducing SPHERE-JEPA (Nicollier et al., 2026) Table 3
+# ("ImageNet-1K, 100 ep.") with our backbones: D4-equivariant ResNet-50 and
+# Hyperbolic ViT-S/8. Same protocol as configs/eval/indomain_in1k.yaml:
+# frozen backbone, full 1.28M-image train split as k-NN bank / probe train set,
+# top-1 on the 50k val split with a weighted k-NN vote (cosine, exp(sim/T),
+# T = 0.07) and a linear layer on the frozen features.
+#
+# Headline rows evaluate the FINAL checkpoint (epoch 99 = 100 epochs, i.e.
+# last.ckpt, the paper's "100 ep." reading). The *_best rows evaluate the
+# checkpoint selected by the online probe (best val/probe_acc, best.ckpt) where
+# it differs from the final one and has not been evaluated before (those three
+# are already in logs/eval_indomain_in1k).
+#
+#   sbatch --export=ALL,CMD="python eval_indomain.py --config configs/eval/indomain_in1k_ep100.yaml --only <name>" scripts/slurm_submit.sh
+#   python eval_indomain.py --config configs/eval/indomain_in1k_ep100.yaml --merge-only
+
+device: null
+seed: 0
+
+dataset: imagenet1k
+data_dir: data/imagenet
+image_folder: imagenet_full_size/061417/
+
+# Backbones were pretrained at crop 128; evaluate at the same resolution and
+# with the same deterministic eval transform the online probe uses.
+crop_size: 128
+
+batch_size: 256
+num_workers: 8
+
+output_folder: logs/eval_indomain_in1k_ep100
+# ~1.4 GB of fp16 features per backbone: keep the cache off the 95 GB home quota.
+cache_dir: /n/netscratch/dominici_lab/Lab/aborgi/eval_indomain_in1k_cache
+
+train_subset_per_class: null
+
+knn:
+  k_values: [10, 20, 100, 200]
+  temperature: 0.07
+  report_k: 20
+  chunk_size: 128
+
+linear:
+  lr_grid: [0.01, 0.03, 0.1, 0.3, 1.0, 3.0, 10.0]
+  epochs: 50
+  batch_size: 4096
+  weight_decay: 0.0
+  momentum: 0.9
+  standardize: true
+  val_frac: 0.02
+
+backbones:
+  # ---- final (epoch 99 / 100 ep.) checkpoints -------------------------------
+  # LeJEPA / SIGReg -- the Table 3 "LeJEPA" row.
+  - name: d4rn50_sigreg
+    experiment: lejepa/d4rn50_in1k_sigreg
+    checkpoint: checkpoints/lejepa_d4rn50_in1k_sigreg/last.ckpt
+  - name: hvit_sigreg
+    experiment: lejepa/hvit_in1k_sigreg
+    checkpoint: checkpoints/lejepa_hvit_in1k_sigreg/last.ckpt
+
+  # Rectified LpJEPA / RDMReg (d4rn50 counterpart still pretraining).
+  - name: hvit_rdmreg
+    experiment: rectifiedlpjepa/hvit_in1k_rdmreg
+    checkpoint: checkpoints/rectifiedlpjepa_hvit_in1k_rdmreg/last.ckpt
+
+  # LeJEPA local-regularizer variants that reached 100 epochs.
+  - name: d4rn50_localballreg_l01_k2
+    experiment: lejepa/d4rn50_in1k_localballreg_l01_k2
+    checkpoint: checkpoints/lejepa_d4rn50_in1k_localballreg_l01_k2/last.ckpt
+  - name: d4rn50_localballreg_l01_k4
+    experiment: lejepa/d4rn50_in1k_localballreg_l01_k4
+    checkpoint: checkpoints/lejepa_d4rn50_in1k_localballreg_l01_k4/last.ckpt
+  - name: d4rn50_localballreg_l03_k2
+    experiment: lejepa/d4rn50_in1k_localballreg_l03_k2
+    checkpoint: checkpoints/lejepa_d4rn50_in1k_localballreg_l03_k2/last.ckpt
+  - name: hvit_localballreg_l03_k2
+    experiment: lejepa/hvit_in1k_localballreg_l03_k2
+    checkpoint: checkpoints/lejepa_hvit_in1k_localballreg_l03_k2/last.ckpt
+
+  # ---- runs that reached 100 epochs later (added 2026-09-16, array indices 11-15)
+  - name: d4rn50_rdmreg
+    experiment: rectifiedlpjepa/d4rn50_in1k_rdmreg
+    checkpoint: checkpoints/rectifiedlpjepa_d4rn50_in1k_rdmreg/last.ckpt
+  - name: d4rn50_localsigreg_l01_k4
+    experiment: lejepa/d4rn50_in1k_localsigreg_l01_k4
+    checkpoint: checkpoints/lejepa_d4rn50_in1k_localsigreg_l01_k4/last.ckpt
+  - name: d4rn50_localballreg_l01_dynk
+    experiment: lejepa/d4rn50_in1k_localballreg_l01_dynk
+    checkpoint: checkpoints/lejepa_d4rn50_in1k_localballreg_l01_dynk/last.ckpt
+  - name: hvit_localballreg_l01_k2
+    experiment: lejepa/hvit_in1k_localballreg_l01_k2
+    checkpoint: checkpoints/lejepa_hvit_in1k_localballreg_l01_k2/last.ckpt
+  - name: hvit_localsigreg_l01_k4
+    experiment: lejepa/hvit_in1k_localsigreg_l01_k4
+    checkpoint: checkpoints/lejepa_hvit_in1k_localsigreg_l01_k4/last.ckpt
+
+  # ---- online-probe-selected (best.ckpt) checkpoints ------------------------
+  - name: d4rn50_localballreg_l01_k2_best
+    experiment: lejepa/d4rn50_in1k_localballreg_l01_k2
+    checkpoint: checkpoints/lejepa_d4rn50_in1k_localballreg_l01_k2/best.ckpt
+  - name: d4rn50_localballreg_l01_k4_best
+    experiment: lejepa/d4rn50_in1k_localballreg_l01_k4
+    checkpoint: checkpoints/lejepa_d4rn50_in1k_localballreg_l01_k4/best.ckpt
+  - name: d4rn50_localballreg_l03_k2_best
+    experiment: lejepa/d4rn50_in1k_localballreg_l03_k2
+    checkpoint: checkpoints/lejepa_d4rn50_in1k_localballreg_l03_k2/best.ckpt
+  - name: hvit_localballreg_l03_k2_best
+    experiment: lejepa/hvit_in1k_localballreg_l03_k2
+    checkpoint: checkpoints/lejepa_hvit_in1k_localballreg_l03_k2/best.ckpt

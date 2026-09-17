@@ -1,0 +1,3 @@
+_target_: src.models.components.phc.PhCEncoder
+
+emb_dim: ${model.embedding_dim}

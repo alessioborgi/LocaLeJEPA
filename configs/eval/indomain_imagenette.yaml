@@ -5,6 +5,10 @@
 # ImageNet-1K jobs.
 #
 #   python eval_indomain.py --config configs/eval/indomain_imagenette.yaml
+#
+# Note svit_susreg is the only SUSReg (SPHERE-JEPA) checkpoint available; the
+# SIGReg rows use different backbones, so cross-row differences mix the
+# regulariser with the architecture.
 
 device: null
 seed: 0
@@ -39,12 +43,39 @@ linear:
   val_frac: 0.1
 
 backbones:
-  # LeJEPA baseline (SIGReg) and ours (local BallReg lambda 0.1, k 4), both ViT-S/8 on
-  # Imagenette. `experiment` is the config the checkpoint was trained with; point
-  # `checkpoint` at the best.ckpt / last.ckpt written by that run.
+  # SUSReg -- SPHERE-JEPA's hyperspherical-uniformity regulariser.
+  - name: svit_susreg
+    experiment: lejepa/svit_imagenette_susreg
+    checkpoint: checkpoints/svit_imagenette_susreg/last.ckpt
+
+  # SIGReg -- LeJEPA's isotropic-Gaussian regulariser.
   - name: vit_sigreg
     experiment: lejepa/vit_imagenette_sigreg
-    checkpoint: checkpoints/lejepa_vit_imagenette_sigreg/best.ckpt
-  - name: vit_localballreg_l01_k4
-    experiment: lejepa/vit_imagenette_localballreg_l01_k4
-    checkpoint: checkpoints/lejepa_vit_imagenette_localballreg_l01_k4/best.ckpt
+    checkpoint: checkpoints/vit_imagenette_sigreg/epoch_795.ckpt
+
+  - name: nvit_sigreg
+    experiment: lejepa/nvit_imagenette_sigreg
+    checkpoint: checkpoints/nvit_imagenette_sigreg/last.ckpt
+
+  - name: nvit_subreg
+    experiment: lejepa/nvit_imagenette_subreg
+    checkpoint: checkpoints/nvit_imagenette_subreg/last.ckpt
+
+  - name: vit_rdmreg
+    experiment: rectifiedlpjepa/vit_imagenette_rdmreg
+    checkpoint: checkpoints/rectifiedlpjepa_imagenette_rdmreg/best.ckpt
+
+  # Both Imagenette D4-ResNet-50 checkpoints predate the switch of
+  # configs/model/encoder/d4resnet50.yaml to `pool: equivariant`: their weights
+  # carry the old D4-invariant head (gpool + fc), so the encoder must be rebuilt
+  # with pool=group or the state_dict will not match. The IN1K D4 checkpoints
+  # were trained after the switch and need no override.
+  - name: d4rn50_sigreg
+    experiment: lejepa/d4rn50_imagenette_sigreg
+    checkpoint: checkpoints/lejepa_d4rn50_imagenette_sigreg/best.ckpt
+    overrides: ["model.encoder.pool=group"]
+
+  - name: d4rn50_rdmreg
+    experiment: rectifiedlpjepa/d4rn50_imagenette_rdmreg
+    checkpoint: checkpoints/rectifiedlpjepa_d4rn50_imagenette_rdmreg/best.ckpt
+    overrides: ["model.encoder.pool=group"]
