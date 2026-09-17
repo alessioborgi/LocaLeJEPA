@@ -1,0 +1,29 @@
+defaults:
+  - transform/phc@train_transform: gpm
+  - _self_
+
+_target_: src.data.phc_datamodule.PhCDataModule
+has_test_data: true
+
+dataset: gpm
+target_mode: labeled
+data_dir: ${paths.data_dir}/phc
+
+train_size: 3000
+valid_size: 0
+test_size: 2000
+
+train_split: train
+val_split: null
+test_split: test
+
+train_transform: null
+eval_transform: null
+
+batch_size: 64
+num_workers: 4
+pin_memory: true
+drop_last: true
+
+ldos: 0
+udos: 400

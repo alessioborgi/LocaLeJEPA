@@ -1,0 +1,26 @@
+defaults:
+  - encoder: custom_ijepa_vit_small
+  - _self_
+
+_target_: src.models.ijepa_module.IJEPAModule
+
+ema: [0.996, 1.0]
+lr: 1e-3
+start_lr: 2e-4
+final_lr: 1e-6
+weight_decay: 0.04
+final_weight_decay: 0.4
+warmup_epochs: 40
+ipe_scale: 1.0
+
+optimizer: ${optimizer}
+
+predictor:
+  _target_: src.models.components.vision_transformer.VisionTransformerPredictor
+  num_patches: 196
+  embed_dim: ${model.encoder.embed_dim}
+  predictor_embed_dim: 384
+  depth: 6
+  num_heads: ${model.encoder.num_heads}
+
+compile: false

@@ -1,0 +1,67 @@
+# In-domain k-NN + linear evaluation on ImageNet-1K, reproducing the protocol of
+# SPHERE-JEPA (Nicollier et al., 2026) Table 3: freeze the ImageNet-1K-pretrained
+# backbone, embed the full IN1K train split (1.28M images) as the feature bank /
+# probe training set, and report top-1 on the 50k IN1K val split with
+#   * a similarity-weighted k-NN vote (cosine, exp(sim/T), T = 0.07), and
+#   * a linear layer trained on the frozen features.
+#
+#   python eval_indomain.py --config configs/eval/indomain_in1k.yaml
+#   python eval_indomain.py --config configs/eval/indomain_in1k.yaml --only hvit_sigreg
+#
+# Features are extracted once per backbone and cached, so re-running the probes
+# with different hyper-parameters costs seconds.
+
+device: null
+seed: 0
+
+dataset: imagenet1k
+data_dir: data/imagenet
+image_folder: imagenet_full_size/061417/
+
+# Backbones were pretrained at crop 128; evaluate at the same resolution and
+# with the same deterministic eval transform the online probe uses.
+crop_size: 128
+
+batch_size: 256
+num_workers: 8
+
+output_folder: logs/eval_indomain_in1k
+cache_dir: logs/eval_indomain_in1k/cache
+
+# Full 1.28M-image train bank (Table 3 protocol). Set to an integer (e.g. 100)
+# to subsample images/class if extraction time becomes the bottleneck.
+train_subset_per_class: null
+
+knn:
+  k_values: [10, 20, 100, 200]
+  temperature: 0.07
+  report_k: 20            # the k reported in the headline table
+  chunk_size: 128
+
+linear:
+  lr_grid: [0.01, 0.03, 0.1, 0.3, 1.0, 3.0, 10.0]
+  epochs: 50
+  batch_size: 4096
+  weight_decay: 0.0
+  momentum: 0.9
+  standardize: true
+  val_frac: 0.02          # held out from train for learning-rate selection
+
+backbones:
+  # LeJEPA / SIGReg (Gaussian prior in R^d) -- the Table 3 "LeJEPA" row.
+  - name: hvit_sigreg
+    experiment: lejepa/hvit_in1k_sigreg
+    checkpoint: checkpoints/lejepa_hvit_in1k_sigreg/best.ckpt
+
+  - name: d4rn50_sigreg
+    experiment: lejepa/d4rn50_in1k_sigreg
+    checkpoint: checkpoints/lejepa_d4rn50_in1k_sigreg/best.ckpt
+
+  # Rectified LpJEPA / RDMReg -- our variant, same in-domain protocol.
+  - name: hvit_rdmreg
+    experiment: rectifiedlpjepa/hvit_in1k_rdmreg
+    checkpoint: checkpoints/rectifiedlpjepa_hvit_in1k_rdmreg/best.ckpt
+
+  - name: d4rn50_rdmreg
+    experiment: rectifiedlpjepa/d4rn50_in1k_rdmreg
+    checkpoint: checkpoints/rectifiedlpjepa_d4rn50_in1k_rdmreg/best.ckpt

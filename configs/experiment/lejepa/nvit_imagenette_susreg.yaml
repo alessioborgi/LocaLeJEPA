@@ -1,0 +1,42 @@
+# @package _global_
+# Comparison Model: nViT-S/8 + l_inv + l_susreg on Imagenette (800 epochs)
+# SUSReg loss from Nicollier et al., "SPHERE-JEPA: Sketched Uniform Spherical
+# Regularization for Joint Embedding Predictive Architectures", arXiv 2605.26900 (2026).
+# nViT = nGPT ViT with learned PE table; no spherical harmonic PE / RPB.
+
+defaults:
+  - override /data: imagenette
+  - override /model: spherejepa
+  - override /model/encoder: nvit_small_p8
+  - override /optimizer: adam
+  - override /trainer: gpu
+  - _self_
+
+tags: ["lejepa", "imagenette", "nvit-small-p8", "susreg", "comparison"]
+
+trainer:
+  max_epochs: 800
+  accumulate_grad_batches: 4
+
+data:
+  batch_size: 64    # per-step batch; x accumulate_grad_batches=4 -> effective 256 (as launched)
+  num_workers: 4
+  crop_size: 128
+
+model:
+  embedding_dim: 512
+  projection_dim: 16
+  num_classes: 10
+  use_online_probe: true
+  num_global_crops: null
+  probe_lr: 1e-3
+  probe_weight_decay: 1e-7
+  lamb: 0.02
+  projector:
+    hidden_channels:
+      - 2048
+      - 2048
+      - ${model.projection_dim}
+
+optimizer:
+  lr: 2e-3

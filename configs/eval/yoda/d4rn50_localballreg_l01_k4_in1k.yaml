@@ -1,0 +1,21 @@
+# Yoda linear-probe eval of d4rn50_localballreg_l01_k4_in1k (frozen backbone, 10-split multiseed).
+device: null
+crop_size: 128
+data_dir: data
+output_folder: logs/eval_angle_probe_yoda_d4rn50_localballreg_l01_k4_in1k
+cache_dir: logs/eval_angle_probe_yoda_d4rn50_localballreg_l01_k4_in1k/cache
+subsample: 1
+max_frames: null
+batch_size: 256
+num_workers: 8
+angle_labels: ["figure 0", "figure 1"]
+backbones:
+  - name: d4rn50_localballreg_l01_k4_in1k
+    experiment: lejepa/d4rn50_in1k_localballreg_l01_k4
+    checkpoint: checkpoints/lejepa_d4rn50_in1k_localballreg_l01_k4/best.ckpt
+probe:
+  test_frac: 0.2
+  val_frac: 0.2
+  ridge_grid: [0.01, 0.1, 1.0, 10.0, 100.0, 1000.0]
+  standardize: true
+  seed: 0

@@ -1,0 +1,37 @@
+# Yoda (bobblehead) linear-probe eval of the standard Rectified LpJEPA ViT-S/8
+# backbone (rectifiedlpjepa/vit_imagenette_rdmreg). Same probe protocol (full
+# 8097 frames, 60/20/20 split, 10 seeds) as the other eval configs so the numbers
+# drop straight into the comparison table in paper/yoda_probe.tex.
+#
+#   python eval_angle_probe.py           --config configs/eval/yoda/rectifiedlpjepa.yaml
+#   python eval_angle_probe_multiseed.py --config configs/eval/yoda/rectifiedlpjepa.yaml --n-seeds 10
+
+device: null
+crop_size: 128
+data_dir: data
+output_folder: logs/eval_angle_probe_yoda_rectifiedlpjepa
+cache_dir: logs/eval_angle_probe_yoda_rectifiedlpjepa/cache
+
+subsample: 1            # all 8097 frames
+max_frames: null
+
+batch_size: 256
+num_workers: 8
+
+angle_labels: ["figure 0", "figure 1"]
+
+backbones:
+  - name: vit_rdmreg
+    experiment: rectifiedlpjepa/vit_imagenette_rdmreg
+    # NOTE: the gpu_requeue run was preempted ~epoch 67 and restarted from
+    # scratch, so Lightning wrote -v1 files. best.ckpt is the STALE epoch-65
+    # checkpoint (val/probe_acc 0.429); best-v1.ckpt is the real completed
+    # 800-epoch run's best (epoch 740, val/probe_acc 0.842). Use best-v1.ckpt.
+    checkpoint: checkpoints/rectifiedlpjepa_imagenette_rdmreg/best-v1.ckpt
+
+probe:
+  test_frac: 0.2
+  val_frac: 0.2
+  ridge_grid: [0.01, 0.1, 1.0, 10.0, 100.0, 1000.0]
+  standardize: true
+  seed: 0
