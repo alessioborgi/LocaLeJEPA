@@ -112,6 +112,29 @@ def load_backbone(
     ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     state_dict = ckpt["state_dict"]
 
+    # A checkpoint trained at 128px has a 16x16 positional grid (plus CLS),
+    # while a 224px visualization asks for 28x28.  Timm's standard remedy is
+    # bicubic interpolation of the spatial positional table.  This is enabled
+    # only for patch extraction: ordinary encoder loading remains strict, so a
+    # changed resolution cannot silently alter downstream evaluation.
+    if feature == "patch":
+        pos_key = next((k for k in ("encoder.pos_embed", "encoder.body.pos_embed") if k in state_dict), None)
+        if pos_key is not None:
+            target = patch_body.pos_embed
+            source = state_dict[pos_key]
+            if source.shape != target.shape:
+                import torch.nn.functional as F
+                n_prefix = int(patch_body.num_prefix_tokens)
+                n_src = source.shape[1] - n_prefix
+                n_dst = target.shape[1] - n_prefix
+                src_side, dst_side = int(n_src ** 0.5), int(n_dst ** 0.5)
+                if src_side * src_side != n_src or dst_side * dst_side != n_dst:
+                    raise RuntimeError(f"Cannot interpolate non-square positional grids: {source.shape} -> {target.shape}")
+                prefix = source[:, :n_prefix]
+                spatial = source[:, n_prefix:].reshape(1, src_side, src_side, -1).permute(0, 3, 1, 2)
+                spatial = F.interpolate(spatial, size=(dst_side, dst_side), mode="bicubic", align_corners=False)
+                state_dict[pos_key] = torch.cat([prefix, spatial.permute(0, 2, 3, 1).reshape(1, n_dst, -1)], dim=1)
+
     def _submodule_sd(prefix: str) -> dict:
         """Pull one Lightning submodule's params, tolerating a torch.compile wrap."""
         out = {}
