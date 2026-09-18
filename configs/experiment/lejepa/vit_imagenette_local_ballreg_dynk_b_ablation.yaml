@@ -1,0 +1,72 @@
+# @package _global_
+# B ablation: ViT-S/8, Imagenette, local BallReg, lambda=0.1, 800 epochs.
+# Inherits the existing dynamic-K recipe; B counts images (4 views per image).
+# One GPU and no accumulation make data.batch_size the clustering batch AND
+# optimizer batch. DDP divides data.batch_size across ranks; clustering is local
+# to each rank. Accumulation does not enlarge the clustering batch.
+# LR is deliberately preserved at 1e-3 for every B: 10 epochs of linear warmup
+# from 1e-5 to 1e-3, then flat. JEPAModule's cosine eta_min is also 1e-3.
+# The LR monitor below records the actual optimizer learning rates.
+#
+# Six independent Slurm jobs, submitted from the repository root:
+#   mkdir -p logs/slurm
+#   for B in 32 64 128 256 512 1024; do
+#     EXPERIMENT=lejepa/vit_imagenette_local_ballreg_dynk_b_ablation \
+#     RUN_NAME=localball_dynk_B${B}_seed42 GPUS=1 REQUEUE=0 \
+#     OVERRIDES="data.batch_size=${B}" \
+#     sbatch --nodelist=diufrd205 --gres=gpu:1 --ntasks-per-node=1 \
+#       --cpus-per-task=8 --mem=128G --export=ALL scripts/slurm_submit.sh
+#   done
+# The launcher uses a distinct checkpoint directory for each RUN_NAME and
+# resumes from its last.ckpt on resubmission. Use fresh names for new protocols.
+# diufrd205 is selected for its listed 96-GB GPUs; peak GPU memory is untested.
+# Keep one GPU per run: more GPUs or accumulation would change the meaning of B.
+#
+# Alternatively, sequential Hydra sweep inside an existing GPU allocation:
+#   uv run --no-sync python src/train.py --multirun \
+#     experiment=lejepa/vit_imagenette_local_ballreg_dynk_b_ablation
+# Hydra's default launcher is sequential; it does not submit Slurm jobs.
+#
+# K(epoch) = min(8, 1 + epoch // 100), with zero-based epoch indexing.
+# Already logged by LeJEPAModule as train/num_clusters each epoch (scheduled K,
+# not the number of populated/usable clusters). K-means clips K to [1, B],
+# clusters detached view-averaged projections using cosine distance, and skips
+# clusters with fewer than 4 images. If all are skipped, BallReg uses all images.
+
+defaults:
+  - /experiment/lejepa/vit_imagenette_local_ballreg_dynk
+  - _self_
+
+task_name: localball_dynk_b_ablation
+tags: ["lejepa", "imagenette", "vit-small-p8", "local-ballreg", "dynamic-k", "b-ablation"]
+seed: 42
+
+optimizer:
+  lr: 1e-3
+
+trainer:
+  devices: 1
+  num_nodes: 1
+  accumulate_grad_batches: 1
+  log_every_n_steps: 1
+
+data:
+  batch_size: 32
+  val_batch_size: 64
+  num_workers: 8
+  drop_last: true
+
+callbacks:
+  learning_rate_monitor:
+    _target_: lightning.pytorch.callbacks.LearningRateMonitor
+    logging_interval: step
+
+logger:
+  wandb:
+    group: localball_dynk_b_ablation
+    name: localball_dynk_B${data.batch_size}_seed${seed}
+
+hydra:
+  sweeper:
+    params:
+      data.batch_size: "32,64,128,256,512,1024"
