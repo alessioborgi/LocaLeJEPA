@@ -28,7 +28,6 @@ model:
   embedding_dim: 512
   projection_dim: 16
   num_classes: 1000
-  loss_type: sigreg
   lamb: 0.02
   use_online_probe: true
   num_global_crops: null

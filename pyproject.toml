@@ -1,7 +1,7 @@
 [project]
-name = "bundlejepa"
-version = "0.1.0"
-description = "BundLeJEPA: LeJEPA-style self-supervised pretraining with local (k-means neighbourhood) distribution-matching regularizers"
+name = "localejepa"
+version = "1.0.0"
+description = "LocaLeJEPA: LeJEPA-style self-supervised pretraining with local (k-means neighbourhood) distribution-matching regularizers"
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [{ name = "Alessio Borgi" }, { name = "Pavel Snopov" }]

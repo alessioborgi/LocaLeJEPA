@@ -1,10 +1,10 @@
-# BundLeJEPA
+# LocaLeJEPA
 
 Self-supervised pretraining in the [LeJEPA](https://arxiv.org/abs/2511.08544) family
 (invariance loss + distribution-matching regularizer, no teacher/EMA, no predictor),
 with **local regularizers**: the regularizer is applied inside k-means neighbourhoods of the
 projection space instead of on the whole batch. The proposed variant is
-**LeJEPA + local BallReg** — a sketched uniform-ball characteristic-function test on each
+**LocaLe-Reg** — a sketched uniform-ball characteristic-function test on each centred
 neighbourhood — which on ImageNet-1K (ViT-S/8, 100 epochs) lifts LeJEPA's frozen-feature
 k-NN / linear top-1 from 24.3 / 40.7 to 34.1 / 49.5 with the same backbone and schedule.
 
@@ -24,20 +24,26 @@ loss = (1 - λ) · L_inv(z) + λ · L_reg(z),      z = g(f(view))  ∈ R^{V × N
 distribution of the projections to a fixed target through the Epps–Pulley characteristic-
 function statistic along random 1-D sketches (SIGReg: isotropic Gaussian target).
 
-This repository keeps that scaffold ([`src/models/jepa_module.py`](src/models/jepa_module.py),
-[`src/models/lejepa_module.py`](src/models/lejepa_module.py)) and swaps the regularizer through
-`model.loss_type` ([`src/losses.py`](src/losses.py)):
+This repository keeps that scaffold ([`src/models/lejepa_module.py`](src/models/lejepa_module.py))
+and swaps the regularizer through the `model/reg_loss` config group
+([`configs/model/reg_loss/`](configs/model/reg_loss/), functions in [`src/losses.py`](src/losses.py)):
 
-| `loss_type`     | regularizer                                                                 |
-|-----------------|-----------------------------------------------------------------------------|
-| `sigreg`        | SIGReg, isotropic-Gaussian target (LeJEPA baseline)                          |
-| `susreg`        | SUSReg, uniform-on-the-sphere target (SPHERE-JEPA)                          |
-| `local_sigreg`  | SIGReg computed independently in `k` k-means neighbourhoods of the batch     |
-| `local_ballreg` | **ours**: uniform-ball target in `k` k-means neighbourhoods (centred per cluster) |
+| `model/reg_loss` | regularizer                                                                 |
+|------------------|-----------------------------------------------------------------------------|
+| `sigreg`         | SIGReg, isotropic-Gaussian target (LeJEPA baseline)                          |
+| `susreg`         | SUSReg, uniform-on-the-sphere target (SPHERE-JEPA)                          |
+| `uniform_reg`    | uniform-ball target (`ballreg_loss`)                                          |
+| `locale_sigreg`  | SIGReg computed independently in `k` k-means neighbourhoods of the batch     |
+| `localereg`      | **LocaLe-Reg (ours)**: uniform-ball target in `k` k-means neighbourhoods (centred per cluster) |
+
+The `locale_*` configs compose `local.yaml` (`local_loss`: k-means over the batch, then a test
+per neighbourhood) with the global test placed at `loss`, so the test's parameters are set
+once and are the same inside the neighbourhoods: `model.reg_loss.num_clusters=4`,
+`model.reg_loss.loss.scale_grid=true`, `model.reg_loss.loss.num_slices=1024`.
 
 Everything else — multi-view augmentation, projector, online linear probe used for checkpoint
 selection, AdamW + linear warm-up + cosine schedule — is shared by all variants, so a
-comparison between `loss_type` values isolates the regularizer.
+comparison between `reg_loss` choices isolates the regularizer.
 
 Backbones used in the reported experiments: plain timm ViT-S/8 and ViT-L/14
 (`configs/model/encoder/timm_vit.yaml`), a hyperbolic (Poincaré-ball head) ViT-S/8
@@ -49,9 +55,8 @@ Backbones used in the reported experiments: plain timm ViT-S/8 and ViT-L/14
 ```
 src/
   train.py                     Hydra + Lightning entry point (pretraining)
-  losses.py                    invariance, SIGReg, SUSReg, BallReg, local variants, ...
-  models/jepa_module.py        shared LightningModule scaffold (encode, probe, optimizer, schedule)
-  models/lejepa_module.py      LeJEPAModule: loss_type ∈ {sigreg, susreg, local_sigreg, local_ballreg}
+  losses.py                    invariance, SIGReg, SUSReg, uniform-ball test, local_loss (k-means + any test), ...
+  models/lejepa_module.py      LeJEPAModule: encode, reg_loss + invariance, online probe, optimizer, schedule
   models/components/           hyperbolic ViT head, D4-equivariant ResNet (escnn)
   data/                        Imagenette / ImageNet-1K datamodules, multi-view transforms
   eval/                        frozen-backbone loading, feature extraction, k-NN and linear probes
@@ -60,6 +65,7 @@ configs/
   train.yaml                   root config; `experiment=<name>` selects a full experiment
   experiment/lejepa/           the experiments (see configs/experiment/README.md)
   model/, data/, optimizer/,   Hydra config groups
+  model/reg_loss/              sigreg, susreg, uniform_reg; local -> locale_sigreg, localereg
   trainer/, callbacks/, ...
   eval/                        YAML configs for eval_indomain.py
 eval_indomain.py               frozen-backbone k-NN + linear-probe evaluation
@@ -116,7 +122,7 @@ Imagenette (160 px) is downloaded automatically into `data/imagenette/` on first
 # LeJEPA baseline: ViT-S/8 + SIGReg, Imagenette, 800 epochs, 1 GPU
 uv run python src/train.py experiment=lejepa/vit_imagenette_sigreg logger=csv
 
-# Ours: ViT-S/8 + local BallReg (λ=0.1, k=4), same data / schedule
+# Ours: ViT-S/8 + LocaLe-Reg (λ=0.1, k=4), same data / schedule
 uv run python src/train.py experiment=lejepa/vit_imagenette_localballreg_l01_k4 logger=csv
 ```
 
@@ -181,11 +187,13 @@ is rebuilt from that config) and the checkpoint path; per-backbone results are w
 
 ## Configurations
 
-* `configs/train.yaml` composes `data`, `model` (with `model/encoder`), `optimizer`, `trainer`,
-  `callbacks`, `logger`, `paths`, `extras`; `experiment=...` overrides a full set of them.
-* `configs/model/lejepa.yaml` documents every `LeJEPAModule` hyper-parameter (`lamb`,
-  `loss_type`, `local_sigreg_num_clusters` = k, `local_ballreg_*`, the dynamic-k schedule, the
-  online probe).
+* `configs/train.yaml` composes `data`, `model` (with `model/encoder` and `model/reg_loss`),
+  `optimizer`, `trainer`, `callbacks`, `logger`, `paths`, `extras`; `experiment=...` overrides a
+  full set of them.
+* `configs/model/lejepa.yaml` documents every `LeJEPAModule` hyper-parameter (`lamb`, the
+  invariance loss, the online probe); `configs/model/reg_loss/<name>.yaml` the regularizer's
+  (`local.yaml`: `num_clusters` = k and the k-means; `uniform_reg.yaml`: `radius`, `center`,
+  `scale_grid`, ...); `callbacks=dynamic_num_clusters` schedules k over epochs.
 * `configs/experiment/README.md` lists every experiment config, which one is the LeJEPA baseline
   and which one is ours for each backbone / dataset, and what differs between them.
 * The experiment configs contain everything that was passed to the runs, including the per-step
@@ -220,14 +228,14 @@ there. In short:
 | setting | config | command |
 |---|---|---|
 | LeJEPA (SIGReg), ViT-S/8, IN1K 100 ep. | `lejepa/vit_in1k_sigreg` | `uv run python src/train.py experiment=lejepa/vit_in1k_sigreg` |
-| **Ours**, local BallReg λ0.1 k4, ViT-S/8, IN1K 100 ep. | `lejepa/vit_in1k_localballreg_l01_k4` | `uv run python src/train.py experiment=lejepa/vit_in1k_localballreg_l01_k4` |
+| **Ours**, LocaLe-Reg λ0.1 k4, ViT-S/8, IN1K 100 ep. | `lejepa/vit_in1k_localballreg_l01_k4` | `uv run python src/train.py experiment=lejepa/vit_in1k_localballreg_l01_k4` |
 | LeJEPA paper setting, ViT-L/14, 2×224 + 8×98 views | `lejepa/vitl14_in1k_sigreg_paper` | `... experiment=lejepa/vitl14_in1k_sigreg_paper trainer=ddp trainer.devices=4` |
 | Ours, paper setting | `lejepa/vitl14_in1k_localballreg_l01_k4_paper` | `... experiment=lejepa/vitl14_in1k_localballreg_l01_k4_paper trainer=ddp trainer.devices=4` |
 
 ## Reproducibility notes
 
 * **Seeds.** `seed` is `null` by default (no seeding); pass `seed=<int>` to call
-  `lightning.seed_everything`. The sketch directions of SIGReg/BallReg, k-means initialisation
+  `lightning.seed_everything`. The sketch directions of SIGReg/LocaLe-Reg, k-means initialisation
   and data augmentation are random per step, and `trainer.deterministic` is `False`, so runs
   with the same seed are close but not bit-identical on GPU.
 * **Data.** Imagenette downloads itself. ImageNet-1K must be staged (see Training). All datasets

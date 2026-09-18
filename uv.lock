@@ -112,80 +112,6 @@ wheels = [
 ]
 
 [[package]]
-name = "bundlejepa"
-version = "0.1.0"
-source = { virtual = "." }
-dependencies = [
-    { name = "fast-pytorch-kmeans", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
-    { name = "hydra-colorlog", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
-    { name = "hydra-core", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
-    { name = "lightning", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
-    { name = "numpy", version = "1.26.4", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
-    { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform == 'darwin'" },
-    { name = "omegaconf", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
-    { name = "pillow", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
-    { name = "psutil", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
-    { name = "pyyaml", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
-    { name = "rich", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
-    { name = "rootutils", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
-    { name = "timm", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
-    { name = "torch", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
-    { name = "torchvision", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
-    { name = "wandb", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
-]
-
-[package.optional-dependencies]
-equivariant = [
-    { name = "escnn", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
-]
-experiments = [
-    { name = "h5py", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
-    { name = "matplotlib", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
-    { name = "scikit-learn", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
-    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
-    { name = "scipy", version = "1.18.1", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform == 'darwin'" },
-]
-imagenet = [
-    { name = "datasets", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
-    { name = "huggingface-hub", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "datasets", marker = "extra == 'imagenet'", specifier = ">=3.0" },
-    { name = "escnn", marker = "extra == 'equivariant'", specifier = ">=1.0.11" },
-    { name = "fast-pytorch-kmeans", specifier = ">=0.2.2" },
-    { name = "h5py", marker = "extra == 'experiments'", specifier = ">=3.10" },
-    { name = "huggingface-hub", marker = "extra == 'imagenet'", specifier = ">=0.25" },
-    { name = "hydra-colorlog", specifier = ">=1.2.0" },
-    { name = "hydra-core", specifier = ">=1.3.2" },
-    { name = "lightning", specifier = ">=2.6.1" },
-    { name = "matplotlib", marker = "extra == 'experiments'", specifier = ">=3.9" },
-    { name = "numpy", specifier = ">=1.26" },
-    { name = "omegaconf", specifier = ">=2.3.0" },
-    { name = "pillow", specifier = ">=10.0" },
-    { name = "psutil", specifier = ">=5.9" },
-    { name = "pyyaml", specifier = ">=6.0" },
-    { name = "rich", specifier = ">=13.0" },
-    { name = "rootutils", specifier = ">=1.0.7" },
-    { name = "scikit-learn", marker = "extra == 'experiments'", specifier = ">=1.4" },
-    { name = "scipy", marker = "extra == 'experiments'", specifier = ">=1.13" },
-    { name = "timm", specifier = ">=1.0.26" },
-    { name = "torch", specifier = ">=2.11.0" },
-    { name = "torchvision", specifier = ">=0.26.0" },
-    { name = "wandb", specifier = ">=0.18" },
-]
-provides-extras = ["equivariant", "imagenet", "experiments"]
-
-[package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=8.0" }]
-
-[[package]]
 name = "certifi"
 version = "2026.7.22"
 source = { registry = "https://pypi.org/simple" }
@@ -708,6 +634,80 @@ sdist = { url = "https://files.pythonhosted.org/packages/f1/45/7fa8f56b17dc0f0a4
 wheels = [
     { url = "https://files.pythonhosted.org/packages/25/f4/ead6e0e37209b07c9baa3e984ccdb0348ca370b77cea3aaea8ddbb097e00/lightning_utilities-0.15.3-py3-none-any.whl", hash = "sha256:6c55f1bee70084a1cbeaa41ada96e4b3a0fea5909e844dd335bd80f5a73c5f91", size = 31906, upload-time = "2026-02-22T14:48:52.488Z" },
 ]
+
+[[package]]
+name = "localejepa"
+version = "1.0.0"
+source = { virtual = "." }
+dependencies = [
+    { name = "fast-pytorch-kmeans", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
+    { name = "hydra-colorlog", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
+    { name = "hydra-core", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
+    { name = "lightning", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
+    { name = "numpy", version = "1.26.4", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform == 'darwin'" },
+    { name = "omegaconf", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
+    { name = "pillow", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
+    { name = "psutil", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
+    { name = "pyyaml", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
+    { name = "rich", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
+    { name = "rootutils", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
+    { name = "timm", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
+    { name = "torch", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
+    { name = "torchvision", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
+    { name = "wandb", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
+]
+
+[package.optional-dependencies]
+equivariant = [
+    { name = "escnn", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
+]
+experiments = [
+    { name = "h5py", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
+    { name = "matplotlib", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
+    { name = "scikit-learn", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
+    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
+    { name = "scipy", version = "1.18.1", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform == 'darwin'" },
+]
+imagenet = [
+    { name = "datasets", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
+    { name = "huggingface-hub", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest", marker = "(platform_machine == 'x86_64' and sys_platform == 'linux') or sys_platform == 'darwin'" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "datasets", marker = "extra == 'imagenet'", specifier = ">=3.0" },
+    { name = "escnn", marker = "extra == 'equivariant'", specifier = ">=1.0.11" },
+    { name = "fast-pytorch-kmeans", specifier = ">=0.2.2" },
+    { name = "h5py", marker = "extra == 'experiments'", specifier = ">=3.10" },
+    { name = "huggingface-hub", marker = "extra == 'imagenet'", specifier = ">=0.25" },
+    { name = "hydra-colorlog", specifier = ">=1.2.0" },
+    { name = "hydra-core", specifier = ">=1.3.2" },
+    { name = "lightning", specifier = ">=2.6.1" },
+    { name = "matplotlib", marker = "extra == 'experiments'", specifier = ">=3.9" },
+    { name = "numpy", specifier = ">=1.26" },
+    { name = "omegaconf", specifier = ">=2.3.0" },
+    { name = "pillow", specifier = ">=10.0" },
+    { name = "psutil", specifier = ">=5.9" },
+    { name = "pyyaml", specifier = ">=6.0" },
+    { name = "rich", specifier = ">=13.0" },
+    { name = "rootutils", specifier = ">=1.0.7" },
+    { name = "scikit-learn", marker = "extra == 'experiments'", specifier = ">=1.4" },
+    { name = "scipy", marker = "extra == 'experiments'", specifier = ">=1.13" },
+    { name = "timm", specifier = ">=1.0.26" },
+    { name = "torch", specifier = ">=2.11.0" },
+    { name = "torchvision", specifier = ">=0.26.0" },
+    { name = "wandb", specifier = ">=0.18" },
+]
+provides-extras = ["equivariant", "imagenet", "experiments"]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=8.0" }]
 
 [[package]]
 name = "markdown-it-py"

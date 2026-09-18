@@ -4,16 +4,17 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-"""Standalone loss functions shared across BundLeJEPA methods.
+"""Standalone loss functions shared across LocaLeJEPA methods.
 
 All functions accept projections in (V, N, D) layout -- V views, N samples,
 D embedding dimension -- which is the uniform interface across all encoders.
 
 invariance_loss  -- pulls every view toward the mean of the reference views
 sigreg_loss      -- Sketched Isotropic Gaussian Regularization (SIGReg / LeJEPA)
-local_sigreg_loss -- SIGReg computed independently on k-means local neighborhoods
 ballreg_loss     -- Sketched uniform-ball regularization
-local_ballreg_loss -- uniform-ball regularization on k-means local neighborhoods
+local_loss       -- any of the tests above computed independently on k-means local neighborhoods
+local_sigreg_loss  -- local_loss with sigreg_loss
+local_ballreg_loss -- local_loss with ballreg_loss centered per cluster (LocaLeJEPA)
 susreg_loss      -- Sketched Uniform Spherical Regularization (SUSReg / SPHERE-JEPA)
 subreg_loss      -- Subspace Gaussian Regularization (Sub-JEPA)
 rdmreg_loss      -- Rectified Distribution Matching Regularization (Rectified LpJEPA)
@@ -21,14 +22,16 @@ nt_xent_loss     -- Normalised Temperature-scaled Cross Entropy (SimCLR)
 """
 
 import math
-from functools import lru_cache
+from collections.abc import Callable
+from functools import lru_cache, partial
+from typing import Any
 
 import torch
 import torch.nn.functional as F
 from numpy.polynomial.legendre import leggauss
 
 
-def invariance_loss(proj: torch.Tensor, num_global: int | None = None) -> torch.Tensor:
+def invariance_loss(proj: torch.Tensor, num_global: int | None = None, normalize: bool = False) -> torch.Tensor:
     """L_inv: pull every view toward the mean of the reference (global) views.
 
     Parameters
@@ -36,11 +39,14 @@ def invariance_loss(proj: torch.Tensor, num_global: int | None = None) -> torch.
     proj       : (V, N, D) stacked projections from all views
     num_global : if given, reference is the mean of proj[:num_global];
                  if None, reference is the mean of all views
+    normalize  : L2-normalize the projections first (SPHERE-JEPA convention for SUSReg)
 
     Returns
     -------
     Scalar tensor -- mean squared distance from each view to the reference.
     """
+    if normalize:
+        proj = F.normalize(proj, dim=-1)
     ref = proj[:num_global].mean(0) if num_global is not None else proj.mean(0)
     return (proj - ref).square().mean()
 
@@ -164,9 +170,8 @@ def _fast_pytorch_kmeans_labels(
         from fast_pytorch_kmeans import KMeans
     except ImportError as exc:
         raise ImportError(
-            "local_sigreg_loss was configured with kmeans_backend='fast_pytorch_kmeans', "
-            "but fast-pytorch-kmeans could not be imported. Install it or set "
-            "local_sigreg_kmeans_backend='torch'."
+            "kmeans_backend='fast_pytorch_kmeans' but fast-pytorch-kmeans could not be imported. "
+            "Install it or set model.reg_loss.kmeans_backend=torch."
         ) from exc
 
     mode = "cosine" if normalize else "euclidean"
@@ -174,9 +179,10 @@ def _fast_pytorch_kmeans_labels(
     return kmeans.fit_predict(x.float()).long()
 
 
-def local_sigreg_loss(
+def local_loss(
     proj: torch.Tensor,
     *,
+    loss: Callable[[torch.Tensor], torch.Tensor],
     num_clusters: int = 8,
     num_global: int | None = None,
     kmeans_iters: int = 10,
@@ -184,17 +190,17 @@ def local_sigreg_loss(
     weighted: bool = False,
     normalize_for_kmeans: bool = True,
     kmeans_backend: str = "fast_pytorch_kmeans",
-    knots: int = 17,
 ) -> torch.Tensor:
-    """Local SIGReg over k-means neighborhoods in embedding space.
+    """A distribution-matching test applied over k-means neighborhoods in embedding space.
 
     Clustering is done over one detached point per sample, obtained by averaging
-    either the reference/global views ``proj[:num_global]`` or all views. SIGReg
+    either the reference/global views ``proj[:num_global]`` or all views. ``loss``
     is then computed independently on each local subset ``proj[:, mask, :]``.
 
     Parameters
     ----------
     proj                : (V, N, D) stacked projections from all views
+    loss                : (V, n, D) -> scalar test applied to each neighborhood
     num_clusters        : number of k-means neighborhoods to form
     num_global          : if given, cluster on mean of the first num_global views
     kmeans_iters        : Lloyd iterations for per-batch k-means
@@ -202,22 +208,21 @@ def local_sigreg_loss(
     weighted            : if True, average cluster losses by cluster size;
                           otherwise each non-empty local neighborhood is equal
     normalize_for_kmeans: if True, use cosine-like k-means assignments while
-                          still computing SIGReg on raw projections
+                          still computing the test on raw projections
     kmeans_backend      : "fast_pytorch_kmeans" uses the external accelerated
                           package; "torch" uses the in-repo fallback
-    knots               : SIGReg integration knots
 
     Returns
     -------
-    Scalar tensor (float32). Falls back to global SIGReg if every cluster is too
-    small after filtering.
+    Scalar tensor (float32). Falls back to ``loss`` on the whole batch if every
+    cluster is too small after filtering.
     """
     if proj.ndim != 3:
-        raise ValueError(f"local_sigreg_loss expects proj with shape (V, N, D), got {tuple(proj.shape)}")
+        raise ValueError(f"local_loss expects proj with shape (V, N, D), got {tuple(proj.shape)}")
 
     V, N, _ = proj.shape
     if N < 1:
-        raise ValueError("local_sigreg_loss requires at least one sample")
+        raise ValueError("local_loss requires at least one sample")
 
     if num_global is not None:
         if num_global < 1 or num_global > V:
@@ -255,11 +260,11 @@ def local_sigreg_loss(
             continue
 
         mask = labels == cluster_idx
-        losses.append(sigreg_loss(proj[:, mask, :], knots=knots))
+        losses.append(loss(proj[:, mask, :]))
         weights.append(sizes[cluster_idx])
 
     if len(losses) == 0:
-        return sigreg_loss(proj, knots=knots)
+        return loss(proj)
 
     local_losses = torch.stack(losses)
     if weighted:
@@ -280,6 +285,17 @@ def _ball_quadrature(d: int, n_quad: int, device: str) -> tuple[torch.Tensor, to
     return x, weights, weights.sum()
 
 
+def _resolve_ball_radius(d: int, radius: float | None) -> float:
+    """Resolve and validate the radius of a d-dimensional target ball."""
+    if d < 1:
+        raise ValueError(f"ball dimension must be >= 1, got {d}")
+
+    R = float((d + 2) ** 0.5 if radius is None else radius)
+    if R <= 0:
+        raise ValueError(f"ball radius must be positive, got {R}")
+    return R
+
+
 def _ball_d_cf(
     t: torch.Tensor,
     d: int,
@@ -295,13 +311,7 @@ def _ball_d_cf(
 
     The default ``radius=sqrt(d+2)`` gives ``Cov[X] = I``.
     """
-    if d < 1:
-        raise ValueError(f"ball dimension must be >= 1, got {d}")
-
-    R = float((d + 2) ** 0.5 if radius is None else radius)
-    if R <= 0:
-        raise ValueError(f"ball radius must be positive, got {R}")
-
+    R = _resolve_ball_radius(d, radius)
     x, weights, norm = _ball_quadrature(d, n_quad, str(t.device))
 
     cos_vals = torch.cos((R * t).unsqueeze(-1) * x.unsqueeze(0))
@@ -311,8 +321,11 @@ def _ball_d_cf(
 def ballreg_loss(
     proj: torch.Tensor,
     knots: int = 17,
+    num_slices: int = 256,
+    t_max: float = 3.0,
     radius: float | None = None,
     center: bool = False,
+    scale_grid: bool = False,
     n_quad: int = 64,
 ) -> torch.Tensor:
     """Sketched uniform-ball regularization.
@@ -326,10 +339,15 @@ def ballreg_loss(
     ----------
     proj  : (V, N, D) stacked projections from all views
     knots : number of integration knots
+    num_slices: number of random sketch directions |A|
+    t_max : half-width of the integration domain
     radius: ball radius. If None, uses sqrt(D + 2), which makes Cov[Unif ball] = I.
     center: if True, subtract per-view sample means before computing the test.
             This is useful for local clusters where the target should describe
             local residual shape rather than force every cluster centroid to zero.
+    scale_grid: if True, measure frequency in units of 1/sigma_target instead of
+                absolute units, i.e. evaluate the characteristic functions at
+                ``t * sqrt(d + 2) / R``. See the comment at the grid below.
     n_quad: Gauss-Legendre quadrature nodes for the target CF
 
     Returns
@@ -345,117 +363,50 @@ def ballreg_loss(
 
     device = proj.device
     d = proj.shape[-1]
+    R = _resolve_ball_radius(d, radius)
 
-    # Integration grid and trapezoid weights on [0, 3].
-    t = torch.linspace(0, 3, knots, device=device)
-    dt = 3.0 / (knots - 1)
+    # Integration grid and trapezoid weights on [0, t_max].
+    u = torch.linspace(0, t_max, knots, device=device)
+    dt = t_max / (knots - 1)
     trap = torch.full((knots,), 2.0 * dt, device=device)
     trap[[0, -1]] = dt
 
     # Keep the same Gaussian integration window used by SIGReg/SUSReg.
-    window = torch.exp(-t.square() / 2.0)
+    window = torch.exp(-u.square() / 2.0)
     weights = trap * window
 
+    # The target CF only turns over at t ~ 1/sigma_target = sqrt(d + 2) / R, so on a
+    # grid fixed in absolute units a small ball is nearly indistinguishable from a
+    # collapsed distribution and the statistic barely penalizes collapse. Scaling the
+    # grid equalizes that power across radii; it is a no-op at R = sqrt(d + 2).
+    t = u * ((d + 2) ** 0.5 / R) if scale_grid else u
+
     with torch.no_grad():
-        target_phi = _ball_d_cf(t, d=d, radius=radius, n_quad=n_quad)
+        target_phi = _ball_d_cf(t, d=d, radius=R, n_quad=n_quad)
 
     # Random unit-norm sketch directions in R^D.
-    A = torch.randn(d, 256, device=device)
+    A = torch.randn(d, num_slices, device=device)
     A = A.div_(A.norm(p=2, dim=0))
-    # 1-D projections at each integration knot: (V, N, 256, knots).
+    # 1-D projections at each integration knot: (V, N, num_slices, knots).
     x_t = (proj @ A).unsqueeze(-1) * t
     # Squared ECF error: real part + imaginary part.
     err = (x_t.cos().mean(-3) - target_phi).square() + x_t.sin().mean(-3).square()
     return ((err @ weights) * proj.size(-2)).mean()
 
 
+def local_sigreg_loss(proj: torch.Tensor, *, loss: Callable[[torch.Tensor], torch.Tensor] = sigreg_loss, **kwargs: Any) -> torch.Tensor:
+    """SIGReg over k-means neighborhoods; see ``local_loss``."""
+    return local_loss(proj, loss=loss, **kwargs)
+
+
 def local_ballreg_loss(
     proj: torch.Tensor,
     *,
-    num_clusters: int = 8,
-    num_global: int | None = None,
-    kmeans_iters: int = 10,
-    min_cluster_size: int = 4,
-    weighted: bool = False,
-    normalize_for_kmeans: bool = True,
-    kmeans_backend: str = "fast_pytorch_kmeans",
-    knots: int = 17,
-    radius: float | None = None,
-    center_clusters: bool = True,
-    n_quad: int = 64,
+    loss: Callable[[torch.Tensor], torch.Tensor] = partial(ballreg_loss, center=True),
+    **kwargs: Any,
 ) -> torch.Tensor:
-    """Uniform-ball regularization over k-means neighborhoods.
-
-    Clusters are assigned exactly as in ``local_sigreg_loss``. Each local subset
-    is then tested against a uniform-ball target with ``ballreg_loss``.
-
-    ``center_clusters`` defaults to True because local neighborhoods generally
-    have nonzero centroids; centering makes the target constrain local residual
-    shape rather than pull every cluster center to the origin.
-    """
-    if proj.ndim != 3:
-        raise ValueError(f"local_ballreg_loss expects proj with shape (V, N, D), got {tuple(proj.shape)}")
-
-    V, N, _ = proj.shape
-    if N < 1:
-        raise ValueError("local_ballreg_loss requires at least one sample")
-
-    if num_global is not None:
-        if num_global < 1 or num_global > V:
-            raise ValueError(f"num_global must be in [1, {V}], got {num_global}")
-        cluster_points = proj[:num_global].mean(dim=0).detach()
-    else:
-        cluster_points = proj.mean(dim=0).detach()
-
-    if kmeans_backend == "fast_pytorch_kmeans":
-        labels = _fast_pytorch_kmeans_labels(
-            cluster_points,
-            num_clusters=num_clusters,
-            iters=kmeans_iters,
-            normalize=normalize_for_kmeans,
-        )
-    elif kmeans_backend == "torch":
-        labels = _torch_kmeans_labels(
-            cluster_points,
-            num_clusters=num_clusters,
-            iters=kmeans_iters,
-            normalize=normalize_for_kmeans,
-        )
-    else:
-        raise ValueError(f"Unknown kmeans_backend: {kmeans_backend!r}. Choose 'fast_pytorch_kmeans' or 'torch'.")
-
-    losses: list[torch.Tensor] = []
-    weights: list[int] = []
-    min_size = max(int(min_cluster_size), 1)
-    K = min(max(int(num_clusters), 1), N)
-    # One host synchronization for every cluster size, instead of one per cluster.
-    sizes = torch.bincount(labels, minlength=K).tolist()
-
-    for cluster_idx in range(K):
-        if sizes[cluster_idx] < min_size:
-            continue
-
-        mask = labels == cluster_idx
-        losses.append(
-            ballreg_loss(
-                proj[:, mask, :],
-                knots=knots,
-                radius=radius,
-                center=center_clusters,
-                n_quad=n_quad,
-            )
-        )
-        weights.append(sizes[cluster_idx])
-
-    if len(losses) == 0:
-        return ballreg_loss(proj, knots=knots, radius=radius, center=center_clusters, n_quad=n_quad)
-
-    local_losses = torch.stack(losses)
-    if weighted:
-        w = torch.tensor(weights, device=proj.device, dtype=local_losses.dtype)
-        return (local_losses * (w / w.sum())).sum()
-
-    return local_losses.mean()
+    """Uniform-ball regularization over k-means neighborhoods, centered per cluster; see ``local_loss``."""
+    return local_loss(proj, loss=loss, **kwargs)
 
 
 def _rho_d_cf(t: torch.Tensor, d: int, n_quad: int = 64) -> torch.Tensor:

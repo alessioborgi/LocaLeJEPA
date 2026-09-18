@@ -170,7 +170,7 @@ visualisations/figures/
 
 # paper (LaTeX source + build)
 paper/
-# BundLeJEPA: run-time state, environments and generated artifacts
+# LocaLeJEPA: run-time state, environments and generated artifacts
 .venv/
 *.ckpt
 wandb/

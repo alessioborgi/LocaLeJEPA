@@ -252,7 +252,7 @@ def main(cfg: dict, only: list[str] | None, merge_only: bool = False) -> None:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="BundLeJEPA in-domain k-NN + linear evaluation")
+    parser = argparse.ArgumentParser(description="LocaLeJEPA in-domain k-NN + linear evaluation")
     parser.add_argument("--config", type=str, default="configs/eval/indomain_in1k.yaml")
     parser.add_argument("--only", type=str, default=None,
                         help="Comma-separated backbone names to run (default: all in the config).")

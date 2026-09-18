@@ -1,0 +1,5 @@
+_target_: src.losses.sigreg_loss
+_partial_: true
+
+num_slices: 256
+t_max: 3.0

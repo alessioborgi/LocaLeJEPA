@@ -4,7 +4,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-"""Downstream evaluation utilities for BundLeJEPA.
+"""Downstream evaluation utilities for LocaLeJEPA.
 
 Currently exposes:
   - :mod:`src.eval.extract`              frozen-backbone loading + feature caching

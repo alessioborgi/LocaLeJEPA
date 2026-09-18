@@ -1,0 +1,6 @@
+defaults:
+  - local
+  - sigreg@loss
+  - _self_
+
+_target_: src.losses.local_sigreg_loss

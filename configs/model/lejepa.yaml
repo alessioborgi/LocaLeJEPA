@@ -1,5 +1,6 @@
 defaults:
   - encoder: resnet18
+  - reg_loss: sigreg
   - _self_
 
 _target_: src.models.lejepa_module.LeJEPAModule
@@ -10,39 +11,13 @@ num_classes: 10
 
 lamb: 0.02
 
-# Regularization type: "sigreg" | "susreg" | "local_sigreg" | "local_ballreg"
-loss_type: sigreg
-
-# SIGReg sketch: number of random directions |A| and integration half-width
-# (paper defaults for ViT-L/14 IN1K: 1024 slices, [-5, 5], 17 knots).
-sigreg_num_slices: 256
-sigreg_t_max: 3.0
-
 num_global_crops: null
 
-# Local regularization: k-means the batch in projection space, then applies a
-# local regularizer inside each neighborhood. Used when loss_type is
-# local_sigreg or local_ballreg.
-local_sigreg_num_clusters: 8
-local_sigreg_kmeans_iters: 10
-local_sigreg_min_cluster_size: 4
-local_sigreg_weighted: false
-local_sigreg_normalize_for_kmeans: true
-local_sigreg_kmeans_backend: fast_pytorch_kmeans # "fast_pytorch_kmeans" | "torch"
-
-# Local BallReg: radius=null means sqrt(projection_dim + 2), so the target ball
-# has identity covariance. center_clusters=true tests local residual geometry.
-local_ballreg_radius: null
-local_ballreg_center_clusters: true
-local_ballreg_n_quad: 64
-
-# Dynamic k schedule: when enabled, the local k-means neighborhood count is
-# k = min(max, start + epoch // step_epochs), overriding local_sigreg_num_clusters
-# per epoch. Defaults give k=1 -> k=8 (one step every 100 epochs, capped at 700).
-dynamic_num_clusters: false
-dynamic_num_clusters_start: 1
-dynamic_num_clusters_max: 8
-dynamic_num_clusters_step_epochs: 100
+inv_loss:
+  _target_: src.losses.invariance_loss
+  _partial_: true
+  num_global: ${model.num_global_crops}
+  normalize: false # true for susreg (SPHERE-JEPA convention)
 
 use_online_probe: true
 probe_lr: 1e-3

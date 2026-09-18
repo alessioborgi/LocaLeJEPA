@@ -23,7 +23,7 @@ The ViT-L/14 "paper setting" configs (`*_paper`) instead follow LeJEPA §6.1: 2�
 
 ## LeJEPA baseline vs. ours, per backbone / dataset
 
-| backbone · dataset | LeJEPA (SIGReg) | **ours: local BallReg λ0.1 k4** |
+| backbone · dataset | LeJEPA (SIGReg) | **ours: LocaLe-Reg λ0.1 k4** |
 |---|---|---|
 | ViT-S/8 · ImageNet-1K 100 ep. | `lejepa/vit_in1k_sigreg` | `lejepa/vit_in1k_localballreg_l01_k4` |
 | Hyperbolic ViT-S/8 · ImageNet-1K 100 ep. | `lejepa/hvit_in1k_sigreg` | `lejepa/hvit_in1k_localballreg_l01_k4` |
@@ -31,9 +31,9 @@ The ViT-L/14 "paper setting" configs (`*_paper`) instead follow LeJEPA §6.1: 2�
 | ViT-L/14 · ImageNet-1K paper setting | `lejepa/vitl14_in1k_sigreg_paper` | `lejepa/vitl14_in1k_localballreg_l01_k4_paper` |
 | ViT-S/8 · Imagenette 800 ep. | `lejepa/vit_imagenette_sigreg` | `lejepa/vit_imagenette_localballreg_l01_k4` |
 
-What differs between the two columns (compare the YAMLs): `model.loss_type` (`sigreg` →
-`local_ballreg`), `model.lamb` (0.02 → 0.1; 0.05 → 0.1 in the paper setting),
-`model.local_sigreg_num_clusters: 4` (= k), and the stabilized recipe (lr 1e-3 / warm-up 10 /
+What differs between the two columns (compare the YAMLs): `model/reg_loss` (`sigreg` →
+`localereg`), `model.lamb` (0.02 → 0.1; 0.05 → 0.1 in the paper setting),
+`model.reg_loss.num_clusters: 4` (= k), and the stabilized recipe (lr 1e-3 / warm-up 10 /
 grad-clip 1.0, except in the paper setting where only the clip is added). Everything else is
 identical.
 
@@ -41,11 +41,11 @@ identical.
 
 | config suffix | regularizer | λ | k |
 |---|---|---|---|
-| `_localballreg_l01_k2` | local BallReg | 0.1 | 2 |
-| `_localballreg_l01_k4` | local BallReg | 0.1 | 4 |
-| `_localballreg_l03_k2` | local BallReg | 0.3 | 2 |
-| `_localballreg_l01_dynk` | local BallReg | 0.1 | 1 → 8, +1 every 100 epochs (`dynamic_num_clusters`) |
-| `_localsigreg_l01_k4` | local SIGReg | 0.1 | 4 |
+| `_localballreg_l01_k2` | LocaLe-Reg | 0.1 | 2 |
+| `_localballreg_l01_k4` | LocaLe-Reg | 0.1 | 4 |
+| `_localballreg_l03_k2` | LocaLe-Reg | 0.3 | 2 |
+| `_localballreg_l01_dynk` | LocaLe-Reg | 0.1 | 1 → 8, +1 every 100 epochs (`callbacks=dynamic_num_clusters`) |
+| `_localsigreg_l01_k4` | LocaLeJEPA-SIGReg | 0.1 | 4 |
 | `_sigreg` | SIGReg (LeJEPA) | 0.02 | – |
 | `rectifiedlpjepa/*_rdmreg` | RDMReg (Rectified LpJEPA, `model=rectifiedlpjepa`) | – | – |
 

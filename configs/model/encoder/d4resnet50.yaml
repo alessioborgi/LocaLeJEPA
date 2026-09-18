@@ -6,9 +6,9 @@
 # `forward_features` intends (residual body, no group pooling) and keep the
 # output G-EQUIVARIANT: an equivariant 1x1 group-conv reduces the field count so
 # (#fields * |D4|=8) == embedding_dim, then spatial pool -> (B, embedding_dim)
-# that transforms under D4 by the regular representation. This preserves the
-# orientation structure BundLeJEPA learns a bundle section over (pool: group
-# would instead collapse it to a D4-invariant vector, the classifier head).
+# that transforms under D4 by the regular representation, so the embedding
+# keeps its orientation structure (pool: group would instead collapse it to a
+# D4-invariant vector, the classifier head).
 _target_: src.models.components.e2resnet.build_e2resnet
 group: d4
 depth: 50

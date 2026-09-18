@@ -1,0 +1,11 @@
+# Base for local_*: k-means the batch in projection space, then `loss` inside each neighborhood.
+_target_: src.losses.local_loss
+_partial_: true
+
+num_clusters: 8
+num_global: ${model.num_global_crops}
+kmeans_iters: 10
+min_cluster_size: 4
+weighted: false
+normalize_for_kmeans: true
+kmeans_backend: fast_pytorch_kmeans # "fast_pytorch_kmeans" | "torch"

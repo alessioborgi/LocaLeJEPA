@@ -1,7 +1,7 @@
 # LeJEPA-paper multi-crop: 2 global views at ${data.crop_size} px (224) and 8 local
 # views at 98 px (the paper uses 96 px; 98 = 7 x 14 is the nearest size divisible by
 # the ViT-L/14 patch). Because the two resolutions differ, MultiCropTransform returns
-# (global_stack, local_stack) and JEPAModule.encode runs the encoder per group.
+# (global_stack, local_stack) and LeJEPAModule.encode runs the encoder per group.
 _target_: src.data.transforms.image.MultiCropTransform
 num_global_crops: 2
 num_local_crops: 8

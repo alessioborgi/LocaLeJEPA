@@ -1,0 +1,13 @@
+_target_: src.losses.ballreg_loss
+_partial_: true
+
+num_slices: 256
+t_max: 3.0
+
+# radius=null means sqrt(projection_dim + 2), so the target ball has identity
+# covariance. scale_grid measures frequency in units of 1/sigma_target (no-op at
+# the default radius); without it small radii barely penalize collapse.
+radius: null
+center: false
+scale_grid: false
+n_quad: 64
