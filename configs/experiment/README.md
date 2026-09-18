@@ -63,5 +63,3 @@ per-backbone baselines.
 * `lejepa/{rn18_stl10,rn50_in100,vits16_in100,svits16_in100}_ep500`: LeJEPA-paper-style
   benchmark settings on STL-10 / ImageNet-100 (multi-crop 2+6 views, 224 px); not part of the
   reported tables.
-* `lejepa/phc_{blob,gpm}_ep250` + `phc_regression/{blob,gpm}_supervised_ep500`: photonic-crystal
-  pretraining and DOS-regression fine-tuning (`scripts/download_phc.py` fetches the data).

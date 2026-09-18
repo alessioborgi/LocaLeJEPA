@@ -4,7 +4,7 @@ This branch (`experiments`) = `main` + everything needed to rerun and re-analyse
 experiments. Install with
 
 ```bash
-uv sync --all-extras          # equivariant (escnn, needs gfortran), imagenet (HF staging), experiments (plots, scipy, sklearn, h5py)
+uv sync --all-extras          # equivariant (escnn, needs gfortran), imagenet (HF staging), experiments (plots, scipy, sklearn)
 ```
 
 and run every command below from the repository root (`uv run python ...`; the `eval_*.py`
@@ -21,14 +21,14 @@ eval_rankme.py              RankMe effective rank of the frozen features
 eval_angle_probe*.py        ridge probe of the two figurine rotation angles (+ multi-seed, low-data)
 eval_conformal.py           Conformal-Autoencoder intrinsic-dimension detection on frozen features
 scripts/make_*.py           regenerate the result tables in results/ (+ LaTeX in paper/)
-scripts/download_*.py       PhC data, torchvision transfer datasets
+scripts/download_transfer_datasets.py   torchvision transfer datasets
 scripts/verify_plainvit_result.py   independent audit of the headline plain-ViT numbers
 scripts/slurm_submit.sh     the single SLURM launcher
 visualisations/             torus / low-data figures of the Yoda probe (write to visualisations/figures/)
 results/                    the generated result tables (Markdown)
-src/models/                 baselines: rectifiedlpjepa, spherejepa, subjepa, bundlejepa, ijepa, phc_regression
-src/models/components/      nvit, spherical_vit, vision_transformer (I-JEPA), phc encoder
-src/data/                   stl10, phc, bobblehead datamodules; I-JEPA mask collator
+src/models/                 rectifiedlpjepa (thin LeJEPAModule subclass); other baselines are reg_loss configs
+src/models/components/      nvit, spherical_vit, vision_transformer + tensor_ops (I-JEPA code they use)
+src/data/                   stl10, bobblehead datamodules
 ```
 
 ## 1. Pretraining
@@ -48,11 +48,7 @@ expect `checkpoints/<model>_<experiment name>/{best,last}.ckpt`, e.g.
 `checkpoints/lejepa_vit_in1k_localballreg_l01_k4/last.ckpt`). Resume with `ckpt_path=<dir>/last.ckpt`.
 
 ImageNet-1K: `uv run python scripts/stage_imagenet1k_hf.py --dest data/imagenet` (gated HF
-dataset; accept the licence and `hf auth login` first). Imagenette downloads itself. PhC:
-`uv run python scripts/download_phc.py --output-dir data/phc`, then
-`experiment=lejepa/phc_blob_ep250` and
-`experiment=phc_regression/blob_supervised_ep500 model.pretrained_ckpt_path=<ckpt> model.freeze_encoder=true`
-(`blob` → `gpm` for the second dataset; `freeze_encoder=false` for full fine-tuning).
+dataset; accept the licence and `hf auth login` first). Imagenette downloads itself.
 
 ## 2. Evaluation (the reported tables)
 
