@@ -124,8 +124,8 @@ def load_projector(
             overrides=[f"experiment={experiment}", f"data.crop_size={crop_size}", *(overrides or [])],
         )
     projector = hydra.utils.instantiate(cfg.model.projector)
-    # Same rule as RectifiedLpJEPAModule.__init__: rectify iff the target is the RGN.
-    rectify = cfg.model.get("target_distribution") == "rectified_lp_distribution"
+    # RectifiedLpJEPAModule applies ReLU to the projector output before both losses.
+    rectify = bool(cfg.model.get("rectify", False))
     GlobalHydra.instance().clear()
 
     ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)

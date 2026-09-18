@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=bundlejepa
+#SBATCH --job-name=localejepa
 #SBATCH --partition=gpu
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1

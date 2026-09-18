@@ -26,7 +26,7 @@ scripts/verify_plainvit_result.py   independent audit of the headline plain-ViT 
 scripts/slurm_submit.sh     the single SLURM launcher
 scripts/benchmark_regularizers.py   forward+backward time / memory of the regularizers on synthetic batches
 visualisations/             torus / low-data figures of the Yoda probe (write to visualisations/figures/)
-results/                    the generated result tables (Markdown)
+results/                    the generated result tables (Markdown) and the k-schedule / radius / complexity write-ups
 src/models/                 rectifiedlpjepa (thin LeJEPAModule subclass); other baselines are reg_loss configs
 src/models/components/      nvit, spherical_vit, vision_transformer + tensor_ops (I-JEPA code they use)
 src/data/                   stl10, bobblehead datamodules
