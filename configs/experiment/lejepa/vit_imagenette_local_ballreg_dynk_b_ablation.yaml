@@ -63,8 +63,10 @@ callbacks:
 
 logger:
   wandb:
-    group: localball_dynk_b_ablation
-    name: localball_dynk_B${data.batch_size}_seed${seed}
+    entity: ines-gare-org
+    project: BundLeJEPA
+    group: dynk_b_ablation
+    name: dynk_B${data.batch_size}_seed${seed}
 
 hydra:
   sweeper:
