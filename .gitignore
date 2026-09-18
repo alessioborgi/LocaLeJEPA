@@ -178,3 +178,6 @@ lightning_logs/
 results/figures/
 .pretrain_*
 *_watchdog_last_free
+
+# Local Slurm submission scripts and job logs
+/slurm/
