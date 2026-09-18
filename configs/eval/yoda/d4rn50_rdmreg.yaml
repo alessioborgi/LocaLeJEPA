@@ -4,8 +4,8 @@
 # configs so the numbers drop straight into the comparison table in
 # paper/yoda_probe_paper.tex.
 #
-#   python eval_angle_probe.py           --config configs/eval/yoda/d4rn50_rdmreg.yaml
-#   python eval_angle_probe_multiseed.py --config configs/eval/yoda/d4rn50_rdmreg.yaml --n-seeds 10
+#   python src/eval_angle_probe.py           --config configs/eval/yoda/d4rn50_rdmreg.yaml
+#   python src/eval_angle_probe_multiseed.py --config configs/eval/yoda/d4rn50_rdmreg.yaml --n-seeds 10
 
 device: null
 crop_size: 128

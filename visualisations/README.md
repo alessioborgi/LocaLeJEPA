@@ -24,5 +24,5 @@ python visualisations/plot_yoda_torus.py            # or:  cd visualisations && 
 
 ## Data sources (read-only, under `logs/`)
 
-- `logs/eval_angle_probe_lowdata/results_lowdata.{json,csv}` — learning-curve metrics (produced by `eval_angle_probe_lowdata.py` at the repo root).
+- `logs/eval_angle_probe_lowdata/results_lowdata.{json,csv}` — learning-curve metrics (produced by `src/eval_angle_probe_lowdata.py` at the repo root).
 - `logs/eval_angle_probe_*/cache/*_features.pt` — cached frozen 512-d features + angle labels per backbone.

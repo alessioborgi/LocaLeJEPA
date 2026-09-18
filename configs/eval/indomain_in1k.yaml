@@ -5,8 +5,8 @@
 #   * a similarity-weighted k-NN vote (cosine, exp(sim/T), T = 0.07), and
 #   * a linear layer trained on the frozen features.
 #
-#   python eval_indomain.py --config configs/eval/indomain_in1k.yaml
-#   python eval_indomain.py --config configs/eval/indomain_in1k.yaml --only hvit_sigreg
+#   python src/eval_indomain.py --config configs/eval/indomain_in1k.yaml
+#   python src/eval_indomain.py --config configs/eval/indomain_in1k.yaml --only hvit_sigreg
 #
 # Features are extracted once per backbone and cached, so re-running the probes
 # with different hyper-parameters costs seconds.

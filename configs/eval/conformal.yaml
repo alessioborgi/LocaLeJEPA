@@ -2,7 +2,7 @@
 # Replicates the bobblehead experiment of Kevrekidis et al., "Thinner Latent
 # Spaces" (arXiv:2408.16138, §3.3), using a frozen pretrained backbone in place
 # of the paper's PCA-60 front-end.  Run with:
-#     python eval_conformal.py --config configs/eval/conformal.yaml
+#     python src/eval_conformal.py --config configs/eval/conformal.yaml
 
 device: null            # null -> cuda if available else cpu
 crop_size: 128          # backbones were pretrained at 128px

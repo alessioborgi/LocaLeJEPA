@@ -3,8 +3,8 @@
 # 8097 frames, 60/20/20 split, 10 seeds) as the other eval configs so the numbers
 # drop straight into the comparison table in paper/yoda_probe.tex.
 #
-#   python eval_angle_probe.py           --config configs/eval/yoda/rectifiedlpjepa.yaml
-#   python eval_angle_probe_multiseed.py --config configs/eval/yoda/rectifiedlpjepa.yaml --n-seeds 10
+#   python src/eval_angle_probe.py           --config configs/eval/yoda/rectifiedlpjepa.yaml
+#   python src/eval_angle_probe_multiseed.py --config configs/eval/yoda/rectifiedlpjepa.yaml --n-seeds 10
 
 device: null
 crop_size: 128

@@ -55,7 +55,7 @@ Backbones used in the reported experiments: plain timm ViT-S/8 and ViT-L/14
 ```
 src/
   train.py                     Hydra + Lightning entry point (pretraining)
-  eval_indomain.py             frozen-backbone k-NN + linear-probe evaluation
+  src/eval_indomain.py             frozen-backbone k-NN + linear-probe evaluation
   losses.py                    invariance, SIGReg, SUSReg, uniform-ball test, local_loss (k-means + any test), ...
   models/lejepa_module.py      LeJEPAModule: encode, reg_loss + invariance, online probe, optimizer, schedule
   models/components/           hyperbolic ViT head, D4-equivariant ResNet (escnn)

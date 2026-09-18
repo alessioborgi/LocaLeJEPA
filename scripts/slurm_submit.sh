@@ -17,7 +17,7 @@
 #   EXPERIMENT=<hydra experiment>   pretraining via src/train.py, e.g.
 #                                   EXPERIMENT=lejepa/vit_in1k_localballreg_l01_k4
 #   CMD="<shell command>"           anything else (evaluations, report scripts), e.g.
-#                                   CMD="python eval_indomain.py --config configs/eval/indomain_in1k_ep100.yaml --only vit_sigreg"
+#                                   CMD="python src/eval_indomain.py --config configs/eval/indomain_in1k_ep100.yaml --only vit_sigreg"
 #
 # Optional variables (pretraining mode):
 #   GPUS=N          number of GPUs (default 1). N>1 launches one process per GPU with
@@ -42,7 +42,7 @@
 #   sbatch --gres=gpu:4 --ntasks-per-node=4 --mem=256G \
 #          --export=ALL,EXPERIMENT=lejepa/vitl14_in1k_localballreg_l01_k4_paper,GPUS=4,REQUEUE=1 scripts/slurm_submit.sh
 #   sbatch --time=6:00:00 --mem=128G --cpus-per-task=16 \
-#          --export=ALL,CMD="python eval_indomain.py --config configs/eval/indomain_in1k_ep100.yaml --only vit_sigreg" scripts/slurm_submit.sh
+#          --export=ALL,CMD="python src/eval_indomain.py --config configs/eval/indomain_in1k_ep100.yaml --only vit_sigreg" scripts/slurm_submit.sh
 
 set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:-$(dirname "$(dirname "$(readlink -f "$0")")")}"

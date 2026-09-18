@@ -23,7 +23,7 @@ nViT+SIGReg, nViT+SubReg) so their representations can be compared on this task.
 
 Usage
 -----
-    python eval_conformal.py --config configs/eval/conformal.yaml
+    python src/eval_conformal.py --config configs/eval/conformal.yaml
 """
 
 import argparse
@@ -36,14 +36,17 @@ import sys
 import numpy as np
 import torch
 import yaml
+import rootutils
 
-from src.data.bobblehead_datamodule import build_eval_transform, get_bobblehead_dataset
-from src.eval.conformal_autoencoder import (
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
+
+from src.data.bobblehead_datamodule import build_eval_transform, get_bobblehead_dataset  # noqa: E402
+from src.eval.conformal_autoencoder import (  # noqa: E402
     CAEConfig,
     circular_recovery,
     train_conformal_autoencoder,
 )
-from src.eval.extract import extract_features, load_backbone
+from src.eval.extract import extract_features, load_backbone  # noqa: E402
 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger()

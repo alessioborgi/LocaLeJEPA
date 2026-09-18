@@ -20,9 +20,9 @@ interrupted job resumes at the first unfinished dataset.
 
 Usage
 -----
-    python eval_transfer.py --config configs/eval/transfer_in1k_ep100.yaml
-    python eval_transfer.py --config ... --only hvit_sigreg --datasets dtd,pets
-    python eval_transfer.py --config ... --merge-only
+    python src/eval_transfer.py --config configs/eval/transfer_in1k_ep100.yaml
+    python src/eval_transfer.py --config ... --only hvit_sigreg --datasets dtd,pets
+    python src/eval_transfer.py --config ... --merge-only
 """
 
 import argparse
@@ -35,11 +35,14 @@ import time
 
 import torch
 import yaml
+import rootutils
 
-from src.eval.extract import load_backbone
-from src.eval.indomain import extract_classification_features
-from src.eval.linear_probe import run_linear_probe
-from src.eval.transfer import TRANSFER_DATASETS, get_transfer_splits
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
+
+from src.eval.extract import load_backbone  # noqa: E402
+from src.eval.indomain import extract_classification_features  # noqa: E402
+from src.eval.linear_probe import run_linear_probe  # noqa: E402
+from src.eval.transfer import TRANSFER_DATASETS, get_transfer_splits  # noqa: E402
 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger()

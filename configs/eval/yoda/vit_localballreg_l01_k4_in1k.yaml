@@ -3,8 +3,8 @@
 # 60/20/20 split, 10 seeds) as the other eval configs so the numbers drop straight
 # into the comparison tables in report_equivariance.md.
 #
-#   python eval_angle_probe.py           --config configs/eval/yoda/vit_localballreg_l01_k4_in1k.yaml
-#   python eval_angle_probe_multiseed.py --config configs/eval/yoda/vit_localballreg_l01_k4_in1k.yaml --n-seeds 10
+#   python src/eval_angle_probe.py           --config configs/eval/yoda/vit_localballreg_l01_k4_in1k.yaml
+#   python src/eval_angle_probe_multiseed.py --config configs/eval/yoda/vit_localballreg_l01_k4_in1k.yaml --n-seeds 10
 device: null
 crop_size: 128
 data_dir: data

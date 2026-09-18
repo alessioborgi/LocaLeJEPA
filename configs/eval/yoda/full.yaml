@@ -1,6 +1,6 @@
 # Full-dataset (all 8097 frames) linear-probe comparison of the three frozen
 # backbones on the bobblehead (Yoda + bulldog) rotation angles.
-#     python eval_angle_probe.py --config configs/eval/yoda/full.yaml
+#     python src/eval_angle_probe.py --config configs/eval/yoda/full.yaml
 
 device: null
 crop_size: 128

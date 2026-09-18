@@ -3,8 +3,8 @@
 # 10 seeds) as the other eval configs so the numbers drop straight into the
 # comparison tables in equivariance_report.md / paper/yoda_probe_paper.tex.
 #
-#   python eval_angle_probe.py           --config configs/eval/yoda/hvit_rdmreg_in1k.yaml
-#   python eval_angle_probe_multiseed.py --config configs/eval/yoda/hvit_rdmreg_in1k.yaml --n-seeds 10
+#   python src/eval_angle_probe.py           --config configs/eval/yoda/hvit_rdmreg_in1k.yaml
+#   python src/eval_angle_probe_multiseed.py --config configs/eval/yoda/hvit_rdmreg_in1k.yaml --n-seeds 10
 
 device: null
 crop_size: 128

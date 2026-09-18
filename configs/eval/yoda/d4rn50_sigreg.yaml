@@ -3,8 +3,8 @@
 # frames, 60/20/20 split, 10 seeds) as the other eval configs so the numbers
 # drop straight into the comparison table in paper/yoda_probe_paper.tex.
 #
-#   python eval_angle_probe.py           --config configs/eval/yoda/d4rn50_sigreg.yaml
-#   python eval_angle_probe_multiseed.py --config configs/eval/yoda/d4rn50_sigreg.yaml --n-seeds 10
+#   python src/eval_angle_probe.py           --config configs/eval/yoda/d4rn50_sigreg.yaml
+#   python src/eval_angle_probe_multiseed.py --config configs/eval/yoda/d4rn50_sigreg.yaml --n-seeds 10
 
 device: null
 crop_size: 128

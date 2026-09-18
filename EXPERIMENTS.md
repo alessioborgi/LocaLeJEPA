@@ -16,10 +16,10 @@ scripts import `src` relative to the current directory).
 configs/experiment/         all pretraining configs (see configs/experiment/README.md for the map)
 configs/eval/               in-domain (k-NN + linear), transfer, RankMe configs
 configs/eval/yoda/          rotation-angle ("Yoda" bobblehead) probe configs, one per backbone
-eval_transfer.py            7-dataset transfer linear probing (SPHERE-JEPA Table 1 protocol)
-eval_rankme.py              RankMe effective rank of the frozen features
+src/eval_transfer.py            7-dataset transfer linear probing (SPHERE-JEPA Table 1 protocol)
+src/eval_rankme.py              RankMe effective rank of the frozen features
 eval_angle_probe*.py        ridge probe of the two figurine rotation angles (+ multi-seed, low-data)
-eval_conformal.py           Conformal-Autoencoder intrinsic-dimension detection on frozen features
+src/eval_conformal.py           Conformal-Autoencoder intrinsic-dimension detection on frozen features
 scripts/make_*.py           regenerate the result tables in results/ (+ LaTeX in paper/)
 scripts/download_transfer_datasets.py   torchvision transfer datasets
 scripts/verify_plainvit_result.py   independent audit of the headline plain-ViT numbers
@@ -65,15 +65,15 @@ All evaluators take a YAML listing `backbones: [{name, experiment, checkpoint}]`
 
 | table | command | then |
 |---|---|---|
-| IN1K k-NN + linear, HViT / D4-RN50 (`results/Imagenet1K_results.md`) | `uv run python eval_indomain.py --config configs/eval/indomain_in1k_ep100.yaml` | `uv run python scripts/make_imagenet1k_results.py` |
-| IN1K k-NN + linear, plain ViT (`results/report_plainViT_LastExp.md`) | `uv run python eval_indomain.py --config configs/eval/indomain_in1k_plainvit.yaml` | `uv run python scripts/make_plainvit_report.py` |
-| transfer, 7 datasets (`results/Transfer_results.md`) | `uv run python scripts/download_transfer_datasets.py --root <root>` once, then `uv run python eval_transfer.py --config configs/eval/transfer_in1k_ep100.yaml` | `uv run python scripts/make_transfer_results.py` |
-| RankMe (`results/RankMe_results.md`) | `uv run python eval_rankme.py --config configs/eval/rankme_in1k_ep100.yaml` | `uv run python scripts/make_rankme_results.py` |
-| Yoda rotation-angle probe (`results/report_equivariance.md`) | per backbone: `uv run python eval_angle_probe.py --config configs/eval/yoda/<name>.yaml` then `uv run python eval_angle_probe_multiseed.py --config configs/eval/yoda/<name>.yaml --n-seeds 10` | `uv run python scripts/make_equivariance_report.py` |
+| IN1K k-NN + linear, HViT / D4-RN50 (`results/Imagenet1K_results.md`) | `uv run python src/eval_indomain.py --config configs/eval/indomain_in1k_ep100.yaml` | `uv run python scripts/make_imagenet1k_results.py` |
+| IN1K k-NN + linear, plain ViT (`results/report_plainViT_LastExp.md`) | `uv run python src/eval_indomain.py --config configs/eval/indomain_in1k_plainvit.yaml` | `uv run python scripts/make_plainvit_report.py` |
+| transfer, 7 datasets (`results/Transfer_results.md`) | `uv run python scripts/download_transfer_datasets.py --root <root>` once, then `uv run python src/eval_transfer.py --config configs/eval/transfer_in1k_ep100.yaml` | `uv run python scripts/make_transfer_results.py` |
+| RankMe (`results/RankMe_results.md`) | `uv run python src/eval_rankme.py --config configs/eval/rankme_in1k_ep100.yaml` | `uv run python scripts/make_rankme_results.py` |
+| Yoda rotation-angle probe (`results/report_equivariance.md`) | per backbone: `uv run python src/eval_angle_probe.py --config configs/eval/yoda/<name>.yaml` then `uv run python src/eval_angle_probe_multiseed.py --config configs/eval/yoda/<name>.yaml --n-seeds 10` | `uv run python scripts/make_equivariance_report.py` |
 
 The bobblehead data (`data/yoda_dog_images_and_labels.zip`, 8097 frames + `labels.npy`) is the
 dataset of Kevrekidis et al., arXiv:2408.16138 and is not redistributed here.
-`eval_conformal.py --config configs/eval/conformal.yaml` runs the Conformal-Autoencoder
+`src/eval_conformal.py --config configs/eval/conformal.yaml` runs the Conformal-Autoencoder
 dimension-detection experiment on the same frames.
 
 Machine-specific paths in the eval configs are `cache_dir` (feature caches, ~1.4 GB per IN1K
@@ -100,7 +100,7 @@ sbatch --gres=gpu:4 --ntasks-per-node=4 --mem=256G \
 
 # evaluation / reports: any command
 sbatch --time=6:00:00 --mem=128G --cpus-per-task=16 \
-       --export=ALL,CMD="python eval_indomain.py --config configs/eval/indomain_in1k_ep100.yaml --only vit_sigreg" scripts/slurm_submit.sh
+       --export=ALL,CMD="python src/eval_indomain.py --config configs/eval/indomain_in1k_ep100.yaml --only vit_sigreg" scripts/slurm_submit.sh
 ```
 
 Variables: `EXPERIMENT`, `GPUS`, `RUN_NAME`, `CKPT_DIR`, `REQUEUE`, `OVERRIDES="logger=csv ..."`,

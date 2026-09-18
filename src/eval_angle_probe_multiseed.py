@@ -6,12 +6,12 @@
 
 """Multi-seed linear-probe eval on the bobblehead (Yoda) rotation angles.
 
-Re-uses the cached frozen features written by ``eval_angle_probe.py`` and runs
+Re-uses the cached frozen features written by ``src/eval_angle_probe.py`` and runs
 the *same* closed-form ridge probe (:func:`circular_linear_probe`) over N
 independent train/val/test splits (one per seed). Reports per-backbone, per-angle
 mean +/- std of the held-out test R^2 and mean angular error (deg).
 
-    python eval_angle_probe_multiseed.py --config configs/eval/yoda/vit.yaml --n-seeds 10
+    python src/eval_angle_probe_multiseed.py --config configs/eval/yoda/vit.yaml --n-seeds 10
 """
 
 import argparse
@@ -22,8 +22,11 @@ import os
 import numpy as np
 import torch
 import yaml
+import rootutils
 
-from src.eval.angle_probe import circular_linear_probe
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
+
+from src.eval.angle_probe import circular_linear_probe  # noqa: E402
 
 
 def main():
@@ -53,7 +56,7 @@ def main():
         cache_path = os.path.join(cache_dir, f"{name}_features.pt")
         if not os.path.isfile(cache_path):
             raise FileNotFoundError(
-                f"Cached features not found: {cache_path}. Run eval_angle_probe.py first."
+                f"Cached features not found: {cache_path}. Run src/eval_angle_probe.py first."
             )
         blob = torch.load(cache_path, map_location="cpu")
         X, y = blob["X"].numpy(), blob["y"].numpy()

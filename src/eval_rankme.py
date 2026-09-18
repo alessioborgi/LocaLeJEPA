@@ -22,10 +22,10 @@ per-backbone Slurm tasks never clobber each other).
 
 Usage
 -----
-    python eval_rankme.py --config configs/eval/rankme_in1k_ep100.yaml
-    python eval_rankme.py --config ... --only hvit_sigreg,d4rn50_sigreg
-    python eval_rankme.py --config ... --cached-only      # skip backbones needing a GPU
-    python eval_rankme.py --config ... --merge-only
+    python src/eval_rankme.py --config configs/eval/rankme_in1k_ep100.yaml
+    python src/eval_rankme.py --config ... --only hvit_sigreg,d4rn50_sigreg
+    python src/eval_rankme.py --config ... --cached-only      # skip backbones needing a GPU
+    python src/eval_rankme.py --config ... --merge-only
 """
 
 import argparse
@@ -39,11 +39,14 @@ import time
 import torch
 import yaml
 from torch.utils.data import Subset
+import rootutils
 
-from src.eval.extract import load_backbone
-from src.eval.indomain import extract_classification_features, get_indomain_splits
-from src.eval.rankme import load_projector, project_features, rankme, subsample_indices, subsample_rows
-from src.eval.transfer import TRANSFER_DATASETS, get_transfer_splits
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
+
+from src.eval.extract import load_backbone  # noqa: E402
+from src.eval.indomain import extract_classification_features, get_indomain_splits  # noqa: E402
+from src.eval.rankme import load_projector, project_features, rankme, subsample_indices, subsample_rows  # noqa: E402
+from src.eval.transfer import TRANSFER_DATASETS, get_transfer_splits  # noqa: E402
 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger()

@@ -17,7 +17,7 @@ Because a 20% test split is always held out, the training pool caps at ~5182
 frames; requested sizes >= that (e.g. 8097 "full dataset") use the whole pool.
 The effective train count is recorded per size.
 
-    python eval_angle_probe_lowdata.py
+    python src/eval_angle_probe_lowdata.py
 """
 
 import csv
@@ -26,8 +26,11 @@ import os
 
 import numpy as np
 import torch
+import rootutils
 
-from src.eval.angle_probe import _circular_metrics
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
+
+from src.eval.angle_probe import _circular_metrics  # noqa: E402
 
 OUT_DIR = "logs/eval_angle_probe_lowdata"
 SIZES = [5, 10, 20, 50, 100, 500, 800, 2000, 4000, 8097]
@@ -36,7 +39,7 @@ RIDGE_GRID = (1e-2, 1e-1, 1.0, 1e1, 1e2, 1e3)
 TEST_FRAC = 0.2
 VAL_FRAC = 0.2
 
-# name -> cached features (written by the various eval_angle_probe.py runs)
+# name -> cached features (written by the various src/eval_angle_probe.py runs)
 BACKBONES = {
     "svit_susreg":      "logs/eval_angle_probe_full/cache/svit_susreg_features.pt",
     "nvit_sigreg":      "logs/eval_angle_probe_full/cache/nvit_sigreg_features.pt",

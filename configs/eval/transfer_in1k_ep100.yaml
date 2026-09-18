@@ -14,8 +14,8 @@
 # Datasets are torchvision's; download them once on a login node with
 #   PYTHONPATH=. python scripts/download_transfer_datasets.py --root <data_root>
 #
-#   sbatch --export=ALL,CMD="python eval_transfer.py --config configs/eval/transfer_in1k_ep100.yaml --only <name>" scripts/slurm_submit.sh
-#   python eval_transfer.py --config configs/eval/transfer_in1k_ep100.yaml --merge-only
+#   sbatch --export=ALL,CMD="python src/eval_transfer.py --config configs/eval/transfer_in1k_ep100.yaml --only <name>" scripts/slurm_submit.sh
+#   python src/eval_transfer.py --config configs/eval/transfer_in1k_ep100.yaml --merge-only
 
 device: null
 seed: 0

@@ -12,7 +12,7 @@ report held-out test R² and mean angular error, and render comparison figures.
 
 Usage
 -----
-    python eval_angle_probe.py --config configs/eval/yoda/default.yaml
+    python src/eval_angle_probe.py --config configs/eval/yoda/default.yaml
 """
 
 import argparse
@@ -25,10 +25,13 @@ import sys
 import numpy as np
 import torch
 import yaml
+import rootutils
 
-from src.data.bobblehead_datamodule import build_eval_transform, get_bobblehead_dataset
-from src.eval.angle_probe import circular_linear_probe, pca_2d
-from src.eval.extract import extract_features, load_backbone
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
+
+from src.data.bobblehead_datamodule import build_eval_transform, get_bobblehead_dataset  # noqa: E402
+from src.eval.angle_probe import circular_linear_probe, pca_2d  # noqa: E402
+from src.eval.extract import extract_features, load_backbone  # noqa: E402
 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger()

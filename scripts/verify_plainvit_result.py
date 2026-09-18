@@ -7,7 +7,7 @@
 """Independent audit of the plain ViT-S/8 IN1K result (report_plainViT_LastExp.md).
 
 Re-derives the k-NN / linear numbers for vit_sigreg and vit_localballreg_l01_k4
-with code paths that do NOT share anything with eval_indomain.py, plus controls
+with code paths that do NOT share anything with src/eval_indomain.py, plus controls
 that would catch the usual ways such a result can be a bug:
 
   1. cache integrity: shapes, NaN/Inf, duplicated rows, feature norms, RankMe;
@@ -121,7 +121,7 @@ def main():
         acc = knn_independent(Xtr, ytr, Xva, yva, device=device)
         rep = REPORTED.get(name, {}).get("knn", {}).get("20", {}).get("top1")
         sh = knn_independent(Xtr, ytr, Xva, yva, device=device, shuffle_labels=True)
-        log(f"- independent kNN@20 top-1: **{acc:.2f}%** (reported by eval_indomain.py: {rep}); "
+        log(f"- independent kNN@20 top-1: **{acc:.2f}%** (reported by src/eval_indomain.py: {rep}); "
             f"label-shuffle control: {sh:.2f}% (chance = 0.1%)", out)
 
         # 6. independent linear probe (sklearn, subset)
