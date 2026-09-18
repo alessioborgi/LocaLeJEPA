@@ -8,9 +8,11 @@
 defaults:
   - override /data: imagenette
   - override /model: lejepa
+  - override /model/reg_loss: localereg
   - override /model/encoder: timm_vit
   - override /optimizer: adamw
   - override /trainer: gpu
+  - override /callbacks: dynamic_num_clusters
   - _self_
 
 tags: ["lejepa", "imagenette", "vit-small-p8", "local-ballreg", "dynamic-k", "comparison"]
@@ -35,20 +37,8 @@ model:
   probe_weight_decay: 1e-7
   warmup_epochs: 10
   lamb: 0.1
-  loss_type: local_ballreg
-  local_sigreg_num_clusters: 1        # overridden per-epoch by the dynamic schedule
-  local_sigreg_kmeans_iters: 10
-  local_sigreg_min_cluster_size: 4
-  local_sigreg_weighted: false
-  local_sigreg_normalize_for_kmeans: true
-  local_sigreg_kmeans_backend: fast_pytorch_kmeans
-  local_ballreg_radius: null
-  local_ballreg_center_clusters: true
-  local_ballreg_n_quad: 64
-  dynamic_num_clusters: true
-  dynamic_num_clusters_start: 1
-  dynamic_num_clusters_max: 8
-  dynamic_num_clusters_step_epochs: 100
+  reg_loss:
+    num_clusters: 1
   projector:
     hidden_channels:
       - 2048
@@ -56,6 +46,12 @@ model:
       - ${model.projection_dim}
   encoder:
     model_name: vit_small_patch8_224
+
+callbacks:
+  dynamic_num_clusters:
+    start: 1
+    max: 8
+    step_epochs: 100
 
 optimizer:
   lr: 1e-3

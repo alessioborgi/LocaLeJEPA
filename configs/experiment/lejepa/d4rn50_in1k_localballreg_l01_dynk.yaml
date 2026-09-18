@@ -5,9 +5,11 @@
 defaults:
   - override /data: imagenet1k
   - override /model: lejepa
+  - override /model/reg_loss: localereg
   - override /model/encoder: d4resnet50
   - override /optimizer: adamw
   - override /trainer: gpu
+  - override /callbacks: dynamic_num_clusters
   - _self_
 
 tags: ["lejepa", "imagenet1k", "d4resnet50", "equivariant", "local-ballreg"]
@@ -33,25 +35,19 @@ model:
   probe_weight_decay: 1e-7
   warmup_epochs: 10
   lamb: 0.1
-  loss_type: local_ballreg
-  local_sigreg_num_clusters: 1
-  local_sigreg_kmeans_iters: 10
-  local_sigreg_min_cluster_size: 4
-  local_sigreg_weighted: false
-  local_sigreg_normalize_for_kmeans: true
-  local_sigreg_kmeans_backend: fast_pytorch_kmeans
-  local_ballreg_radius: null
-  local_ballreg_center_clusters: true
-  local_ballreg_n_quad: 64
-  dynamic_num_clusters: true
-  dynamic_num_clusters_start: 1
-  dynamic_num_clusters_max: 10
-  dynamic_num_clusters_step_epochs: 10
+  reg_loss:
+    num_clusters: 1
   projector:
     hidden_channels:
       - 2048
       - 2048
       - ${model.projection_dim}
+
+callbacks:
+  dynamic_num_clusters:
+    start: 1
+    max: 10
+    step_epochs: 10
 
 optimizer:
   lr: 1e-3

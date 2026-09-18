@@ -29,14 +29,6 @@ model:
   num_global_crops: null
   probe_lr: 1e-3
   probe_weight_decay: 1e-7
-  # Rectified Laplace target with the paper-default sigma_GN and two-weight loss.
-  target_distribution: rectified_lp_distribution
-  lp_norm_parameter: 1.0
-  mean_shift_value: 0.0
-  mode_of_sigma: sigma_GN
-  num_projections: 256
-  invariance_loss_weight: 25.0
-  rdm_reg_loss_weight: 125.0
   projector:
     hidden_channels:
       - 2048

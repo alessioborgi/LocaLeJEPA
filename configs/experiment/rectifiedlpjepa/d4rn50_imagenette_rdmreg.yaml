@@ -29,13 +29,6 @@ model:
   projection_dim: 16
   num_classes: 10
 
-  target_distribution: rectified_lp_distribution
-  lp_norm_parameter: 1.0
-  mean_shift_value: 0.0
-  mode_of_sigma: sigma_GN
-  num_projections: 256
-  invariance_loss_weight: 25.0
-  rdm_reg_loss_weight: 125.0
 
   use_online_probe: true
   num_global_crops: null

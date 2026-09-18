@@ -5,7 +5,8 @@
 
 defaults:
   - override /data: imagenette
-  - override /model: spherejepa
+  - override /model: lejepa
+  - override /model/reg_loss: susreg
   - override /model/encoder: spherical_vit_small_p8
   - override /optimizer: adam
   - override /trainer: gpu
@@ -31,6 +32,8 @@ model:
   probe_lr: 1e-3
   probe_weight_decay: 1e-7
   lamb: 0.02
+  inv_loss:
+    normalize: true
   projector:
     hidden_channels:
       - 2048

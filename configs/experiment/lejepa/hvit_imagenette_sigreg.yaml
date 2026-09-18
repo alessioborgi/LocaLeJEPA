@@ -31,7 +31,6 @@ model:
   num_global_crops: null
   probe_lr: 1e-3
   probe_weight_decay: 1e-7
-  loss_type: sigreg
   projector:
     hidden_channels:
       - 2048

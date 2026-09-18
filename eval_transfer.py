@@ -283,7 +283,7 @@ def main(cfg: dict, only: list[str] | None, datasets: list[str] | None, merge_on
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="BundLeJEPA transfer linear-probing evaluation (SPHERE-JEPA Table 1)")
+    parser = argparse.ArgumentParser(description="LocaLeJEPA transfer linear-probing evaluation (SPHERE-JEPA Table 1)")
     parser.add_argument("--config", type=str, default="configs/eval/transfer_in1k_ep100.yaml")
     parser.add_argument("--only", type=str, default=None,
                         help="Comma-separated backbone names to run (default: all in the config).")

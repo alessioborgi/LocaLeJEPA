@@ -1,0 +1,8 @@
+_target_: src.losses.rdmreg_loss
+_partial_: true
+
+lp_norm_parameter: 1.0
+mean_shift_value: 0.0
+sigma: null # sigma_GN(p): unit pre-rectification variance
+num_projections: 256
+rectify_target: true

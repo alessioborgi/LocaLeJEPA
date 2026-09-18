@@ -10,7 +10,7 @@
 #SBATCH --output=logs/slurm/%x_%j.out
 #SBATCH --error=logs/slurm/%x_%j.err
 #
-# Canonical SLURM launcher for BundLeJEPA. Everything runs through `uv run`.
+# Canonical SLURM launcher for LocaLeJEPA. Everything runs through `uv run`.
 #
 # Two modes, selected by environment variables (pass them with --export):
 #

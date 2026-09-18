@@ -197,7 +197,7 @@ def main(cfg: dict) -> None:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="BundLeJEPA conformal-autoencoder dimension detection")
+    parser = argparse.ArgumentParser(description="LocaLeJEPA conformal-autoencoder dimension detection")
     parser.add_argument("--config", type=str, default="configs/eval/conformal.yaml")
     args = parser.parse_args()
     with open(args.config, encoding="utf-8") as f:

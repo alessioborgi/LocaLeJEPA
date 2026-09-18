@@ -4,6 +4,7 @@
 defaults:
   - override /data: imagenette
   - override /model: lejepa
+  - override /model/reg_loss: locale_sigreg
   - override /model/encoder: timm_vit
   - override /optimizer: adamw
   - override /trainer: gpu
@@ -28,13 +29,6 @@ model:
   num_global_crops: null
   probe_lr: 1e-3
   probe_weight_decay: 1e-7
-  loss_type: local_sigreg
-  local_sigreg_num_clusters: 8
-  local_sigreg_kmeans_iters: 10
-  local_sigreg_min_cluster_size: 4
-  local_sigreg_weighted: false
-  local_sigreg_normalize_for_kmeans: true
-  local_sigreg_kmeans_backend: fast_pytorch_kmeans
   projector:
     hidden_channels:
       - 2048

@@ -16,10 +16,9 @@ LeJEPA (galilai-group/lejepa)
 I-JEPA (Image Joint-Embedding Predictive Architecture)
   Copyright (c) Meta Platforms, Inc. and affiliates.
   Source: https://github.com/facebookresearch/ijepa
-  Files (experiments branch): src/models/ijepa_module.py,
-          src/models/components/vision_transformer.py,
-          src/models/components/tensor_ops.py,
-          src/data/transforms/mask_collator.py
+  Files (experiments branch): src/models/components/vision_transformer.py,
+          src/models/components/tensor_ops.py (PatchEmbed / apply_masks used by
+          the NormalizedViT and SphericalViT backbones)
 
 ────────────────────────────────────────────────────────────────────────────────
 Hyperbolic Vision Transformers / hyp_metric

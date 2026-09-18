@@ -4,6 +4,7 @@
 defaults:
   - override /data: imagenette
   - override /model: lejepa
+  - override /model/reg_loss: susreg
   - override /model/encoder: timm_vit
   - override /optimizer: adamw
   - override /trainer: gpu
@@ -28,7 +29,8 @@ model:
   num_global_crops: null
   probe_lr: 1e-3
   probe_weight_decay: 1e-7
-  loss_type: susreg
+  inv_loss:
+    normalize: true
   projector:
     hidden_channels:
       - 2048

@@ -220,7 +220,7 @@ def main(cfg: dict) -> None:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="BundLeJEPA linear angle probe")
+    parser = argparse.ArgumentParser(description="LocaLeJEPA linear angle probe")
     parser.add_argument("--config", type=str, default="configs/eval/yoda/default.yaml")
     args = parser.parse_args()
     with open(args.config, encoding="utf-8") as f:

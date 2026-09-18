@@ -16,7 +16,7 @@ local_loss       -- any of the tests above computed independently on k-means loc
 local_sigreg_loss  -- local_loss with sigreg_loss
 local_ballreg_loss -- local_loss with ballreg_loss centered per cluster (LocaLeJEPA)
 susreg_loss      -- Sketched Uniform Spherical Regularization (SUSReg / SPHERE-JEPA)
-subreg_loss      -- Subspace Gaussian Regularization (Sub-JEPA)
+subreg_loss      -- Subspace Gaussian Regularization (Sub-JEPA); SubReg holds its projection matrices
 rdmreg_loss      -- Rectified Distribution Matching Regularization (Rectified LpJEPA)
 nt_xent_loss     -- Normalised Temperature-scaled Cross Entropy (SimCLR)
 """
@@ -29,6 +29,7 @@ from typing import Any
 import torch
 import torch.nn.functional as F
 from numpy.polynomial.legendre import leggauss
+from torch import nn
 
 
 def invariance_loss(proj: torch.Tensor, num_global: int | None = None, normalize: bool = False) -> torch.Tensor:
@@ -506,6 +507,25 @@ def subreg_loss(
     z_sub = torch.einsum("vnd,kmd->kvnm", proj.float(), proj_matrices)
     return _sketch_test(z_sub, _gaussian_cf, knots=knots, num_slices=num_slices, t_max=t_max)
 
+
+
+class SubReg(nn.Module):
+    """``subreg_loss`` with its frozen random row-orthonormal projection matrices kept as a buffer,
+    so they follow the module across devices and into checkpoints."""
+
+    __name__ = "subreg_loss"  # metric key, as for the function regularizers
+
+    def __init__(self, projection_dim: int, num_subspaces: int = 4, knots: int = 17) -> None:
+        super().__init__()
+        ds = projection_dim // num_subspaces
+        if ds < 1:
+            raise ValueError(f"num_subspaces={num_subspaces} is too large for projection_dim={projection_dim}")
+        matrices = [torch.linalg.qr(torch.randn(projection_dim, ds))[0].T for _ in range(num_subspaces)]
+        self.register_buffer("proj_matrices", torch.stack(matrices, dim=0))
+        self.knots = knots
+
+    def forward(self, proj: torch.Tensor) -> torch.Tensor:
+        return subreg_loss(proj, self.proj_matrices, knots=self.knots)
 
 def sigma_gn(p: float) -> float:
     """Scale sigma_GN so the Generalized Gaussian GN_p(0, sigma) has unit variance.

@@ -47,7 +47,7 @@ identical.
 | `_localballreg_l01_dynk` | LocaLe-Reg | 0.1 | 1 → 8, +1 every 100 epochs (`callbacks=dynamic_num_clusters`) |
 | `_localsigreg_l01_k4` | LocaLeJEPA-SIGReg | 0.1 | 4 |
 | `_sigreg` | SIGReg (LeJEPA) | 0.02 | – |
-| `rectifiedlpjepa/*_rdmreg` | RDMReg (Rectified LpJEPA, `model=rectifiedlpjepa`) | – | – |
+| `rectifiedlpjepa/*_rdmreg` | RDMReg (Rectified LpJEPA, `model=rectifiedlpjepa`: `LeJEPAModule` + ReLU + absolute loss weights, `reg_loss=rdmreg`) | – | – |
 
 Imagenette (800 epochs, ViT-S/8): `vit_imagenette_{sigreg,susreg,subreg,local_sigreg,local_ballreg}`
 use the baseline recipe (the two `local_*` ones with the default λ=0.02 / k=8 are the runs that
@@ -59,14 +59,9 @@ per-backbone baselines.
 ## Other groups (experiments branch)
 
 * `lejepa/{nvit,svit}_{imagenette,in1k}_{sigreg,susreg,subreg}`: the nGPT-style NormalizedViT
-  and SphericalViT backbones with SIGReg / SUSReg (`model=spherejepa`) / SubReg (`model=subjepa`).
-  Note `nvit_in1k_subreg` selects `loss_type: subreg` on `model=lejepa`, which `LeJEPAModule`
-  does not implement (use `model=subjepa` as in `nvit_imagenette_subreg`); it is kept as found.
+  and SphericalViT backbones with SIGReg / SUSReg / SubReg (`model/reg_loss={sigreg,susreg,subreg}`).
 * `lejepa/{rn18_stl10,rn50_in100,vits16_in100,svits16_in100}_ep500`: LeJEPA-paper-style
   benchmark settings on STL-10 / ImageNet-100 (multi-crop 2+6 views, 224 px); not part of the
   reported tables.
 * `lejepa/phc_{blob,gpm}_ep250` + `phc_regression/{blob,gpm}_supervised_ep500`: photonic-crystal
   pretraining and DOS-regression fine-tuning (`scripts/download_phc.py` fetches the data).
-* `bundlejepa/vit_imagenette`: LeJEPA + E-SSL four-fold-rotation equivariance loss
-  (`model=bundlejepa`).
-* `ijepa/*`: I-JEPA baseline (`model=ijepa`, masked-patch prediction).

@@ -7,6 +7,7 @@
 defaults:
   - override /data: imagenet1k
   - override /model: lejepa
+  - override /model/reg_loss: subreg
   - override /model/encoder: nvit_small_p8
   - override /optimizer: adam
   - override /trainer: gpu
@@ -32,9 +33,7 @@ model:
   num_global_crops: null
   probe_lr: 1e-3
   probe_weight_decay: 1e-7
-  loss_type: subreg
   lamb: 0.02
-  num_subspaces: 4
   projector:
     hidden_channels:
       - 2048

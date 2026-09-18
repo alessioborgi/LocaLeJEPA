@@ -6,7 +6,8 @@
 
 defaults:
   - override /data: imagenette
-  - override /model: subjepa
+  - override /model: lejepa
+  - override /model/reg_loss: subreg
   - override /model/encoder: timm_vit
   - override /optimizer: adamw
   - override /trainer: gpu
@@ -32,7 +33,6 @@ model:
   probe_lr: 1e-3
   probe_weight_decay: 1e-7
   lamb: 0.02
-  num_subspaces: 4
   projector:
     hidden_channels:
       - 2048
