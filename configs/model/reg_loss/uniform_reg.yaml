@@ -9,5 +9,5 @@ t_max: 3.0
 # the default radius); without it small radii barely penalize collapse.
 radius: null
 center: false
-scale_grid: false
+scale_grid: true
 n_quad: 64

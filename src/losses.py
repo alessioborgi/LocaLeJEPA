@@ -51,13 +51,53 @@ def invariance_loss(proj: torch.Tensor, num_global: int | None = None, normalize
     return (proj - ref).square().mean()
 
 
-def sigreg_loss(proj: torch.Tensor, knots: int = 17, num_slices: int = 256, t_max: float = 3.0) -> torch.Tensor:
-    """SIGReg: Sketched Isotropic Gaussian Regularization (LeJEPA).
+def _sketch_test(
+    z: torch.Tensor,
+    target_phi: Callable[[torch.Tensor], torch.Tensor],
+    *,
+    knots: int,
+    num_slices: int,
+    t_max: float,
+    t_scale: float = 1.0,
+) -> torch.Tensor:
+    """Sketched Epps-Pulley statistic shared by SIGReg, BallReg, SUSReg and SubReg.
 
-    Enforces an isotropic Gaussian distribution on projection embeddings via
-    the Epps-Pulley characteristic function test along random 1-D projections.
-    Integrates on [0, t_max] using the trapezoid rule and exploits ECF symmetry
-    by doubling the inner weights (so [0, t_max] equals the paper's [-t_max, t_max]).
+    Squared error between the empirical characteristic function of random unit-norm
+    1-D projections of ``z`` and ``target_phi(t)``, integrated on [0, t_max] with the
+    trapezoid rule under the Gaussian window exp(-t^2/2). ECF symmetry lets [0, t_max]
+    stand for [-t_max, t_max] (inner weights doubled). ``t_scale`` evaluates both
+    characteristic functions at ``t_scale * t`` while keeping the window on ``t``.
+
+    z : (..., N, D); the ECF is averaged over N and the statistic scaled by N, then
+        averaged over the leading dims.
+    """
+    device = z.device
+    u = torch.linspace(0, t_max, knots, device=device)
+    dt = t_max / (knots - 1)
+    weights = torch.full((knots,), 2.0 * dt, device=device)
+    weights[[0, -1]] = dt
+    weights = weights * torch.exp(-u.square() / 2.0)
+    t = u * t_scale
+
+    with torch.no_grad():
+        phi = target_phi(t)
+
+    A = torch.randn(z.size(-1), num_slices, device=device)
+    A = A.div_(A.norm(p=2, dim=0))
+    # (..., N, num_slices, knots); real and imaginary parts of the ECF error.
+    x_t = (z @ A).unsqueeze(-1) * t
+    err = (x_t.cos().mean(-3) - phi).square() + x_t.sin().mean(-3).square()
+    return ((err @ weights) * z.size(-2)).mean()
+
+
+def _gaussian_cf(t: torch.Tensor) -> torch.Tensor:
+    return torch.exp(-t.square() / 2.0)
+
+
+def sigreg_loss(
+    proj: torch.Tensor, knots: int = 17, num_slices: int = 256, t_max: float = 3.0, *, center: bool = False
+) -> torch.Tensor:
+    """SIGReg: Sketched Isotropic Gaussian Regularization (LeJEPA).
 
     Parameters
     ----------
@@ -66,32 +106,17 @@ def sigreg_loss(proj: torch.Tensor, knots: int = 17, num_slices: int = 256, t_ma
     num_slices : number of random sketch directions |A| (default 256; the LeJEPA
                  paper recommends 1024 for ViT-L/14 on ImageNet-1K)
     t_max      : half-width of the integration domain (default 3.0; paper uses 5.0)
+    center     : subtract the per-view sample mean first, so the test constrains
+                 shape only and leaves the location free (as ballreg_loss(center=True))
 
     Returns
     -------
     Scalar tensor (float32).
     """
     proj = proj.float()
-    device = proj.device
-
-    # Integration grid and trapezoid weights on [0, t_max].
-    t = torch.linspace(0, t_max, knots, device=device)
-    dt = t_max / (knots - 1)
-    weights = torch.full((knots,), 2.0 * dt, device=device)
-    # Boundary correction for trapezoid rule.
-    weights[[0, -1]] = dt
-    # Target CF of N(0,1): phi(t) = exp(-t^2 / 2). Also used as integration weight.
-    phi = torch.exp(-t.square() / 2.0)
-    weights = weights * phi
-
-    # Random unit-norm sketch directions in R^D.
-    A = torch.randn(proj.size(-1), num_slices, device=device)
-    A = A.div_(A.norm(p=2, dim=0))
-    # 1-D projections at each integration knot: (V, N, num_slices, knots).
-    x_t = (proj @ A).unsqueeze(-1) * t
-    # Squared ECF error: real part + imaginary part.
-    err = (x_t.cos().mean(-3) - phi).square() + x_t.sin().mean(-3).square()
-    return ((err @ weights) * proj.size(-2)).mean()
+    if center:
+        proj = proj - proj.mean(dim=-2, keepdim=True)
+    return _sketch_test(proj, _gaussian_cf, knots=knots, num_slices=num_slices, t_max=t_max)
 
 
 def _validate_kmeans_input(x: torch.Tensor, num_clusters: int) -> tuple[int, int, int]:
@@ -330,10 +355,8 @@ def ballreg_loss(
 ) -> torch.Tensor:
     """Sketched uniform-ball regularization.
 
-    This is the same Epps-Pulley-style characteristic-function statistic as
-    SIGReg, but the target distribution is uniform on a centered d-dimensional
-    ball instead of isotropic Gaussian. The Gaussian window is retained as the
-    integration weight; only the target characteristic function is replaced.
+    The SIGReg statistic with a uniform-ball target instead of the isotropic
+    Gaussian; the Gaussian integration window is kept.
 
     Parameters
     ----------
@@ -347,7 +370,7 @@ def ballreg_loss(
             local residual shape rather than force every cluster centroid to zero.
     scale_grid: if True, measure frequency in units of 1/sigma_target instead of
                 absolute units, i.e. evaluate the characteristic functions at
-                ``t * sqrt(d + 2) / R``. See the comment at the grid below.
+                ``t * sqrt(d + 2) / R``. See the comment below.
     n_quad: Gauss-Legendre quadrature nodes for the target CF
 
     Returns
@@ -361,37 +384,22 @@ def ballreg_loss(
     if center:
         proj = proj - proj.mean(dim=-2, keepdim=True)
 
-    device = proj.device
     d = proj.shape[-1]
     R = _resolve_ball_radius(d, radius)
-
-    # Integration grid and trapezoid weights on [0, t_max].
-    u = torch.linspace(0, t_max, knots, device=device)
-    dt = t_max / (knots - 1)
-    trap = torch.full((knots,), 2.0 * dt, device=device)
-    trap[[0, -1]] = dt
-
-    # Keep the same Gaussian integration window used by SIGReg/SUSReg.
-    window = torch.exp(-u.square() / 2.0)
-    weights = trap * window
 
     # The target CF only turns over at t ~ 1/sigma_target = sqrt(d + 2) / R, so on a
     # grid fixed in absolute units a small ball is nearly indistinguishable from a
     # collapsed distribution and the statistic barely penalizes collapse. Scaling the
     # grid equalizes that power across radii; it is a no-op at R = sqrt(d + 2).
-    t = u * ((d + 2) ** 0.5 / R) if scale_grid else u
-
-    with torch.no_grad():
-        target_phi = _ball_d_cf(t, d=d, radius=R, n_quad=n_quad)
-
-    # Random unit-norm sketch directions in R^D.
-    A = torch.randn(d, num_slices, device=device)
-    A = A.div_(A.norm(p=2, dim=0))
-    # 1-D projections at each integration knot: (V, N, num_slices, knots).
-    x_t = (proj @ A).unsqueeze(-1) * t
-    # Squared ECF error: real part + imaginary part.
-    err = (x_t.cos().mean(-3) - target_phi).square() + x_t.sin().mean(-3).square()
-    return ((err @ weights) * proj.size(-2)).mean()
+    t_scale = (d + 2) ** 0.5 / R if scale_grid else 1.0
+    return _sketch_test(
+        proj,
+        lambda t: _ball_d_cf(t, d=d, radius=R, n_quad=n_quad),
+        knots=knots,
+        num_slices=num_slices,
+        t_max=t_max,
+        t_scale=t_scale,
+    )
 
 
 def local_sigreg_loss(proj: torch.Tensor, *, loss: Callable[[torch.Tensor], torch.Tensor] = sigreg_loss, **kwargs: Any) -> torch.Tensor:
@@ -445,112 +453,58 @@ def _rho_d_cf(t: torch.Tensor, d: int, n_quad: int = 64) -> torch.Tensor:
     return phi
 
 
-def susreg_loss(proj: torch.Tensor, knots: int = 17) -> torch.Tensor:
+def susreg_loss(proj: torch.Tensor, knots: int = 17, num_slices: int = 256, t_max: float = 3.0) -> torch.Tensor:
     """SUSReg: Sketched Uniform Spherical Regularization (SPHERE-JEPA).
 
-    Enforces uniformity on the unit hypersphere by testing, via the Epps-Pulley
-    statistic, that L2-normalized projections match the spherical projection
-    density rather than the Gaussian prior used by SIGReg. Uses a Gaussian
-    integration weight w(t) = exp(-t^2/2) independently of the target CF.
-
-    For d > 256 the CLT approximation N(0, 1/d) is used instead of the exact CF.
-
-    Reference: Nicollier et al., "SPHERE-JEPA", arXiv 2605.26900 (2026).
+    The SIGReg statistic on L2-normalized projections with the uniform-on-the-sphere
+    target (CF of a 1-D projection of Unif(S^{d-1}); the CLT Gaussian N(0, 1/d)
+    for d > 256). Reference: Nicollier et al., "SPHERE-JEPA", arXiv 2605.26900 (2026).
 
     Parameters
     ----------
-    proj  : (V, N, D) stacked projections from all views (any dtype)
-    knots : number of integration knots (default 17)
+    proj       : (V, N, D) stacked projections from all views (any dtype)
+    knots      : number of integration knots (default 17)
+    num_slices : number of random sketch directions |A| (default 256)
+    t_max      : half-width of the integration domain (default 3.0)
 
     Returns
     -------
     Scalar tensor (float32).
     """
-    # Normalize projections to unit norm before computing the loss.
     proj = F.normalize(proj.float(), dim=-1)
-    device = proj.device
     d = proj.shape[-1]
-
-    # Integration grid and trapezoid weights on [0, 3].
-    t = torch.linspace(0, 3, knots, device=device)
-    dt = 3.0 / (knots - 1)
-    trap = torch.full((knots,), 2.0 * dt, device=device)
-    # Boundary correction for trapezoid rule.
-    trap[[0, -1]] = dt
-    # Gaussian integration weight, independent of the target CF.
-    gauss_w = torch.exp(-t.square() / 2.0)
-    weights = trap * gauss_w
-
-    with torch.no_grad():
-        # Target CF: exact for d <= 256, CLT Gaussian approximation for d > 256.
-        phi_Y = torch.exp(-t.square() / (2.0 * d)) if d > 256 else _rho_d_cf(t, d)
-
-    # Random unit-norm sketch directions in R^d.
-    A = torch.randn(d, 256, device=device)
-    A = A.div_(A.norm(p=2, dim=0))
-    # 1-D projections at each integration knot: (V, N, 256, knots).
-    x_t = (proj @ A).unsqueeze(-1) * t
-    # Squared ECF error: real part + imaginary part.
-    err = (x_t.cos().mean(-3) - phi_Y).square() + x_t.sin().mean(-3).square()
-    return ((err @ weights) * proj.size(-2)).mean()
+    target = (lambda t: torch.exp(-t.square() / (2.0 * d))) if d > 256 else (lambda t: _rho_d_cf(t, d))
+    return _sketch_test(proj, target, knots=knots, num_slices=num_slices, t_max=t_max)
 
 
 def subreg_loss(
     proj: torch.Tensor,
     proj_matrices: torch.Tensor,
     knots: int = 17,
+    num_slices: int = 256,
+    t_max: float = 3.0,
 ) -> torch.Tensor:
     """SubReg: Subspace Gaussian Regularization (Sub-JEPA).
 
-    Applies the Epps-Pulley Gaussian test independently in K frozen orthonormal
-    subspaces rather than the full ambient space. Each subspace uses its own
-    random sketch direction set, matching the regularization to the intrinsic
-    dimensionality of the representation manifold.
-
+    The SIGReg statistic applied independently in K frozen orthonormal subspaces
+    (one shared set of sketch directions in R^ds), averaged over the subspaces.
     Reference: Zhao et al., "Sub-JEPA", arXiv 2605.09241 (2026).
 
     Parameters
     ----------
     proj         : (V, N, D) stacked projections from all views
-    proj_matrices: (K, ds, D) frozen row-orthonormal projection matrices,
-                   registered as a buffer on LeJEPAModule
+    proj_matrices: (K, ds, D) frozen row-orthonormal projection matrices (see SubReg)
     knots        : number of integration knots (default 17)
+    num_slices   : number of random sketch directions |A| (default 256)
+    t_max        : half-width of the integration domain (default 3.0)
 
     Returns
     -------
     Scalar tensor (float32).
     """
-    proj = proj.float()
-    V, N, D = proj.shape
-    K, ds, _ = proj_matrices.shape
-    device = proj.device
-
-    # Integration grid and trapezoid weights on [0, 3].
-    t = torch.linspace(0, 3, knots, device=device)
-    dt = 3.0 / (knots - 1)
-    weights = torch.full((knots,), 2.0 * dt, device=device)
-    # Boundary correction for trapezoid rule.
-    weights[[0, -1]] = dt
-    # Target CF of N(0,1): phi(t) = exp(-t^2 / 2). Also used as integration weight.
-    phi = torch.exp(-t.square() / 2.0)
-    weights = weights * phi
-
-    # Project into each subspace via einsum: result[k,v,n,m] = sum_d proj[v,n,d] * P[k,m,d].
-    # Output shape: (K, V, N, ds).
-    z_sub = torch.einsum("vnd,kmd->kvnm", proj, proj_matrices)
-
-    # Random unit-norm sketch directions in R^ds, shared across all subspaces.
-    # Shape: (ds, 256).
-    A = torch.randn(ds, 256, device=device)
-    A = A.div_(A.norm(p=2, dim=0))
-
-    # 1-D projections per subspace: (K, V, N, 256).
-    scalars = z_sub @ A
-    # Broadcast with integration knots: (K, V, N, 256, knots).
-    x_t = scalars.unsqueeze(-1) * t
-    # Squared ECF error: real part + imaginary part, averaged over views.
-    err = (x_t.cos().mean(-3) - phi).square() + x_t.sin().mean(-3).square()
-    return ((err @ weights) * N).mean()
+    # (K, V, N, ds): z_sub[k, v, n, m] = sum_d proj[v, n, d] * P[k, m, d]
+    z_sub = torch.einsum("vnd,kmd->kvnm", proj.float(), proj_matrices)
+    return _sketch_test(z_sub, _gaussian_cf, knots=knots, num_slices=num_slices, t_max=t_max)
 
 
 def sigma_gn(p: float) -> float:

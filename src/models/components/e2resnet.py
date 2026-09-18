@@ -246,7 +246,7 @@ class E2ResNet(torch.nn.Module):
             # kept G-EQUIVARIANT): an equivariant 1x1 group-conv reduces the field
             # count so that (#fields * |G|) == num_classes, then spatial pool. No
             # group pooling, so the embedding still transforms under G by the
-            # regular representation (a section of the bundle, per BundLeJEPA).
+            # regular representation (the embedding stays D4-equivariant).
             g_order = int(gspace.regular_repr.size)
             if num_classes % g_order != 0:
                 raise ValueError(

@@ -1,10 +1,10 @@
 # Experiment configs
 
 `uv run python src/train.py experiment=<group>/<name>` runs one of the configs below. Every
-config is self-contained: it also carries the settings the original SLURM launchers passed on
-the command line (per-step `data.batch_size: 64` × `trainer.accumulate_grad_batches: 4` = 256
-effective on single-GPU runs, `trainer.gradient_clip_val: 1.0` for the local regularizers,
-`trainer.max_epochs: 100` for the ImageNet-1K suite).
+config is self-contained: `experiment=<name>` alone reproduces the run (per-step
+`data.batch_size: 64` × `trainer.accumulate_grad_batches: 4` = 256 effective on single-GPU runs,
+`trainer.gradient_clip_val: 1.0` for the local regularizer, `trainer.max_epochs: 100` for the
+ImageNet-1K suite).
 
 ## Shared recipe
 

@@ -33,12 +33,11 @@ dependencies = [
 equivariant = ["escnn>=1.0.11"]
 # ImageNet-1K staging from HuggingFace (scripts/stage_imagenet1k_hf.py).
 imagenet = ["datasets>=3.0", "huggingface-hub>=0.25"]
-# Experiments branch: analysis, plots, PhC datasets (h5py), RankMe/transfer/Yoda scripts.
+# Experiments branch: analysis, plots, RankMe/transfer/Yoda scripts.
 experiments = [
     "matplotlib>=3.9",
     "scipy>=1.13",
     "scikit-learn>=1.4",
-    "h5py>=3.10",
 ]
 
 [dependency-groups]

@@ -55,6 +55,7 @@ Backbones used in the reported experiments: plain timm ViT-S/8 and ViT-L/14
 ```
 src/
   train.py                     Hydra + Lightning entry point (pretraining)
+  eval_indomain.py             frozen-backbone k-NN + linear-probe evaluation
   losses.py                    invariance, SIGReg, SUSReg, uniform-ball test, local_loss (k-means + any test), ...
   models/lejepa_module.py      LeJEPAModule: encode, reg_loss + invariance, online probe, optimizer, schedule
   models/components/           hyperbolic ViT head, D4-equivariant ResNet (escnn)
@@ -67,8 +68,7 @@ configs/
   model/, data/, optimizer/,   Hydra config groups
   model/reg_loss/              sigreg, susreg, uniform_reg; local -> locale_sigreg, localereg
   trainer/, callbacks/, ...
-  eval/                        YAML configs for eval_indomain.py
-eval_indomain.py               frozen-backbone k-NN + linear-probe evaluation
+  eval/                        YAML configs for src/eval_indomain.py
 scripts/
   stage_imagenet1k_hf.py       stage ImageNet-1K from HuggingFace into the expected layout
 ```
@@ -169,15 +169,15 @@ Training resumes from a Lightning checkpoint with `ckpt_path=<path>/last.ckpt`.
 
 ## Evaluation
 
-`eval_indomain.py` freezes a pretrained encoder, extracts features with the deterministic
+`src/eval_indomain.py` freezes a pretrained encoder, extracts features with the deterministic
 eval transform, and reports **weighted k-NN** (cosine, `exp(sim/T)` votes, T = 0.07, k = 20)
 and a **linear probe** on standardized features (SGD, learning rate picked on a held-out slice),
 following the SPHERE-JEPA Table 3 protocol:
 
 ```bash
-uv run python eval_indomain.py --config configs/eval/indomain_in1k_plainvit.yaml            # all backbones in the config
-uv run python eval_indomain.py --config configs/eval/indomain_in1k_plainvit.yaml --only vit_sigreg
-uv run python eval_indomain.py --config configs/eval/indomain_in1k_plainvit.yaml --merge-only  # rebuild results.{json,csv}
+uv run python src/eval_indomain.py --config configs/eval/indomain_in1k_plainvit.yaml            # all backbones in the config
+uv run python src/eval_indomain.py --config configs/eval/indomain_in1k_plainvit.yaml --only vit_sigreg
+uv run python src/eval_indomain.py --config configs/eval/indomain_in1k_plainvit.yaml --merge-only  # rebuild results.{json,csv}
 ```
 
 Each `backbones:` entry names the Hydra experiment the checkpoint was trained with (the encoder

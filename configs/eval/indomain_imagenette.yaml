@@ -4,7 +4,7 @@
 # pretrained on. Runs in minutes, so it also serves as the smoke test for the
 # ImageNet-1K jobs.
 #
-#   python eval_indomain.py --config configs/eval/indomain_imagenette.yaml
+#   python src/eval_indomain.py --config configs/eval/indomain_imagenette.yaml
 
 device: null
 seed: 0

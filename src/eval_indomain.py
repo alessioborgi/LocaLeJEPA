@@ -19,8 +19,8 @@ eval transform and cached to disk.
 
 Usage
 -----
-    python eval_indomain.py --config configs/eval/indomain_in1k.yaml
-    python eval_indomain.py --config configs/eval/indomain_in1k.yaml --only hvit_sigreg
+    python src/eval_indomain.py --config configs/eval/indomain_in1k.yaml
+    python src/eval_indomain.py --config configs/eval/indomain_in1k.yaml --only hvit_sigreg
 """
 
 import argparse
@@ -31,10 +31,13 @@ import os
 import sys
 import time
 
+import rootutils
 import torch
 import yaml
 
-from src.eval.extract import load_backbone
+rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
+
+from src.eval.extract import load_backbone  # noqa: E402
 from src.eval.indomain import extract_classification_features, get_indomain_splits, subsample_per_class
 from src.eval.knn_probe import weighted_knn
 from src.eval.linear_probe import run_linear_probe
