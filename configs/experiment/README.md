@@ -63,3 +63,11 @@ per-backbone baselines.
 * `lejepa/{rn18_stl10,rn50_in100,vits16_in100,svits16_in100}_ep500`: LeJEPA-paper-style
   benchmark settings on STL-10 / ImageNet-100 (multi-crop 2+6 views, 224 px); not part of the
   reported tables.
+* `lejepa/vit_imagenette_localballreg_l01_k{1,6,8,16,32}_ep100`: the neighbourhood-count study
+  (Table 11) — 100 epochs, batch 256 (no accumulation), lr 1e-3, warm-up 3. The k x lr grid is a
+  Hydra multirun per learning rate (`lr_eta_min` is 1% of the peak):
+  `uv run python src/train.py -m experiment=lejepa/vit_imagenette_localballreg_l01_k1_ep100,lejepa/vit_imagenette_localballreg_l01_k6_ep100,lejepa/vit_imagenette_localballreg_l01_k16_ep100,lejepa/vit_imagenette_localballreg_l01_k32_ep100 optimizer.lr=3e-4 model.lr_eta_min=3e-6`
+  (then `1e-3` / `1e-5` and `3e-3` / `3e-5`). On SLURM submit one job per config instead:
+  `for k in 1 6 8 16 32; do sbatch --export=ALL,EXPERIMENT=lejepa/vit_imagenette_localballreg_l01_k${k}_ep100,OVERRIDES="optimizer.lr=3e-4 model.lr_eta_min=3e-6" scripts/slurm_submit.sh; done`.
+* Radius sweep: `uv run python src/train.py -m experiment=lejepa/vit_imagenette_localballreg_l01_k4 model.reg_loss.loss.radius=0.5,1.0,null model.reg_loss.loss.scale_grid=true`
+  (`scale_grid` keeps the test's power the same at every radius; it is a no-op at the default R).

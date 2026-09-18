@@ -24,11 +24,13 @@ scripts/make_*.py           regenerate the result tables in results/ (+ LaTeX in
 scripts/download_transfer_datasets.py   torchvision transfer datasets
 scripts/verify_plainvit_result.py   independent audit of the headline plain-ViT numbers
 scripts/slurm_submit.sh     the single SLURM launcher
+scripts/benchmark_regularizers.py   forward+backward time / memory of the regularizers on synthetic batches
 visualisations/             torus / low-data figures of the Yoda probe (write to visualisations/figures/)
 results/                    the generated result tables (Markdown)
 src/models/                 rectifiedlpjepa (thin LeJEPAModule subclass); other baselines are reg_loss configs
 src/models/components/      nvit, spherical_vit, vision_transformer + tensor_ops (I-JEPA code they use)
 src/data/                   stl10, bobblehead datamodules
+src/callbacks/              dynamic k schedule
 ```
 
 ## 1. Pretraining
@@ -41,6 +43,11 @@ src/data/                   stl10, bobblehead datamodules
 | same pair, D4-ResNet-50 (`--extra equivariant`) | `lejepa/d4rn50_in1k_{sigreg,localballreg_l01_k4}` | idem |
 | paper setting, ViT-L/14, 4 GPUs | `lejepa/vitl14_in1k_{sigreg,localballreg_l01_k4}_paper` | `... trainer=ddp trainer.devices=4` |
 | ablations λ / k / dynamic k / local SIGReg / RDMReg | see `configs/experiment/README.md` | idem |
+
+Sweeps are Hydra multiruns: `-m` with comma-separated values runs the cartesian product, e.g.
+`uv run python src/train.py -m experiment=lejepa/vit_imagenette_localballreg_l01_k4 model.reg_loss.num_clusters=2,4,8`.
+W&B names each run after its CLI overrides (`logger.wandb.name` in `configs/logger/wandb.yaml`).
+Multirun is sequential on one GPU; on SLURM submit one `scripts/slurm_submit.sh` job per config.
 
 Pin checkpoints to a stable directory so the eval configs find them:
 `callbacks.model_checkpoint.dirpath=checkpoints/lejepa_vit_in1k_sigreg` (the eval configs
