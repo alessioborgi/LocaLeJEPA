@@ -23,7 +23,7 @@ use_online_probe: true
 probe_lr: 1e-3
 probe_weight_decay: 1e-7
 warmup_epochs: 1
-lr_eta_min: 1e-3
+lr_eta_min_ratio: 0.01
 
 optimizer: ${optimizer}
 

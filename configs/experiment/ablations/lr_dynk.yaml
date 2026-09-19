@@ -1,0 +1,12 @@
+# @package _global_
+# Dynamic-k row of the k-vs-lr table: lr in {3e-4, 1e-3, 3e-3}, k 2 -> 16, 3 runs.
+#   uv run python src/train.py -m experiment=ablations/lr_dynk
+
+defaults:
+  - /experiment/ablations/dynk
+  - _self_
+
+hydra:
+  sweeper:
+    params:
+      optimizer.lr: 3e-4,1e-3,3e-3

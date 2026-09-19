@@ -25,6 +25,7 @@ data:
   crop_size: 128
 
 model:
+  lr_eta_min_ratio: 0.5
   embedding_dim: 512
   projection_dim: 16
   num_classes: 10

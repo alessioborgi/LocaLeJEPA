@@ -5,7 +5,7 @@
 # optimizer batch. DDP divides data.batch_size across ranks; clustering is local
 # to each rank. Accumulation does not enlarge the clustering batch.
 # LR is deliberately preserved at 1e-3 for every B: 10 epochs of linear warmup
-# from 1e-5 to 1e-3, then flat. JEPAModule's cosine eta_min is also 1e-3.
+# from 1e-5 to 1e-3, then flat (lr_eta_min_ratio 1.0).
 # The LR monitor below records the actual optimizer learning rates.
 #
 # Six independent Slurm jobs, submitted from the repository root:

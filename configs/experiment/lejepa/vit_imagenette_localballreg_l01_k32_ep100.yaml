@@ -1,5 +1,5 @@
 # @package _global_
-# Fixed k=32 for the k x lr grid; recipe as in k-schedule except lr and lr_eta_min, set from the CLI.
+# Fixed k=32 for the k x lr grid; recipe as in k-schedule except lr, set from the CLI.
 
 defaults:
   - override /data: imagenette
@@ -24,6 +24,7 @@ data:
   crop_size: 128
 
 model:
+  lr_eta_min_ratio: 0.01
   embedding_dim: 512
   projection_dim: 16
   num_classes: 10

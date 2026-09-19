@@ -65,12 +65,15 @@ per-backbone baselines.
   reported tables.
 * `lejepa/vit_imagenette_localballreg_l01_k{1,6,8,16,32}_ep100`: the neighbourhood-count study
   with a short recipe — 100 epochs, batch 256 (no accumulation, so the clustering batch is 256),
-  lr 1e-3, warm-up 3. The k x lr grid is a
-  Hydra multirun per learning rate (`lr_eta_min` is 1% of the peak):
-  `uv run python src/train.py -m experiment=lejepa/vit_imagenette_localballreg_l01_k1_ep100,lejepa/vit_imagenette_localballreg_l01_k6_ep100,lejepa/vit_imagenette_localballreg_l01_k16_ep100,lejepa/vit_imagenette_localballreg_l01_k32_ep100 optimizer.lr=3e-4 model.lr_eta_min=3e-6`
-  (then `1e-3` / `1e-5` and `3e-3` / `3e-5`). On SLURM submit one job per config instead:
-  `for k in 1 6 8 16 32; do sbatch --export=ALL,EXPERIMENT=lejepa/vit_imagenette_localballreg_l01_k${k}_ep100,OVERRIDES="optimizer.lr=3e-4 model.lr_eta_min=3e-6" scripts/slurm_submit.sh; done`.
+  lr 1e-3, warm-up 3, cosine to 1% of the peak. The k x lr grid is one Hydra multirun:
+  `uv run python src/train.py -m experiment=lejepa/vit_imagenette_localballreg_l01_k1_ep100,lejepa/vit_imagenette_localballreg_l01_k6_ep100,lejepa/vit_imagenette_localballreg_l01_k16_ep100,lejepa/vit_imagenette_localballreg_l01_k32_ep100 optimizer.lr=3e-4,1e-3,3e-3`.
+  On SLURM submit one job per cell instead:
+  `for k in 1 6 8 16 32; do for lr in 3e-4 1e-3 3e-3; do sbatch --export=ALL,EXPERIMENT=lejepa/vit_imagenette_localballreg_l01_k${k}_ep100,OVERRIDES="optimizer.lr=$lr" scripts/slurm_submit.sh; done; done`.
 * `lejepa/vit_imagenette_local_ballreg_dynk_b_ablation`: batch-size ablation of the dynamic-k run
   (`hydra.sweeper.params` sweeps `data.batch_size` over 32..1024; one GPU, no accumulation).
+* `ablations/{batch_k,k_lr,batch_lr}` and the dynamic-k rows `ablations/{batch_dynk,lr_dynk}`:
+  the three ablation tables on a common recipe (`ablations/base`: Euclidean ViT-S/8, Imagenette,
+  100 epochs, B 256 without accumulation, lr 1e-3 cosine to 1% of the peak, k 4, lambda 0.2);
+  each carries its grid in `hydra.sweeper.params`. See `handoff.md`.
 * Radius sweep: `uv run python src/train.py -m experiment=lejepa/vit_imagenette_localballreg_l01_k4 model.reg_loss.loss.radius=0.5,1.0,null model.reg_loss.loss.scale_grid=true`
   (`scale_grid` keeps the test's power the same at every radius; it is a no-op at the default R).

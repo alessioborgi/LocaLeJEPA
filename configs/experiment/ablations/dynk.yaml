@@ -1,0 +1,14 @@
+# @package _global_
+# base + k scheduled 2 -> 16 (+2 every 12 epochs, k=16 from epoch 84). Not run on its own.
+
+defaults:
+  - /experiment/ablations/base
+  - override /callbacks: dynamic_num_clusters
+  - _self_
+
+callbacks:
+  dynamic_num_clusters:
+    start: 2
+    end: 16
+    step_epochs: 12
+    step: 2
