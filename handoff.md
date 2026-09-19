@@ -10,11 +10,11 @@ cp .env.example .env                 # W&B entity / project
 Three tables, lambda 0.2 everywhere; `-m` runs the grid sequentially on one GPU:
 
 ```bash
-uv run python src/train.py -m experiment=ablations/batch_k       # B {32..1024} x k {2,4,...,16}, lr 1e-3   (48 runs)
-uv run python src/train.py -m experiment=ablations/batch_dynk    #   + dynamic-k row: B x (k 2 -> 16)        (6)
+uv run python src/train.py -m experiment=ablations/batch_k       # B {64,128,256} x k {2,4,...,16}, lr 1e-3 (24 runs)
+uv run python src/train.py -m experiment=ablations/batch_dynk    #   + dynamic-k row: B x (k 2 -> 16)        (3)
 uv run python src/train.py -m experiment=ablations/k_lr          # k {2,...,16} x lr {3e-4,1e-3,3e-3}, B 256 (24)
 uv run python src/train.py -m experiment=ablations/lr_dynk       #   + dynamic-k row: lr x (k 2 -> 16)       (3)
-uv run python src/train.py -m experiment=ablations/batch_lr      # B {32..1024} x lr {3e-4,...}, k 4        (18)
+uv run python src/train.py -m experiment=ablations/batch_lr      # B {64,128,256} x lr {3e-4,...}, k 4       (9)
 ```
 
 Dynamic k: +2 every 12 epochs, k=16 from epoch 84. Everything else is fixed in
@@ -25,7 +25,7 @@ the peak lr, seed 42.
 On SLURM, one job per cell with `scripts/slurm_submit.sh` (it resumes from `last.ckpt` on resubmission):
 
 ```bash
-for B in 32 64 128 256 512 1024; do for k in 2 4 6 8 10 12 14 16; do
+for B in 64 128 256; do for k in 2 4 6 8 10 12 14 16; do
   sbatch --export=ALL,EXPERIMENT=ablations/batch_k,OVERRIDES="data.batch_size=$B model.reg_loss.num_clusters=$k",RUN_NAME=batch_k_B${B}_k$k scripts/slurm_submit.sh
 done; done
 ```

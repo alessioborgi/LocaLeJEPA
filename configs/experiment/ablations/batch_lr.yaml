@@ -1,5 +1,5 @@
 # @package _global_
-# batch-vs-lr table (fixed k 4): B in {32..1024} x peak lr in {3e-4, 1e-3, 3e-3}, 18 runs.
+# batch-vs-lr table (fixed k 4): B in {64,128,256} x peak lr in {3e-4, 1e-3, 3e-3}, 9 runs.
 #   uv run python src/train.py -m experiment=ablations/batch_lr
 
 defaults:
@@ -9,5 +9,5 @@ defaults:
 hydra:
   sweeper:
     params:
-      data.batch_size: 32,64,128,256,512,1024
+      data.batch_size: 64,128,256
       optimizer.lr: 3e-4,1e-3,3e-3

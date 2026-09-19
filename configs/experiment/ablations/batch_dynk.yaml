@@ -1,5 +1,5 @@
 # @package _global_
-# Dynamic-k row of the batch-vs-k table: B in {32..1024}, k 2 -> 16, 6 runs.
+# Dynamic-k row of the batch-vs-k table: B in {64,128,256}, k 2 -> 16, 3 runs.
 #   uv run python src/train.py -m experiment=ablations/batch_dynk
 
 defaults:
@@ -9,4 +9,4 @@ defaults:
 hydra:
   sweeper:
     params:
-      data.batch_size: 32,64,128,256,512,1024
+      data.batch_size: 64,128,256

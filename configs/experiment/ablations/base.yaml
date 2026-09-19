@@ -21,6 +21,8 @@ data:
 model:
   lamb: 0.2
   lr_eta_min_ratio: 0.01
+  encoder:
+    grad_checkpointing: true
 
 callbacks:
   learning_rate_monitor:
