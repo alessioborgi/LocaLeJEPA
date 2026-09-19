@@ -5,10 +5,7 @@
 defaults:
   - override /data: imagenet1k
   - override /model: lejepa
-<<<<<<< HEAD
-=======
   - override /model/reg_loss: locale_sigreg
->>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81
   - override /model/encoder: hvit_small_p8
   - override /optimizer: adamw
   - override /trainer: gpu
@@ -28,10 +25,7 @@ data:
   copy_data: false
 
 model:
-<<<<<<< HEAD
-=======
   lr_eta_min_ratio: 1.0
->>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81
   embedding_dim: 512
   projection_dim: 16
   num_classes: 1000
@@ -41,22 +35,8 @@ model:
   probe_weight_decay: 1e-7
   warmup_epochs: 10
   lamb: 0.1
-<<<<<<< HEAD
-  loss_type: local_sigreg
-  local_sigreg_num_clusters: 4
-  local_sigreg_kmeans_iters: 10
-  local_sigreg_min_cluster_size: 4
-  local_sigreg_weighted: false
-  local_sigreg_normalize_for_kmeans: true
-  local_sigreg_kmeans_backend: fast_pytorch_kmeans
-  local_ballreg_radius: null
-  local_ballreg_center_clusters: true
-  local_ballreg_n_quad: 64
-  dynamic_num_clusters: false
-=======
   reg_loss:
     num_clusters: 4
->>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81
   projector:
     hidden_channels:
       - 2048

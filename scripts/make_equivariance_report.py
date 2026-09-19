@@ -8,11 +8,7 @@
 ``report_equivariance.md``.
 
 Reads each eval's ``results_multiseed.json`` (written by
-<<<<<<< HEAD
-``eval_angle_probe_multiseed.py``) and emits a Markdown table of R2 / MAE
-=======
 ``src/eval_angle_probe_multiseed.py``) and emits a Markdown table of R2 / MAE
->>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81
 (mean +/- std over 10 splits) per figurine. Backbones whose eval has not
 finished yet are listed as *pending*, so the report is safe to run at any time
 (e.g. as an ``afterany`` Slurm step after the eval jobs).

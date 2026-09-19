@@ -9,11 +9,7 @@ for 100 epochs on ImageNet-1K" — with our backbones instead of the ViT-B/14: a
 
 ## Protocol
 
-<<<<<<< HEAD
-Implemented in `eval_transfer.py` (`configs/eval/transfer_in1k_ep100.yaml`), datasets
-=======
 Implemented in `src/eval_transfer.py` (`configs/eval/transfer_in1k_ep100.yaml`), datasets
->>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81
 in `src/eval/transfer.py`:
 
 * **Pretraining**: the same ImageNet-1K checkpoints as `Imagenet1K_results.md` (100
@@ -85,11 +81,7 @@ in `src/eval/transfer.py`:
 
 `*pretraining, epoch N/100*` rows are runs that have not reached 100 epochs yet (their
 current `last.ckpt` epoch + 1); submit the matching array index of
-<<<<<<< HEAD
-`eval_transfer.py --only <name>` through `scripts/slurm_submit.sh` once they finish (the launcher
-=======
 `src/eval_transfer.py --only <name>` through `scripts/slurm_submit.sh` once they finish (the launcher
->>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81
 skips checkpoints below epoch 99). There is **no SUSReg / SPHERE-JEPA ImageNet-1K
 checkpoint** for either backbone, so the paper's SPHERE-JEPA row cannot be filled without
 a new pretrain.
@@ -107,13 +99,8 @@ a new pretrain.
 ```bash
 PYTHONPATH=. python scripts/download_transfer_datasets.py \
     --root /n/netscratch/dominici_lab/Lab/aborgi/transfer_datasets     # login node, once
-<<<<<<< HEAD
-for b in <backbones>; do sbatch --export=ALL,CMD="python eval_transfer.py --config configs/eval/transfer_in1k_ep100.yaml --only $b" scripts/slurm_submit.sh; done
-python eval_transfer.py --config configs/eval/transfer_in1k_ep100.yaml --merge-only
-=======
 for b in <backbones>; do sbatch --export=ALL,CMD="python src/eval_transfer.py --config configs/eval/transfer_in1k_ep100.yaml --only $b" scripts/slurm_submit.sh; done
 python src/eval_transfer.py --config configs/eval/transfer_in1k_ep100.yaml --merge-only
->>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81
 python scripts/make_transfer_results.py                                # rewrites this file
 ```
 

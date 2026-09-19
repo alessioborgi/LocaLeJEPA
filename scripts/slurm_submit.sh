@@ -1,9 +1,5 @@
 #!/bin/bash
-<<<<<<< HEAD
-#SBATCH --job-name=bundlejepa
-=======
 #SBATCH --job-name=localejepa
->>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81
 #SBATCH --partition=gpu
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
@@ -14,22 +10,14 @@
 #SBATCH --output=logs/slurm/%x_%j.out
 #SBATCH --error=logs/slurm/%x_%j.err
 #
-<<<<<<< HEAD
-# Canonical SLURM launcher for BundLeJEPA. Everything runs through `uv run`.
-=======
 # Canonical SLURM launcher for LocaLeJEPA. Everything runs through `uv run`.
->>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81
 #
 # Two modes, selected by environment variables (pass them with --export):
 #
 #   EXPERIMENT=<hydra experiment>   pretraining via src/train.py, e.g.
 #                                   EXPERIMENT=lejepa/vit_in1k_localballreg_l01_k4
 #   CMD="<shell command>"           anything else (evaluations, report scripts), e.g.
-<<<<<<< HEAD
-#                                   CMD="python eval_indomain.py --config configs/eval/indomain_in1k_ep100.yaml --only vit_sigreg"
-=======
 #                                   CMD="python src/eval_indomain.py --config configs/eval/indomain_in1k_ep100.yaml --only vit_sigreg"
->>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81
 #
 # Optional variables (pretraining mode):
 #   GPUS=N          number of GPUs (default 1). N>1 launches one process per GPU with
@@ -54,11 +42,7 @@
 #   sbatch --gres=gpu:4 --ntasks-per-node=4 --mem=256G \
 #          --export=ALL,EXPERIMENT=lejepa/vitl14_in1k_localballreg_l01_k4_paper,GPUS=4,REQUEUE=1 scripts/slurm_submit.sh
 #   sbatch --time=6:00:00 --mem=128G --cpus-per-task=16 \
-<<<<<<< HEAD
-#          --export=ALL,CMD="python eval_indomain.py --config configs/eval/indomain_in1k_ep100.yaml --only vit_sigreg" scripts/slurm_submit.sh
-=======
 #          --export=ALL,CMD="python src/eval_indomain.py --config configs/eval/indomain_in1k_ep100.yaml --only vit_sigreg" scripts/slurm_submit.sh
->>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81
 
 set -euo pipefail
 cd "${SLURM_SUBMIT_DIR:-$(dirname "$(dirname "$(readlink -f "$0")")")}"

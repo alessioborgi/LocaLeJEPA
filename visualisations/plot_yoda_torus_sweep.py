@@ -7,11 +7,7 @@
 """Torus reconstruction vs. training-set size for a frozen JEPA backbone.
 
 Fits the ridge angle-probe on a growing number of training frames (5, 10, 20,
-<<<<<<< HEAD
-..., full pool) -- exactly the low-data sweep of eval_angle_probe_lowdata.py --
-=======
 ..., full pool) -- exactly the low-data sweep of src/eval_angle_probe_lowdata.py --
->>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81
 and, for each size, renders the reconstructed (angle0, angle1) of the *same*
 held-out test frames on the 2-torus, colored by angular error. Watch the torus
 snap from noise into a clean donut as the probe gets more data.

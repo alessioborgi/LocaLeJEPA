@@ -1,8 +1,0 @@
-_target_: src.models.components.vision_transformer.VisionTransformer
-
-img_size: ${data.crop_size}
-patch_size: 16
-in_chans: 3
-embed_dim: 1024
-depth: 24
-num_heads: 16

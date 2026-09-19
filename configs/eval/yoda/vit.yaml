@@ -2,11 +2,7 @@
 # backbones (vit_imagenette_sigreg / vit_imagenette_subreg), to be appended to
 # the comparison table in report.md.
 #
-<<<<<<< HEAD
-#   python eval_angle_probe.py --config configs/eval/yoda/vit.yaml
-=======
 #   python src/eval_angle_probe.py --config configs/eval/yoda/vit.yaml
->>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81
 #
 # Same probe settings (full 8097 frames, seed 0, 60/20/20 split) as
 # eval_angle_probe_full.yaml, so the numbers are directly comparable to the

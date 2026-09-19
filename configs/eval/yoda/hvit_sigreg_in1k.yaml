@@ -3,13 +3,8 @@
 # 10 seeds) as the other eval configs so the numbers drop straight into the
 # comparison tables in equivariance_report.md / paper/yoda_probe_paper.tex.
 #
-<<<<<<< HEAD
-#   python eval_angle_probe.py           --config configs/eval/yoda/hvit_sigreg_in1k.yaml
-#   python eval_angle_probe_multiseed.py --config configs/eval/yoda/hvit_sigreg_in1k.yaml --n-seeds 10
-=======
 #   python src/eval_angle_probe.py           --config configs/eval/yoda/hvit_sigreg_in1k.yaml
 #   python src/eval_angle_probe_multiseed.py --config configs/eval/yoda/hvit_sigreg_in1k.yaml --n-seeds 10
->>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81
 
 device: null
 crop_size: 128
