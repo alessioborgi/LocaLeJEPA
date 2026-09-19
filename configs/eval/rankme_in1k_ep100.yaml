@@ -26,11 +26,11 @@ batch_size: 256
 num_workers: 8
 
 transfer_datasets: [dtd, aircraft, cifar10, cifar100, flowers, food, pets]
-transfer_data_root: /n/netscratch/dominici_lab/Lab/aborgi/transfer_datasets
+transfer_data_root: data/transfer_datasets
 
-indomain_cache_dir: /n/netscratch/dominici_lab/Lab/aborgi/eval_indomain_in1k_cache
-transfer_cache_dir: /n/netscratch/dominici_lab/Lab/aborgi/eval_transfer_in1k_cache
-cache_dir: /n/netscratch/dominici_lab/Lab/aborgi/eval_rankme_in1k_cache
+indomain_cache_dir: cache/eval_indomain_in1k_cache
+transfer_cache_dir: cache/eval_transfer_in1k_cache
+cache_dir: cache/eval_rankme_in1k_cache
 output_folder: logs/eval_rankme_in1k_ep100
 
 backbones:

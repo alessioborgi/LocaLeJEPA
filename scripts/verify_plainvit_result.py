@@ -39,7 +39,10 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from src.eval.extract import load_backbone  # noqa: E402
 from src.eval.indomain import get_indomain_splits  # noqa: E402
 
-CACHE = "/n/netscratch/dominici_lab/Lab/aborgi/eval_indomain_in1k_cache"
+# Feature cache written by src/eval_indomain.py. Relative by default, so it resolves against
+# the directory the evaluation was run from (the same convention as the eval configs'
+# cache_dir); override with EVAL_CACHE_DIR for a cache held elsewhere.
+CACHE = os.environ.get("EVAL_CACHE_DIR", "cache/eval_indomain_in1k_cache")
 BACKBONES = {
     "vit_sigreg": ("lejepa/vit_in1k_sigreg", "checkpoints/lejepa_vit_in1k_sigreg/last.ckpt", 99),
     "vit_localballreg_l01_k4": ("lejepa/vit_in1k_localballreg_l01_k4", "checkpoints/lejepa_vit_in1k_localballreg_l01_k4/last.ckpt", 99),

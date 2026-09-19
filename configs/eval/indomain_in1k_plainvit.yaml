@@ -23,7 +23,7 @@ batch_size: 256
 num_workers: 8
 
 output_folder: logs/eval_indomain_in1k_plainvit
-cache_dir: /n/netscratch/dominici_lab/Lab/aborgi/eval_indomain_in1k_cache
+cache_dir: cache/eval_indomain_in1k_cache
 
 train_subset_per_class: null
 

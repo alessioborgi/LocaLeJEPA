@@ -98,7 +98,7 @@ a new pretrain.
 
 ```bash
 PYTHONPATH=. python scripts/download_transfer_datasets.py \
-    --root /n/netscratch/dominici_lab/Lab/aborgi/transfer_datasets     # login node, once
+    --root <your-scratch>/transfer_datasets     # login node, once
 for b in <backbones>; do sbatch --export=ALL,CMD="python src/eval_transfer.py --config configs/eval/transfer_in1k_ep100.yaml --only $b" scripts/slurm_submit.sh; done
 python src/eval_transfer.py --config configs/eval/transfer_in1k_ep100.yaml --merge-only
 python scripts/make_transfer_results.py                                # rewrites this file

@@ -9,7 +9,7 @@
 Run on a login node (compute nodes have no internet); the eval jobs then read
 the datasets with ``download=False``.
 
-    python scripts/download_transfer_datasets.py --root /n/netscratch/dominici_lab/Lab/aborgi/transfer_datasets
+    python scripts/download_transfer_datasets.py --root <your-scratch>/transfer_datasets
     python scripts/download_transfer_datasets.py --root ... --only dtd,aircraft
 """
 
