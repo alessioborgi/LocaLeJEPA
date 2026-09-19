@@ -37,8 +37,13 @@ def load_backbone(
     config_dir: Optional[str] = None,
     project_root: Optional[str] = None,
     overrides: Optional[list[str]] = None,
+    feature: str = "encoder",
 ) -> tuple[ExtractFn, int]:
     """Rebuild a pretrained encoder from its experiment config and load weights.
+
+    ``feature="patch"`` returns post-norm spatial ViT tokens, excluding prefix
+    tokens and output heads. H-ViT uses its Euclidean body. Only this mode
+    interpolates positional embeddings when the requested resolution changes.
 
     Args:
         experiment: Hydra experiment name, e.g. ``"lejepa/nvit_imagenette_sigreg"``.
@@ -75,8 +80,17 @@ def load_backbone(
             config_name="train",
             overrides=[f"experiment={experiment}", f"data.crop_size={crop_size}", *(overrides or [])],
         )
+    if feature not in ("encoder", "patch"):
+        raise ValueError(f"Unknown feature mode: {feature}")
     encoder = hydra.utils.instantiate(cfg.model.encoder)
     embedding_dim = int(cfg.model.embedding_dim)
+    patch_body = None
+    if feature == "patch":
+        patch_body = encoder.body if hasattr(encoder, "to_poincare") else encoder
+        if not all(hasattr(patch_body, attr) for attr in
+                   ("forward_features", "patch_embed", "num_prefix_tokens", "num_features")):
+            raise ValueError("Patch extraction requires a timm ViT or HyperbolicViT")
+        embedding_dim = int(patch_body.num_features)
     GlobalHydra.instance().clear()
 
     ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
@@ -91,6 +105,22 @@ def load_backbone(
         if sub.startswith("_orig_mod."):
             sub = sub[len("_orig_mod."):]
         encoder_sd[sub] = value
+
+    if patch_body is not None:
+        pos_key = "body.pos_embed" if patch_body is not encoder else "pos_embed"
+        if pos_key in encoder_sd and patch_body.pos_embed is not None:
+            source, target = encoder_sd[pos_key], patch_body.pos_embed
+            if source.shape != target.shape:
+                from timm.layers import resample_abs_pos_embed
+                prefix = 0 if getattr(patch_body, "no_embed_class", False) else patch_body.num_prefix_tokens
+                count = source.shape[1] - prefix
+                side = int(count ** 0.5)
+                if side * side != count:
+                    raise ValueError("Patch PCA requires a square checkpoint positional grid")
+                encoder_sd[pos_key] = resample_abs_pos_embed(
+                    source, new_size=patch_body.patch_embed.grid_size,
+                    old_size=(side, side), num_prefix_tokens=prefix,
+                )
 
     missing, unexpected = encoder.load_state_dict(encoder_sd, strict=False)
     if missing or unexpected:
@@ -113,6 +143,8 @@ def load_backbone(
     @torch.no_grad()
     def extract_fn(images: torch.Tensor) -> torch.Tensor:
         images = images.to(device, non_blocking=True)
+        if patch_body is not None:
+            return vit_spatial_patch_tokens(patch_body, images).float().cpu()
         feats = encoder(images)
         if feats.ndim != 2:
             raise RuntimeError(
@@ -122,6 +154,18 @@ def load_backbone(
         return feats.float().cpu()
 
     return extract_fn, embedding_dim
+
+
+def vit_spatial_patch_tokens(body, images):
+    """Post-norm ViT tokens in raster order, excluding CLS/register tokens."""
+    tokens = body.forward_features(images)
+    if not isinstance(tokens, torch.Tensor) or tokens.ndim != 3:
+        raise ValueError("Expected forward_features to return (B,N,D) tokens")
+    tokens = tokens[:, body.num_prefix_tokens:]
+    expected = int(body.patch_embed.grid_size[0] * body.patch_embed.grid_size[1])
+    if tokens.shape[1] != expected:
+        raise ValueError(f"Expected {expected} spatial tokens, got {tokens.shape[1]}")
+    return tokens
 
 
 def _stack_labels(labels: list) -> torch.Tensor:

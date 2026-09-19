@@ -1,0 +1,40 @@
+# Imagenette example only. For other datasets supply their preprocessing and paths.
+image_root: data/imagenette/imagenette2-160/val
+image_mode: RGB
+normalization:
+  mean: [0.485, 0.456, 0.406]
+  std: [0.229, 0.224, 0.225]
+class_aliases:
+  tench: n01440764
+  English springer: n02102040
+  cassette player: n02979186
+  chain saw: n03000684
+  church: n03028079
+  French horn: n03394916
+  garbage truck: n03417042
+  gas pump: n03425413
+  golf ball: n03445777
+  parachute: n03888257
+crop_size: 128
+backbones:
+  - name: LocaLe_K2
+    experiment: lejepa/vit_imagenette_localballreg_l01_k4
+    overrides: [model.reg_loss.num_clusters=2]
+    checkpoint: checkpoints/ball_l01_k2_s0/best.ckpt
+  - name: LocaLe_K4
+    experiment: lejepa/vit_imagenette_localballreg_l01_k4
+    checkpoint: checkpoints/ball_l01_k4_s0/best.ckpt
+  - name: LocaLe_K8
+    experiment: lejepa/vit_imagenette_localballreg_l01_k4
+    overrides: [model.reg_loss.num_clusters=8]
+    checkpoint: checkpoints/ball_l01_k8_s0/best.ckpt
+  - name: SIGReg
+    experiment: lejepa/vit_imagenette_sigreg
+    checkpoint: checkpoints/lejepa/best.ckpt
+  - name: RDMReg
+    experiment: rectifiedlpjepa/vit_imagenette_rdmreg
+    checkpoint: checkpoints/rectlpjepa/best.ckpt
+  - name: H_LocaLe_K4
+    experiment: lejepa/vit_imagenette_localballreg_l01_k4
+    overrides: [model/encoder=hvit_small_p8]
+    checkpoint: checkpoints/hvit_locale_k4/best.ckpt

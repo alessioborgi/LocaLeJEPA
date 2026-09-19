@@ -1,0 +1,14 @@
+# Copy and edit for any image dataset. Direct checkpoint extraction currently
+# supports timm ViTs and HyperbolicViT with this repo's encoder.* checkpoints.
+# Other backbones/modalities can export spatial features and use --features.
+crop_size: 128
+image_mode: RGB  # L for grayscale, with a compatible one-channel encoder
+# Set these to the preprocessing used by your trained backbone.
+normalization:
+  mean: [0.0, 0.0, 0.0]
+  std: [1.0, 1.0, 1.0]
+backbones:
+  - name: my_backbone
+    experiment: YOUR_HYDRA_EXPERIMENT
+    checkpoint: /path/to/checkpoint.ckpt
+    overrides: []
