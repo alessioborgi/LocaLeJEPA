@@ -27,6 +27,7 @@ data:
   copy_data: false
 
 model:
+  lr_eta_min_ratio: 1.0
   embedding_dim: 512
   projection_dim: 16
   num_classes: 1000

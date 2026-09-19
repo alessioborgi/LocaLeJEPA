@@ -36,6 +36,7 @@ data:
     num_local_crops: 8
 
 model:
+  lr_eta_min_ratio: 2.0
   embedding_dim: 1024      # native ViT-L width (timm head 1024 -> 1024)
   projection_dim: 64
   num_classes: 1000
