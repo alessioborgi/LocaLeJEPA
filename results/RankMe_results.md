@@ -10,7 +10,11 @@ performance — for every ImageNet-1K pretrain in this repo: **D4-equivariant Re
 
 ## Protocol
 
+<<<<<<< HEAD
 Implemented in `eval_rankme.py` (`configs/eval/rankme_in1k_ep100.yaml`), metric in
+=======
+Implemented in `src/eval_rankme.py` (`configs/eval/rankme_in1k_ep100.yaml`), metric in
+>>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81
 `src/eval/rankme.py`:
 
 * **RankMe** (paper Eq. 1-2): with `σ_k` the singular values of the `N × K` feature
@@ -128,12 +132,21 @@ ImageNet-1K rank is in the last row of each block.
 
 `*pretraining, epoch N/100*` rows have not reached 100 epochs yet (their current
 `last.ckpt` epoch + 1); `*finished, eval pending*` rows need the matching array index of
+<<<<<<< HEAD
 `eval_rankme.py --only <name>` on a GPU job via `scripts/slurm_submit.sh` (~10 min: embeds the
 25,600-image subset). Runs whose features were already in the in-domain / transfer eval
 caches were ranked on a login node with `--cached-only`. A `—` in the k-NN / Linear
 columns of a finished row means the in-domain evaluation (`eval_indomain.py`) has not been
 run for that checkpoint yet (it is not in `Imagenet1K_results.md` either); a `—` in
 Transfer Avg means the same for `eval_transfer.py`.
+=======
+`src/eval_rankme.py --only <name>` on a GPU job via `scripts/slurm_submit.sh` (~10 min: embeds the
+25,600-image subset). Runs whose features were already in the in-domain / transfer eval
+caches were ranked on a login node with `--cached-only`. A `—` in the k-NN / Linear
+columns of a finished row means the in-domain evaluation (`src/eval_indomain.py`) has not been
+run for that checkpoint yet (it is not in `Imagenet1K_results.md` either); a `—` in
+Transfer Avg means the same for `src/eval_transfer.py`.
+>>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81
 
 ## Figures
 
@@ -159,9 +172,15 @@ Transfer Avg means the same for `eval_transfer.py`.
 ## Reproduce
 
 ```bash
+<<<<<<< HEAD
 PYTHONPATH=. python eval_rankme.py --config configs/eval/rankme_in1k_ep100.yaml --cached-only  # login node
 sbatch --export=ALL,CMD="python eval_rankme.py --config configs/eval/rankme_in1k_ep100.yaml --only <name>" scripts/slurm_submit.sh   # uncached backbones
 python eval_rankme.py --config configs/eval/rankme_in1k_ep100.yaml --merge-only
+=======
+PYTHONPATH=. python src/eval_rankme.py --config configs/eval/rankme_in1k_ep100.yaml --cached-only  # login node
+sbatch --export=ALL,CMD="python src/eval_rankme.py --config configs/eval/rankme_in1k_ep100.yaml --only <name>" scripts/slurm_submit.sh   # uncached backbones
+python src/eval_rankme.py --config configs/eval/rankme_in1k_ep100.yaml --merge-only
+>>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81
 python scripts/make_rankme_results.py                                                          # rewrites this file
 ```
 

@@ -1,0 +1,13 @@
+# @package _global_
+# batch-vs-lr table (fixed k 4): B in {64,128,256} x peak lr in {3e-4, 1e-3, 3e-3}, 9 runs.
+#   uv run python src/train.py -m experiment=ablations/batch_lr
+
+defaults:
+  - /experiment/ablations/base
+  - _self_
+
+hydra:
+  sweeper:
+    params:
+      data.batch_size: 64,128,256
+      optimizer.lr: 3e-4,1e-3,3e-3

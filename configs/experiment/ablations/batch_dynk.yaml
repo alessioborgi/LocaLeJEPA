@@ -1,0 +1,12 @@
+# @package _global_
+# Dynamic-k row of the batch-vs-k table: B in {64,128,256}, k 2 -> 16, 3 runs.
+#   uv run python src/train.py -m experiment=ablations/batch_dynk
+
+defaults:
+  - /experiment/ablations/dynk
+  - _self_
+
+hydra:
+  sweeper:
+    params:
+      data.batch_size: 64,128,256

@@ -1,0 +1,14 @@
+# @package _global_
+# batch-vs-k table (fixed lr 1e-3): B in {64,128,256} x fixed k in {2,4,...,16}, 24 runs.
+# No accumulation, so B is what the regularizer, k-means and the optimizer see.
+#   uv run python src/train.py -m experiment=ablations/batch_k
+
+defaults:
+  - /experiment/ablations/base
+  - _self_
+
+hydra:
+  sweeper:
+    params:
+      data.batch_size: 64,128,256
+      model.reg_loss.num_clusters: 2,4,6,8,10,12,14,16

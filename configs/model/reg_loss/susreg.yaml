@@ -1,0 +1,2 @@
+_target_: src.losses.susreg_loss
+_partial_: true

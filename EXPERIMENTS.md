@@ -4,7 +4,11 @@ This branch (`experiments`) = `main` + everything needed to rerun and re-analyse
 experiments. Install with
 
 ```bash
+<<<<<<< HEAD
 uv sync --all-extras          # equivariant (escnn, needs gfortran), imagenet (HF staging), experiments (plots, scipy, sklearn, h5py)
+=======
+uv sync --all-extras          # equivariant (escnn, needs gfortran), imagenet (HF staging), experiments (plots, scipy, sklearn)
+>>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81
 ```
 
 and run every command below from the repository root (`uv run python ...`; the `eval_*.py`
@@ -16,6 +20,7 @@ scripts import `src` relative to the current directory).
 configs/experiment/         all pretraining configs (see configs/experiment/README.md for the map)
 configs/eval/               in-domain (k-NN + linear), transfer, RankMe configs
 configs/eval/yoda/          rotation-angle ("Yoda" bobblehead) probe configs, one per backbone
+<<<<<<< HEAD
 eval_transfer.py            7-dataset transfer linear probing (SPHERE-JEPA Table 1 protocol)
 eval_rankme.py              RankMe effective rank of the frozen features
 eval_angle_probe*.py        ridge probe of the two figurine rotation angles (+ multi-seed, low-data)
@@ -29,6 +34,23 @@ results/                    the generated result tables (Markdown)
 src/models/                 baselines: rectifiedlpjepa, spherejepa, subjepa, bundlejepa, ijepa, phc_regression
 src/models/components/      nvit, spherical_vit, vision_transformer (I-JEPA), phc encoder
 src/data/                   stl10, phc, bobblehead datamodules; I-JEPA mask collator
+=======
+src/eval_transfer.py            7-dataset transfer linear probing (SPHERE-JEPA Table 1 protocol)
+src/eval_rankme.py              RankMe effective rank of the frozen features
+eval_angle_probe*.py        ridge probe of the two figurine rotation angles (+ multi-seed, low-data)
+src/eval_conformal.py           Conformal-Autoencoder intrinsic-dimension detection on frozen features
+scripts/make_*.py           regenerate the result tables in results/ (+ LaTeX in paper/)
+scripts/download_transfer_datasets.py   torchvision transfer datasets
+scripts/verify_plainvit_result.py   independent audit of the headline plain-ViT numbers
+scripts/slurm_submit.sh     the single SLURM launcher
+scripts/benchmark_regularizers.py   forward+backward time / memory of the regularizers on synthetic batches
+visualisations/             torus / low-data figures of the Yoda probe (write to visualisations/figures/)
+results/                    the generated result tables (Markdown) and the k-schedule / radius / complexity write-ups
+src/models/                 rectifiedlpjepa (thin LeJEPAModule subclass); other baselines are reg_loss configs
+src/models/components/      nvit, spherical_vit, vision_transformer + tensor_ops (I-JEPA code they use)
+src/data/                   stl10, bobblehead datamodules
+src/callbacks/              dynamic k schedule
+>>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81
 ```
 
 ## 1. Pretraining
@@ -42,17 +64,29 @@ src/data/                   stl10, phc, bobblehead datamodules; I-JEPA mask coll
 | paper setting, ViT-L/14, 4 GPUs | `lejepa/vitl14_in1k_{sigreg,localballreg_l01_k4}_paper` | `... trainer=ddp trainer.devices=4` |
 | ablations λ / k / dynamic k / local SIGReg / RDMReg | see `configs/experiment/README.md` | idem |
 
+<<<<<<< HEAD
+=======
+Sweeps are Hydra multiruns: `-m` with comma-separated values runs the cartesian product, e.g.
+`uv run python src/train.py -m experiment=lejepa/vit_imagenette_localballreg_l01_k4 model.reg_loss.num_clusters=2,4,8`.
+W&B names each run after its CLI overrides (`logger.wandb.name` in `configs/logger/wandb.yaml`).
+Multirun is sequential on one GPU; on SLURM submit one `scripts/slurm_submit.sh` job per config.
+
+>>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81
 Pin checkpoints to a stable directory so the eval configs find them:
 `callbacks.model_checkpoint.dirpath=checkpoints/lejepa_vit_in1k_sigreg` (the eval configs
 expect `checkpoints/<model>_<experiment name>/{best,last}.ckpt`, e.g.
 `checkpoints/lejepa_vit_in1k_localballreg_l01_k4/last.ckpt`). Resume with `ckpt_path=<dir>/last.ckpt`.
 
 ImageNet-1K: `uv run python scripts/stage_imagenet1k_hf.py --dest data/imagenet` (gated HF
+<<<<<<< HEAD
 dataset; accept the licence and `hf auth login` first). Imagenette downloads itself. PhC:
 `uv run python scripts/download_phc.py --output-dir data/phc`, then
 `experiment=lejepa/phc_blob_ep250` and
 `experiment=phc_regression/blob_supervised_ep500 model.pretrained_ckpt_path=<ckpt> model.freeze_encoder=true`
 (`blob` → `gpm` for the second dataset; `freeze_encoder=false` for full fine-tuning).
+=======
+dataset; accept the licence and `hf auth login` first). Imagenette downloads itself.
+>>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81
 
 ## 2. Evaluation (the reported tables)
 
@@ -62,6 +96,7 @@ All evaluators take a YAML listing `backbones: [{name, experiment, checkpoint}]`
 
 | table | command | then |
 |---|---|---|
+<<<<<<< HEAD
 | IN1K k-NN + linear, HViT / D4-RN50 (`results/Imagenet1K_results.md`) | `uv run python eval_indomain.py --config configs/eval/indomain_in1k_ep100.yaml` | `uv run python scripts/make_imagenet1k_results.py` |
 | IN1K k-NN + linear, plain ViT (`results/report_plainViT_LastExp.md`) | `uv run python eval_indomain.py --config configs/eval/indomain_in1k_plainvit.yaml` | `uv run python scripts/make_plainvit_report.py` |
 | transfer, 7 datasets (`results/Transfer_results.md`) | `uv run python scripts/download_transfer_datasets.py --root <root>` once, then `uv run python eval_transfer.py --config configs/eval/transfer_in1k_ep100.yaml` | `uv run python scripts/make_transfer_results.py` |
@@ -71,6 +106,17 @@ All evaluators take a YAML listing `backbones: [{name, experiment, checkpoint}]`
 The bobblehead data (`data/yoda_dog_images_and_labels.zip`, 8097 frames + `labels.npy`) is the
 dataset of Kevrekidis et al., arXiv:2408.16138 and is not redistributed here.
 `eval_conformal.py --config configs/eval/conformal.yaml` runs the Conformal-Autoencoder
+=======
+| IN1K k-NN + linear, HViT / D4-RN50 (`results/Imagenet1K_results.md`) | `uv run python src/eval_indomain.py --config configs/eval/indomain_in1k_ep100.yaml` | `uv run python scripts/make_imagenet1k_results.py` |
+| IN1K k-NN + linear, plain ViT (`results/report_plainViT_LastExp.md`) | `uv run python src/eval_indomain.py --config configs/eval/indomain_in1k_plainvit.yaml` | `uv run python scripts/make_plainvit_report.py` |
+| transfer, 7 datasets (`results/Transfer_results.md`) | `uv run python scripts/download_transfer_datasets.py --root <root>` once, then `uv run python src/eval_transfer.py --config configs/eval/transfer_in1k_ep100.yaml` | `uv run python scripts/make_transfer_results.py` |
+| RankMe (`results/RankMe_results.md`) | `uv run python src/eval_rankme.py --config configs/eval/rankme_in1k_ep100.yaml` | `uv run python scripts/make_rankme_results.py` |
+| Yoda rotation-angle probe (`results/report_equivariance.md`) | per backbone: `uv run python src/eval_angle_probe.py --config configs/eval/yoda/<name>.yaml` then `uv run python src/eval_angle_probe_multiseed.py --config configs/eval/yoda/<name>.yaml --n-seeds 10` | `uv run python scripts/make_equivariance_report.py` |
+
+The bobblehead data (`data/yoda_dog_images_and_labels.zip`, 8097 frames + `labels.npy`) is the
+dataset of Kevrekidis et al., arXiv:2408.16138 and is not redistributed here.
+`src/eval_conformal.py --config configs/eval/conformal.yaml` runs the Conformal-Autoencoder
+>>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81
 dimension-detection experiment on the same frames.
 
 Machine-specific paths in the eval configs are `cache_dir` (feature caches, ~1.4 GB per IN1K
@@ -97,7 +143,11 @@ sbatch --gres=gpu:4 --ntasks-per-node=4 --mem=256G \
 
 # evaluation / reports: any command
 sbatch --time=6:00:00 --mem=128G --cpus-per-task=16 \
+<<<<<<< HEAD
        --export=ALL,CMD="python eval_indomain.py --config configs/eval/indomain_in1k_ep100.yaml --only vit_sigreg" scripts/slurm_submit.sh
+=======
+       --export=ALL,CMD="python src/eval_indomain.py --config configs/eval/indomain_in1k_ep100.yaml --only vit_sigreg" scripts/slurm_submit.sh
+>>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81
 ```
 
 Variables: `EXPERIMENT`, `GPUS`, `RUN_NAME`, `CKPT_DIR`, `REQUEUE`, `OVERRIDES="logger=csv ..."`,

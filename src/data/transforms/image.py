@@ -55,6 +55,6 @@ class MultiCropTransform:
             return torch.stack(global_views + local_views)
         # Mixed resolutions (e.g. 224 px global / 98 px local as in the LeJEPA paper):
         # return one stacked tensor per resolution group. The default collate turns this
-        # into ``[(N, V_g, C, H_g, W_g), (N, V_l, C, H_l, W_l)]`` and JEPAModule.encode
+        # into ``[(N, V_g, C, H_g, W_g), (N, V_l, C, H_l, W_l)]`` and LeJEPAModule.encode
         # accepts that grouped layout (global views still come first).
         return torch.stack(global_views), torch.stack(local_views)

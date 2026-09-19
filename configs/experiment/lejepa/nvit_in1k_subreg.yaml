@@ -7,6 +7,10 @@
 defaults:
   - override /data: imagenet1k
   - override /model: lejepa
+<<<<<<< HEAD
+=======
+  - override /model/reg_loss: subreg
+>>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81
   - override /model/encoder: nvit_small_p8
   - override /optimizer: adam
   - override /trainer: gpu
@@ -25,6 +29,10 @@ data:
   copy_data: false
 
 model:
+<<<<<<< HEAD
+=======
+  lr_eta_min_ratio: 0.5
+>>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81
   embedding_dim: 512
   projection_dim: 16
   num_classes: 1000
@@ -32,9 +40,13 @@ model:
   num_global_crops: null
   probe_lr: 1e-3
   probe_weight_decay: 1e-7
+<<<<<<< HEAD
   loss_type: subreg
   lamb: 0.02
   num_subspaces: 4
+=======
+  lamb: 0.02
+>>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81
   projector:
     hidden_channels:
       - 2048

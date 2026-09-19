@@ -1,0 +1,4 @@
+_target_: src.losses.SubReg
+
+projection_dim: ${model.projection_dim}
+num_subspaces: 4

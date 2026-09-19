@@ -32,13 +32,14 @@ data:
     num_local_crops: 8
 
 model:
+  lr_eta_min_ratio: 2.0
   embedding_dim: 1024      # native ViT-L width (timm head 1024 -> 1024)
   projection_dim: 64
   num_classes: 1000
   lamb: 0.05
-  loss_type: sigreg
-  sigreg_num_slices: 1024
-  sigreg_t_max: 5.0
+  reg_loss:
+    num_slices: 1024
+    t_max: 5.0
   use_online_probe: true
   num_global_crops: ${data.train_transform.num_global_crops}
   probe_lr: 1e-3

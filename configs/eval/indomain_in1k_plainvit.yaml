@@ -7,8 +7,8 @@
 # Headline rows = final checkpoint (epoch 99 = 100 ep., last.ckpt); *_best rows =
 # online-probe-selected checkpoint (best val/probe_acc, best.ckpt).
 #
-#   sbatch --export=ALL,CMD="python eval_indomain.py --config configs/eval/indomain_in1k_plainvit.yaml --only <name>" scripts/slurm_submit.sh
-#   python eval_indomain.py --config configs/eval/indomain_in1k_plainvit.yaml --merge-only
+#   sbatch --export=ALL,CMD="python src/eval_indomain.py --config configs/eval/indomain_in1k_plainvit.yaml --only <name>" scripts/slurm_submit.sh
+#   python src/eval_indomain.py --config configs/eval/indomain_in1k_plainvit.yaml --merge-only
 #   python scripts/make_plainvit_report.py
 
 device: null

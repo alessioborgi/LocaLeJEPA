@@ -1,0 +1,11 @@
+defaults:
+  - default
+  - _self_
+
+# every step_epochs: k moves by step from start towards end, on model.reg_loss.num_clusters
+dynamic_num_clusters:
+  _target_: src.callbacks.dynamic_num_clusters.DynamicNumClusters
+  start: 1
+  end: 8
+  step_epochs: 100
+  step: 1

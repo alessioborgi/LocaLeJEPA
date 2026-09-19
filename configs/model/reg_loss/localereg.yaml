@@ -1,0 +1,8 @@
+defaults:
+  - local
+  - uniform_reg@loss
+  - _self_
+
+_target_: src.losses.local_ballreg_loss
+loss:
+  center: true

@@ -7,6 +7,7 @@
 defaults:
   - override /data: imagenet1k
   - override /model: lejepa
+  - override /model/reg_loss: localereg
   - override /model/encoder: timm_vit
   - override /optimizer: adamw
   - override /trainer: gpu
@@ -26,6 +27,7 @@ data:
   copy_data: false
 
 model:
+  lr_eta_min_ratio: 1.0
   embedding_dim: 512
   projection_dim: 16
   num_classes: 1000
@@ -35,17 +37,8 @@ model:
   probe_weight_decay: 1e-7
   warmup_epochs: 10
   lamb: 0.1
-  loss_type: local_ballreg
-  local_sigreg_num_clusters: 4
-  local_sigreg_kmeans_iters: 10
-  local_sigreg_min_cluster_size: 4
-  local_sigreg_weighted: false
-  local_sigreg_normalize_for_kmeans: true
-  local_sigreg_kmeans_backend: fast_pytorch_kmeans
-  local_ballreg_radius: null
-  local_ballreg_center_clusters: true
-  local_ballreg_n_quad: 64
-  dynamic_num_clusters: false
+  reg_loss:
+    num_clusters: 4
   projector:
     hidden_channels:
       - 2048

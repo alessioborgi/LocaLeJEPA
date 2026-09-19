@@ -12,6 +12,12 @@ sweep:
   dir: ${paths.log_dir}/${task_name}/multiruns/${now:%Y-%m-%d}_${now:%H-%M-%S}
   subdir: ${hydra.job.num}
 
+# ${hydra:job.override_dirname} (W&B run names): keep only the overrides that define the run
+job:
+  config:
+    override_dirname:
+      exclude_keys: [logger, data.num_workers, trainer.devices, paths.data_dir, ckpt_path]
+
 job_logging:
   handlers:
     file:

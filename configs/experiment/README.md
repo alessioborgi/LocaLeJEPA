@@ -1,10 +1,10 @@
 # Experiment configs
 
 `uv run python src/train.py experiment=<group>/<name>` runs one of the configs below. Every
-config is self-contained: it also carries the settings the original SLURM launchers passed on
-the command line (per-step `data.batch_size: 64` × `trainer.accumulate_grad_batches: 4` = 256
-effective on single-GPU runs, `trainer.gradient_clip_val: 1.0` for the local regularizers,
-`trainer.max_epochs: 100` for the ImageNet-1K suite).
+config is self-contained: `experiment=<name>` alone reproduces the run (per-step
+`data.batch_size: 64` × `trainer.accumulate_grad_batches: 4` = 256 effective on single-GPU runs,
+`trainer.gradient_clip_val: 1.0` for the local regularizer, `trainer.max_epochs: 100` for the
+ImageNet-1K suite).
 
 ## Shared recipe
 
@@ -23,7 +23,7 @@ The ViT-L/14 "paper setting" configs (`*_paper`) instead follow LeJEPA §6.1: 2�
 
 ## LeJEPA baseline vs. ours, per backbone / dataset
 
-| backbone · dataset | LeJEPA (SIGReg) | **ours: local BallReg λ0.1 k4** |
+| backbone · dataset | LeJEPA (SIGReg) | **ours: LocaLe-Reg λ0.1 k4** |
 |---|---|---|
 | ViT-S/8 · ImageNet-1K 100 ep. | `lejepa/vit_in1k_sigreg` | `lejepa/vit_in1k_localballreg_l01_k4` |
 | Hyperbolic ViT-S/8 · ImageNet-1K 100 ep. | `lejepa/hvit_in1k_sigreg` | `lejepa/hvit_in1k_localballreg_l01_k4` |
@@ -31,9 +31,9 @@ The ViT-L/14 "paper setting" configs (`*_paper`) instead follow LeJEPA §6.1: 2�
 | ViT-L/14 · ImageNet-1K paper setting | `lejepa/vitl14_in1k_sigreg_paper` | `lejepa/vitl14_in1k_localballreg_l01_k4_paper` |
 | ViT-S/8 · Imagenette 800 ep. | `lejepa/vit_imagenette_sigreg` | `lejepa/vit_imagenette_localballreg_l01_k4` |
 
-What differs between the two columns (compare the YAMLs): `model.loss_type` (`sigreg` →
-`local_ballreg`), `model.lamb` (0.02 → 0.1; 0.05 → 0.1 in the paper setting),
-`model.local_sigreg_num_clusters: 4` (= k), and the stabilized recipe (lr 1e-3 / warm-up 10 /
+What differs between the two columns (compare the YAMLs): `model/reg_loss` (`sigreg` →
+`localereg`), `model.lamb` (0.02 → 0.1; 0.05 → 0.1 in the paper setting),
+`model.reg_loss.num_clusters: 4` (= k), and the stabilized recipe (lr 1e-3 / warm-up 10 /
 grad-clip 1.0, except in the paper setting where only the clip is added). Everything else is
 identical.
 
@@ -41,13 +41,13 @@ identical.
 
 | config suffix | regularizer | λ | k |
 |---|---|---|---|
-| `_localballreg_l01_k2` | local BallReg | 0.1 | 2 |
-| `_localballreg_l01_k4` | local BallReg | 0.1 | 4 |
-| `_localballreg_l03_k2` | local BallReg | 0.3 | 2 |
-| `_localballreg_l01_dynk` | local BallReg | 0.1 | 1 → 8, +1 every 100 epochs (`dynamic_num_clusters`) |
-| `_localsigreg_l01_k4` | local SIGReg | 0.1 | 4 |
+| `_localballreg_l01_k2` | LocaLe-Reg | 0.1 | 2 |
+| `_localballreg_l01_k4` | LocaLe-Reg | 0.1 | 4 |
+| `_localballreg_l03_k2` | LocaLe-Reg | 0.3 | 2 |
+| `_localballreg_l01_dynk` | LocaLe-Reg | 0.1 | 1 → 8, +1 every 100 epochs (`callbacks=dynamic_num_clusters`) |
+| `_localsigreg_l01_k4` | LocaLeJEPA-SIGReg | 0.1 | 4 |
 | `_sigreg` | SIGReg (LeJEPA) | 0.02 | – |
-| `rectifiedlpjepa/*_rdmreg` | RDMReg (Rectified LpJEPA, `model=rectifiedlpjepa`) | – | – |
+| `rectifiedlpjepa/*_rdmreg` | RDMReg (Rectified LpJEPA, `model=rectifiedlpjepa`: `LeJEPAModule` + ReLU + absolute loss weights, `reg_loss=rdmreg`) | – | – |
 
 Imagenette (800 epochs, ViT-S/8): `vit_imagenette_{sigreg,susreg,subreg,local_sigreg,local_ballreg}`
 use the baseline recipe (the two `local_*` ones with the default λ=0.02 / k=8 are the runs that
@@ -59,14 +59,21 @@ per-backbone baselines.
 ## Other groups (experiments branch)
 
 * `lejepa/{nvit,svit}_{imagenette,in1k}_{sigreg,susreg,subreg}`: the nGPT-style NormalizedViT
-  and SphericalViT backbones with SIGReg / SUSReg (`model=spherejepa`) / SubReg (`model=subjepa`).
-  Note `nvit_in1k_subreg` selects `loss_type: subreg` on `model=lejepa`, which `LeJEPAModule`
-  does not implement (use `model=subjepa` as in `nvit_imagenette_subreg`); it is kept as found.
+  and SphericalViT backbones with SIGReg / SUSReg / SubReg (`model/reg_loss={sigreg,susreg,subreg}`).
 * `lejepa/{rn18_stl10,rn50_in100,vits16_in100,svits16_in100}_ep500`: LeJEPA-paper-style
   benchmark settings on STL-10 / ImageNet-100 (multi-crop 2+6 views, 224 px); not part of the
   reported tables.
-* `lejepa/phc_{blob,gpm}_ep250` + `phc_regression/{blob,gpm}_supervised_ep500`: photonic-crystal
-  pretraining and DOS-regression fine-tuning (`scripts/download_phc.py` fetches the data).
-* `bundlejepa/vit_imagenette`: LeJEPA + E-SSL four-fold-rotation equivariance loss
-  (`model=bundlejepa`).
-* `ijepa/*`: I-JEPA baseline (`model=ijepa`, masked-patch prediction).
+* `lejepa/vit_imagenette_localballreg_l01_k{1,6,8,16,32}_ep100`: the neighbourhood-count study
+  with a short recipe — 100 epochs, batch 256 (no accumulation, so the clustering batch is 256),
+  lr 1e-3, warm-up 3, cosine to 1% of the peak. The k x lr grid is one Hydra multirun:
+  `uv run python src/train.py -m experiment=lejepa/vit_imagenette_localballreg_l01_k1_ep100,lejepa/vit_imagenette_localballreg_l01_k6_ep100,lejepa/vit_imagenette_localballreg_l01_k16_ep100,lejepa/vit_imagenette_localballreg_l01_k32_ep100 optimizer.lr=3e-4,1e-3,3e-3`.
+  On SLURM submit one job per cell instead:
+  `for k in 1 6 8 16 32; do for lr in 3e-4 1e-3 3e-3; do sbatch --export=ALL,EXPERIMENT=lejepa/vit_imagenette_localballreg_l01_k${k}_ep100,OVERRIDES="optimizer.lr=$lr" scripts/slurm_submit.sh; done; done`.
+* `lejepa/vit_imagenette_local_ballreg_dynk_b_ablation`: batch-size ablation of the dynamic-k run
+  (`hydra.sweeper.params` sweeps `data.batch_size` over 32..1024; one GPU, no accumulation).
+* `ablations/{batch_k,k_lr,batch_lr}` and the dynamic-k rows `ablations/{batch_dynk,lr_dynk}`:
+  the three ablation tables on a common recipe (`ablations/base`: Euclidean ViT-S/8, Imagenette,
+  100 epochs, B 256 without accumulation, lr 1e-3 cosine to 1% of the peak, k 4, lambda 0.2);
+  each carries its grid in `hydra.sweeper.params`. See `handoff.md`.
+* Radius sweep: `uv run python src/train.py -m experiment=lejepa/vit_imagenette_localballreg_l01_k4 model.reg_loss.loss.radius=0.5,1.0,null model.reg_loss.loss.scale_grid=true`
+  (`scale_grid` keeps the test's power the same at every radius; it is a no-op at the default R).

@@ -12,8 +12,13 @@
 # it differs from the final one and has not been evaluated before (those three
 # are already in logs/eval_indomain_in1k).
 #
+<<<<<<< HEAD
 #   sbatch --export=ALL,CMD="python eval_indomain.py --config configs/eval/indomain_in1k_ep100.yaml --only <name>" scripts/slurm_submit.sh
 #   python eval_indomain.py --config configs/eval/indomain_in1k_ep100.yaml --merge-only
+=======
+#   sbatch --export=ALL,CMD="python src/eval_indomain.py --config configs/eval/indomain_in1k_ep100.yaml --only <name>" scripts/slurm_submit.sh
+#   python src/eval_indomain.py --config configs/eval/indomain_in1k_ep100.yaml --merge-only
+>>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81
 
 device: null
 seed: 0

@@ -5,7 +5,12 @@
 
 defaults:
   - override /data: imagenette
+<<<<<<< HEAD
   - override /model: spherejepa
+=======
+  - override /model: lejepa
+  - override /model/reg_loss: susreg
+>>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81
   - override /model/encoder: spherical_vit_small_p8
   - override /optimizer: adam
   - override /trainer: gpu
@@ -23,6 +28,10 @@ data:
   crop_size: 128
 
 model:
+<<<<<<< HEAD
+=======
+  lr_eta_min_ratio: 0.5
+>>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81
   embedding_dim: 512
   projection_dim: 16
   num_classes: 10
@@ -31,6 +40,11 @@ model:
   probe_lr: 1e-3
   probe_weight_decay: 1e-7
   lamb: 0.02
+<<<<<<< HEAD
+=======
+  inv_loss:
+    normalize: true
+>>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81
   projector:
     hidden_channels:
       - 2048

@@ -13,6 +13,7 @@ defaults:
   - override /data: imagenet1k
   - override /data/transform/image@data.train_transform: lejepa_multicrop_paper
   - override /model: lejepa
+  - override /model/reg_loss: localereg
   - override /model/encoder: timm_vit
   - override /optimizer: adamw
   - override /trainer: ddp
@@ -35,21 +36,13 @@ data:
     num_local_crops: 8
 
 model:
+  lr_eta_min_ratio: 2.0
   embedding_dim: 1024      # native ViT-L width (timm head 1024 -> 1024)
   projection_dim: 64
   num_classes: 1000
   lamb: 0.1
-  loss_type: local_ballreg
-  local_sigreg_num_clusters: 4
-  local_sigreg_kmeans_iters: 10
-  local_sigreg_min_cluster_size: 4
-  local_sigreg_weighted: false
-  local_sigreg_normalize_for_kmeans: true
-  local_sigreg_kmeans_backend: fast_pytorch_kmeans
-  local_ballreg_radius: null
-  local_ballreg_center_clusters: true
-  local_ballreg_n_quad: 64
-  dynamic_num_clusters: false
+  reg_loss:
+    num_clusters: 4
   use_online_probe: true
   num_global_crops: ${data.train_transform.num_global_crops}
   probe_lr: 1e-3

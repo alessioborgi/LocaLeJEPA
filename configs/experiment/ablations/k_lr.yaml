@@ -1,0 +1,14 @@
+# @package _global_
+# k-vs-lr table (fixed B 256): fixed k in {2,4,...,16} x peak lr in {3e-4, 1e-3, 3e-3}, 24 runs.
+# The cosine floor is 1% of the peak for every lr.
+#   uv run python src/train.py -m experiment=ablations/k_lr
+
+defaults:
+  - /experiment/ablations/base
+  - _self_
+
+hydra:
+  sweeper:
+    params:
+      model.reg_loss.num_clusters: 2,4,6,8,10,12,14,16
+      optimizer.lr: 3e-4,1e-3,3e-3

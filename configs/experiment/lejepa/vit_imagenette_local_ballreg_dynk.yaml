@@ -8,9 +8,17 @@
 defaults:
   - override /data: imagenette
   - override /model: lejepa
+<<<<<<< HEAD
   - override /model/encoder: timm_vit
   - override /optimizer: adamw
   - override /trainer: gpu
+=======
+  - override /model/reg_loss: localereg
+  - override /model/encoder: timm_vit
+  - override /optimizer: adamw
+  - override /trainer: gpu
+  - override /callbacks: dynamic_num_clusters
+>>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81
   - _self_
 
 tags: ["lejepa", "imagenette", "vit-small-p8", "local-ballreg", "dynamic-k", "comparison"]
@@ -26,6 +34,10 @@ data:
   crop_size: 128
 
 model:
+<<<<<<< HEAD
+=======
+  lr_eta_min_ratio: 1.0
+>>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81
   embedding_dim: 512
   projection_dim: 16
   num_classes: 10
@@ -35,6 +47,7 @@ model:
   probe_weight_decay: 1e-7
   warmup_epochs: 10
   lamb: 0.1
+<<<<<<< HEAD
   loss_type: local_ballreg
   local_sigreg_num_clusters: 1        # overridden per-epoch by the dynamic schedule
   local_sigreg_kmeans_iters: 10
@@ -49,6 +62,10 @@ model:
   dynamic_num_clusters_start: 1
   dynamic_num_clusters_max: 8
   dynamic_num_clusters_step_epochs: 100
+=======
+  reg_loss:
+    num_clusters: 1
+>>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81
   projector:
     hidden_channels:
       - 2048
@@ -57,6 +74,15 @@ model:
   encoder:
     model_name: vit_small_patch8_224
 
+<<<<<<< HEAD
+=======
+callbacks:
+  dynamic_num_clusters:
+    start: 1
+    end: 8
+    step_epochs: 100
+
+>>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81
 optimizer:
   lr: 1e-3
   weight_decay: 5e-2

@@ -262,7 +262,11 @@ HTML = f"""<title>Yoda rotation-angle probe — learning curves</title>
     <b>Method.</b> Frozen backbone &rarr; 512-d feature per frame; closed-form ridge regression
     to (cos&#952;, sin&#952;), &#952;&#770; = atan2(&#349;, &#265;). Per (size, seed): fresh random
     20% test / 16% val / rest split; ridge &#955; picked on val by angular error; metric on the
+<<<<<<< HEAD
     held-out test. Reproduce with <code>eval_angle_probe_lowdata.py</code> and
+=======
+    held-out test. Reproduce with <code>src/eval_angle_probe_lowdata.py</code> and
+>>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81
     <code>plot_lowdata_curve.py</code>; raw numbers in
     <code>logs/eval_angle_probe_lowdata/results_lowdata.{{json,csv}}</code>.
   </p>

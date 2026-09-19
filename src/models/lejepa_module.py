@@ -8,23 +8,22 @@ from collections.abc import Callable
 from typing import Any
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
+from lightning import LightningModule
+from torch import nn
+from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 
-from src.losses import invariance_loss, local_ballreg_loss, local_sigreg_loss, sigreg_loss, susreg_loss
-from src.models.jepa_module import JEPAModule
+from src import losses
 
 
-class LeJEPAModule(JEPAModule):
-    """LightningModule for LeJEPA pretraining (Balestriero & LeCun, arXiv:2309.02347).
+class LeJEPAModule(LightningModule):
+    """LightningModule for LeJEPA pretraining (Balestriero & LeCun, arXiv:2511.08544).
 
-    The default regularizer is Sketched Isotropic Gaussian Regularization
-    (``sigreg``), the original LeJEPA objective. The regularizer can also be
-    swapped with ``susreg``, ``local_sigreg``, or ``local_ballreg`` via
-    ``loss_type`` while keeping the same LeJEPA training scaffold. The total
-    loss is::
+    ``reg_loss`` and ``inv_loss`` are callables ``(proj) -> scalar`` on ``(V, N, D)``
+    projections (``src.losses``; ``reg_loss`` is configured through ``model/reg_loss``,
+    default SIGReg). The total loss is::
 
-        loss = lamb * reg_loss(proj) + (1 - lamb) * invariance_loss(proj)
+        loss = lamb * reg_loss(proj) + (1 - lamb) * inv_loss(proj)
 
     The encoder can be any ``nn.Module`` that maps flattened image views
     ``(N * V, C, H, W)`` to embeddings ``(N * V, embedding_dim)``.
@@ -34,163 +33,234 @@ class LeJEPAModule(JEPAModule):
         self,
         encoder: nn.Module,
         optimizer: Callable[..., torch.optim.Optimizer],
+        reg_loss: Callable[..., torch.Tensor] = losses.sigreg_loss,
+        inv_loss: Callable[..., torch.Tensor] = losses.invariance_loss,
         projector: nn.Module | None = None,
         online_probe: nn.Module | None = None,
         embedding_dim: int = 512,
         projection_dim: int = 128,
         num_classes: int = 10,
         lamb: float = 0.02,
-        loss_type: str = "sigreg",
-        sigreg_num_slices: int = 256,
-        sigreg_t_max: float = 3.0,
         num_global_crops: int | None = None,
-        local_sigreg_num_clusters: int = 8,
-        local_sigreg_kmeans_iters: int = 10,
-        local_sigreg_min_cluster_size: int = 4,
-        local_sigreg_weighted: bool = False,
-        local_sigreg_normalize_for_kmeans: bool = True,
-        local_sigreg_kmeans_backend: str = "fast_pytorch_kmeans",
-        local_ballreg_radius: float | None = None,
-        local_ballreg_center_clusters: bool = True,
-        local_ballreg_n_quad: int = 64,
-        dynamic_num_clusters: bool = False,
-        dynamic_num_clusters_start: int = 1,
-        dynamic_num_clusters_max: int = 8,
-        dynamic_num_clusters_step_epochs: int = 100,
         use_online_probe: bool = True,
         probe_lr: float = 1e-3,
         probe_weight_decay: float = 1e-7,
         warmup_epochs: int = 0,
+        lr_eta_min_ratio: float = 0.01,
         compile: bool = False,
     ) -> None:
-        super().__init__(
-            encoder=encoder,
-            optimizer=optimizer,
-            projector=projector,
-            online_probe=online_probe,
-            embedding_dim=embedding_dim,
-            projection_dim=projection_dim,
-            num_classes=num_classes,
-            lamb=lamb,
-            num_global_crops=num_global_crops,
-            use_online_probe=use_online_probe,
-            probe_lr=probe_lr,
-            probe_weight_decay=probe_weight_decay,
-            warmup_epochs=warmup_epochs,
-            compile=compile,
-        )
-        self.save_hyperparameters(ignore=["encoder", "projector", "online_probe", "optimizer"], logger=False)
+        super().__init__()
+        self.save_hyperparameters(ignore=["encoder", "projector", "online_probe", "optimizer", "reg_loss", "inv_loss"], logger=False)
 
-        self.loss_type = loss_type
-        self.sigreg_num_slices = sigreg_num_slices
-        self.sigreg_t_max = sigreg_t_max
-        self.local_sigreg_num_clusters = local_sigreg_num_clusters
-        self.local_sigreg_kmeans_iters = local_sigreg_kmeans_iters
-        self.local_sigreg_min_cluster_size = local_sigreg_min_cluster_size
-        self.local_sigreg_weighted = local_sigreg_weighted
-        self.local_sigreg_normalize_for_kmeans = local_sigreg_normalize_for_kmeans
-        self.local_sigreg_kmeans_backend = local_sigreg_kmeans_backend
-        self.local_ballreg_radius = local_ballreg_radius
-        self.local_ballreg_center_clusters = local_ballreg_center_clusters
-        self.local_ballreg_n_quad = local_ballreg_n_quad
-        self.dynamic_num_clusters = dynamic_num_clusters
-        self.dynamic_num_clusters_start = dynamic_num_clusters_start
-        self.dynamic_num_clusters_max = dynamic_num_clusters_max
-        self.dynamic_num_clusters_step_epochs = dynamic_num_clusters_step_epochs
-        if self.dynamic_num_clusters:
-            # Start the local-neighborhood count at its scheduled epoch-0 value so
-            # the very first training step already uses the intended k.
-            self.local_sigreg_num_clusters = self._scheduled_num_clusters(0)
+        self.encoder = encoder
+        self.projector = projector if projector is not None else nn.Identity()
+        self.online_probe = online_probe if use_online_probe else None
+        self.optimizer_fn = optimizer
+        self.reg_loss = reg_loss
+        self.inv_loss = inv_loss
+        self.reg_name = getattr(reg_loss, "func", reg_loss).__name__
 
-    def _scheduled_num_clusters(self, epoch: int) -> int:
-        """Step schedule for the local k-means neighborhood count k.
+        self.embedding_dim = embedding_dim
+        self.projection_dim = projection_dim
+        self.lamb = lamb
+        self.use_online_probe = use_online_probe
+        self.probe_lr = probe_lr
+        self.probe_weight_decay = probe_weight_decay
+        self.warmup_epochs = warmup_epochs
+        self.lr_eta_min_ratio = lr_eta_min_ratio
+        self.compile_model = compile
 
-        ``k = min(max, start + epoch // step_epochs)``. With the defaults
-        (start=1, step=100, max=8) this gives k=1 at epoch 0, k=2 at epoch 100,
-        incrementing by one every 100 epochs and capping at k=8 from epoch 700 on.
+    # ------------------------------------------------------------------
+    # Encoding
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _view_groups(views: torch.Tensor | list[torch.Tensor] | tuple[torch.Tensor, ...]) -> tuple[list[torch.Tensor], int, int]:
+        """Normalize the views batch to a list of (N, V_i, C, H_i, W_i) resolution groups.
+
+        A single (N, V, C, H, W) tensor is the historical layout. A list/tuple of such
+        tensors is the mixed-resolution multi-crop layout (see MultiCropTransform):
+        each group shares one resolution, the global views come first, and the
+        logical view index runs over the groups in order.
+
+        Returns:
+            (groups, batch_size, total number of views)
         """
-        k = self.dynamic_num_clusters_start + epoch // self.dynamic_num_clusters_step_epochs
-        return int(min(self.dynamic_num_clusters_max, k))
+        groups = list(views) if isinstance(views, (list, tuple)) else [views]
+        if not groups:
+            raise RuntimeError("Expected at least one group of views")
+        for group in groups:
+            if group.ndim != 5:
+                raise RuntimeError(f"Expected views with shape (N, V, C, H, W), got {tuple(group.shape)}")
+            if group.shape[0] != groups[0].shape[0]:
+                raise RuntimeError("All view groups must share the same batch size")
+        batch_size = groups[0].shape[0]
+        num_views = sum(group.shape[1] for group in groups)
+        return groups, batch_size, num_views
 
-    def on_train_epoch_start(self) -> None:
-        super().on_train_epoch_start()
-        if self.dynamic_num_clusters:
-            self.local_sigreg_num_clusters = self._scheduled_num_clusters(self.current_epoch)
-            self.log(
-                "train/num_clusters", float(self.local_sigreg_num_clusters), sync_dist=True, on_epoch=True
-            )
+    def encode(self, views: torch.Tensor | list[torch.Tensor] | tuple[torch.Tensor, ...]) -> torch.Tensor:
+        """Encode multi-view images into embeddings.
+
+        Args:
+            views: (N, V, C, H, W), or a list/tuple of such tensors, one per
+                resolution group (mixed-resolution multi-crop).
+
+        Returns:
+            (N * V, embedding_dim), sample-major: row ``n * V + v`` is view ``v`` of
+            sample ``n`` (global views first).
+        """
+        groups, batch_size, _ = self._view_groups(views)
+        group_embs = []
+        for group in groups:
+            emb_g = self.encoder(group.flatten(0, 1))
+            if emb_g.ndim != 2 or emb_g.shape[-1] != self.embedding_dim:
+                raise RuntimeError(f"Expected embeddings with shape (N * V, {self.embedding_dim}), got {tuple(emb_g.shape)}")
+            group_embs.append(emb_g.reshape(batch_size, group.shape[1], self.embedding_dim))
+        return torch.cat(group_embs, dim=1).flatten(0, 1)
+
+    def forward(self, views: torch.Tensor | list[torch.Tensor] | tuple[torch.Tensor, ...]) -> tuple[torch.Tensor, torch.Tensor]:
+        """Encode and project multi-view images.
+
+        Args:
+            views: (N, V, C, H, W), or a list/tuple of per-resolution groups.
+
+        Returns:
+            emb (N * V, embedding_dim) and proj (V, N, projection_dim)
+        """
+        _, batch_size, num_views = self._view_groups(views)
+        emb = self.encode(views)
+        proj = self.projector(emb)
+        if proj.ndim != 2 or proj.shape[-1] != self.projection_dim:
+            raise RuntimeError(f"Projector must return (N * V, {self.projection_dim}), got {tuple(proj.shape)}")
+
+        # Reshape to (V, N, D) layout expected by all loss functions.
+        proj = proj.reshape(batch_size, num_views, self.projection_dim).transpose(0, 1)
+        return emb, proj
+
+    # ------------------------------------------------------------------
+    # Loss
+    # ------------------------------------------------------------------
 
     def model_step(self, views: torch.Tensor) -> tuple[torch.Tensor, dict[str, Any]]:
         emb, proj = self.forward(views)
+        inv_loss = self.inv_loss(proj)
+        reg = self.reg_loss(proj)
 
-        # For SUSReg, match the SPHERE-JEPA convention: invariance operates on
-        # normalized projections while the regularizer normalizes internally.
-        proj_for_inv = F.normalize(proj, dim=-1) if self.loss_type == "susreg" else proj
-        inv_loss = invariance_loss(proj_for_inv, num_global=self.num_global_crops)
-
-        reg_metrics: dict[str, torch.Tensor] = {}
-        if self.loss_type == "sigreg":
-            reg = sigreg_loss(proj, num_slices=self.sigreg_num_slices, t_max=self.sigreg_t_max)
-            reg_metrics["sigreg_loss"] = reg
-        elif self.loss_type == "susreg":
-            reg = susreg_loss(proj)
-            reg_metrics["susreg_loss"] = reg
-        elif self.loss_type == "local_sigreg":
-            reg = local_sigreg_loss(
-                proj,
-                num_clusters=self.local_sigreg_num_clusters,
-                num_global=self.num_global_crops,
-                kmeans_iters=self.local_sigreg_kmeans_iters,
-                min_cluster_size=self.local_sigreg_min_cluster_size,
-                weighted=self.local_sigreg_weighted,
-                normalize_for_kmeans=self.local_sigreg_normalize_for_kmeans,
-                kmeans_backend=self.local_sigreg_kmeans_backend,
-            )
-            reg_metrics["local_sigreg_loss"] = reg
-        elif self.loss_type == "local_ballreg":
-            reg = local_ballreg_loss(
-                proj,
-                num_clusters=self.local_sigreg_num_clusters,
-                num_global=self.num_global_crops,
-                kmeans_iters=self.local_sigreg_kmeans_iters,
-                min_cluster_size=self.local_sigreg_min_cluster_size,
-                weighted=self.local_sigreg_weighted,
-                normalize_for_kmeans=self.local_sigreg_normalize_for_kmeans,
-                kmeans_backend=self.local_sigreg_kmeans_backend,
-                radius=self.local_ballreg_radius,
-                center_clusters=self.local_ballreg_center_clusters,
-                n_quad=self.local_ballreg_n_quad,
-            )
-            reg_metrics["local_ballreg_loss"] = reg
-        else:
-            raise ValueError(
-                f"Unknown loss_type: {self.loss_type!r}. "
-                "Choose 'sigreg', 'susreg', 'local_sigreg', or 'local_ballreg'."
-            )
-
-        # Weighted combination: loss = lamb * reg + (1 - lamb) * inv.
         lejepa_loss = reg * self.lamb + inv_loss * (1.0 - self.lamb)
-
-        cov = self._covariance_metrics(proj)
 
         return emb, {
             "loss": lejepa_loss,
             "lejepa_loss": lejepa_loss,
             "invariance_loss": inv_loss,
-            "reg_loss": reg,
+            self.reg_name: reg,
             "inv_contrib": inv_loss * (1.0 - self.lamb),
             "reg_contrib": reg * self.lamb,
-            **cov,
-            **reg_metrics,
+            **self._covariance_metrics(proj),
         }
 
-    def _log_reg_metrics(self, metrics: dict[str, Any]) -> None:
-        reg_key = f"{self.loss_type}_loss"
-        self.log(f"train/{reg_key}", metrics[reg_key], sync_dist=True, on_step=True, on_epoch=True)
-        self.log("train/reg_contrib", metrics["reg_contrib"], sync_dist=True, on_step=True, on_epoch=True)
+    @torch.no_grad()
+    def _covariance_metrics(self, proj: torch.Tensor) -> dict[str, torch.Tensor]:
+        """Compute embedding covariance diagnostics from (V, N, D) projections."""
+        z_all = proj.flatten(0, 1)
+        std_mean = z_all.std(dim=0).mean()
+        norm_mean = z_all.norm(dim=1).mean()
+        mean = z_all.mean(dim=0)
+        z_centered = z_all - mean
+        cov = z_centered.T @ z_centered / (z_all.size(0) - 1)
+        cov_diag = torch.diag(cov)
+        cov_offdiag = cov - torch.diag(cov_diag)
+        return {
+            "std_mean": std_mean,
+            "norm_mean": norm_mean,
+            "mean_abs": mean.abs().mean(),
+            "cov_diag_mean": cov_diag.mean(),
+            "cov_offdiag_mean": cov_offdiag.abs().mean(),
+            "cov_offdiag_sq_mean": cov_offdiag.square().mean(),
+        }
+
+    # ------------------------------------------------------------------
+    # Lightning steps
+    # ------------------------------------------------------------------
+
+    def training_step(self, batch: Any, batch_idx: int) -> torch.Tensor:
+        views, labels = batch
+        emb, metrics = self.model_step(views)
+        loss = metrics["loss"]
+
+        if self.use_online_probe:
+            # Probe on the first view of every sample, matched to the original labels.
+            _, batch_size, num_views = self._view_groups(views)
+            emb_first = emb.reshape(batch_size, num_views, self.embedding_dim)[:, 0]
+            labels = labels.to(emb.device, non_blocking=True)
+            metrics["probe_loss"] = F.cross_entropy(self.online_probe(emb_first.detach()), labels)
+            loss = loss + metrics["probe_loss"]
+
+        for key, value in metrics.items():
+            self.log(f"train/{key}", value, prog_bar=key == "loss", sync_dist=True, on_step=True, on_epoch=True)
+
+        return loss
+
+    def _probe_eval_step(self, batch: Any, prefix: str) -> None:
+        if not self.use_online_probe:
+            return
+        views, labels = batch
+        emb = self.encode(views)
+        labels = labels.to(emb.device, non_blocking=True)
+        probe_acc = (self.online_probe(emb).argmax(dim=1) == labels).float().mean()
+        self.log(f"{prefix}/probe_acc", probe_acc, prog_bar=True, sync_dist=True, on_step=False, on_epoch=True)
+
+    def validation_step(self, batch: Any, batch_idx: int) -> None:
+        self._probe_eval_step(batch, "val")
+
+    def test_step(self, batch: Any, batch_idx: int) -> None:
+        self._probe_eval_step(batch, "test")
+
+    def setup(self, stage: str | None = None) -> None:
+        if self.compile_model and stage == "fit":
+            self.encoder = torch.compile(self.encoder)
+            self.projector = torch.compile(self.projector)
+            if self.use_online_probe:
+                self.online_probe = torch.compile(self.online_probe)
+
+    def optimizer_step(self, *args: Any, **kwargs: Any) -> None:
+        super().optimizer_step(*args, **kwargs)
+        # nGPT: keep encoder weight rows on the unit hypersphere after each optimizer step.
+        if hasattr(self.encoder, "norm_weights_"):
+            self.encoder.norm_weights_()
+
+    def configure_optimizers(self) -> dict[str, Any]:
+        param_groups: list[dict[str, Any]] = [
+            {"params": list(self.encoder.parameters()) + list(self.projector.parameters())},
+        ] + (
+            [{"params": self.online_probe.parameters(), "lr": self.probe_lr, "weight_decay": self.probe_weight_decay}]
+            if self.use_online_probe
+            else []
+        )
+        optimizer = self.optimizer_fn(params=param_groups)
+        scheduler = self._build_scheduler(optimizer)
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {"scheduler": scheduler, "interval": "step", "frequency": 1},
+        }
+
+    def _build_scheduler(self, optimizer: torch.optim.Optimizer) -> torch.optim.lr_scheduler.LRScheduler:
+        total_steps = max(1, int(self.trainer.estimated_stepping_batches))
+        max_epochs = int(self.trainer.max_epochs) if self.trainer.max_epochs is not None else 1
+        steps_per_epoch = max(1, total_steps // max_epochs)
+        warmup_steps = min(total_steps, steps_per_epoch * self.warmup_epochs)
+        eta_min = self.lr_eta_min_ratio * optimizer.param_groups[0]["lr"]
+
+        if warmup_steps <= 0:
+            return CosineAnnealingLR(optimizer, T_max=total_steps, eta_min=eta_min)
+
+        warmup = LinearLR(optimizer, start_factor=0.01, total_iters=warmup_steps)
+        if warmup_steps >= total_steps:
+            return warmup
+
+        cosine = CosineAnnealingLR(optimizer, T_max=total_steps - warmup_steps, eta_min=eta_min)
+        return SequentialLR(optimizer, schedulers=[warmup, cosine], milestones=[warmup_steps])
 
 
 if __name__ == "__main__":
-    _ = LeJEPAModule(
-        encoder=nn.Identity(), projector=nn.Identity(), optimizer=torch.optim.AdamW, online_probe=nn.Identity()
-    )
+    module = LeJEPAModule(encoder=nn.Identity(), projector=nn.Identity(), optimizer=torch.optim.AdamW, online_probe=nn.Identity())
+    print(module)

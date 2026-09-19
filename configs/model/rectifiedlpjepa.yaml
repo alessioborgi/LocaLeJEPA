@@ -1,9 +1,15 @@
 defaults:
+<<<<<<< HEAD
   - encoder: resnet18
+=======
+  - lejepa
+  - override reg_loss: rdmreg
+>>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81
   - _self_
 
 _target_: src.models.rectifiedlpjepa_module.RectifiedLpJEPAModule
 
+<<<<<<< HEAD
 embedding_dim: 128 #512
 projection_dim: 16 #* ${model.embedding_dim} for projector: null
 num_classes: 10
@@ -60,3 +66,9 @@ online_probe:
       out_features: ${model.num_classes}
 
 compile: false
+=======
+# rectify=false gives LpJEPA (no ReLU, rdmreg_loss with reg_loss.rectify_target=false)
+rectify: true
+invariance_loss_weight: 25.0
+rdm_reg_loss_weight: 125.0
+>>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81

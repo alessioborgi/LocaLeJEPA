@@ -4,6 +4,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+<<<<<<< HEAD
 """Rectified LpJEPA pretraining module.
 
 Rectified LpJEPA (Kuang et al., "Rectified LpJEPA: Joint-Embedding Predictive
@@ -51,10 +52,30 @@ class RectifiedLpJEPAModule(JEPAModule):
     ``(N * V, C, H, W)`` to embeddings ``(N * V, embedding_dim)``. The projector
     output is rectified in-module, so a plain (non-ReLU-terminated) projector is
     expected -- matching the rest of the JEPA variants in this repo.
+=======
+from typing import Any
+
+import torch
+import torch.nn.functional as F
+
+from src.losses import l0_sparsity_metric, l1_sparsity_metric
+from src.models.lejepa_module import LeJEPAModule
+
+
+class RectifiedLpJEPAModule(LeJEPAModule):
+    """Rectified LpJEPA (arXiv:2602.01456): ``LeJEPAModule`` with the projector output
+    rectified before both losses and absolute loss weights instead of ``lamb``::
+
+        z = relu(proj)
+        loss = invariance_loss_weight * inv_loss(z) + rdm_reg_loss_weight * reg_loss(z)
+
+    ``reg_loss`` is ``rdmreg_loss`` (``model/reg_loss=rdmreg``). ``rectify=False`` gives plain LpJEPA.
+>>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81
     """
 
     def __init__(
         self,
+<<<<<<< HEAD
         encoder: nn.Module,
         optimizer: Callable[..., torch.optim.Optimizer],
         projector: nn.Module | None = None,
@@ -143,23 +164,49 @@ class RectifiedLpJEPAModule(JEPAModule):
             num_projections=self.num_projections,
             rectify_target=self.rectify,
         )
+=======
+        *args: Any,
+        rectify: bool = True,
+        invariance_loss_weight: float = 25.0,
+        rdm_reg_loss_weight: float = 125.0,
+        **kwargs: Any,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self.rectify = rectify
+        self.invariance_loss_weight = invariance_loss_weight
+        self.rdm_reg_loss_weight = rdm_reg_loss_weight
+
+    def model_step(self, views: torch.Tensor) -> tuple[torch.Tensor, dict[str, Any]]:
+        emb, proj = self.forward(views)
+        z = F.relu(proj) if self.rectify else proj
+        inv_loss = self.inv_loss(z)
+        reg = self.reg_loss(z)
+>>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81
 
         inv_contrib = inv_loss * self.invariance_loss_weight
         reg_contrib = reg * self.rdm_reg_loss_weight
         loss = inv_contrib + reg_contrib
 
+<<<<<<< HEAD
         cov = self._covariance_metrics(z)
 
+=======
+>>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81
         return emb, {
             "loss": loss,
             "lejepa_loss": loss,
             "invariance_loss": inv_loss,
+<<<<<<< HEAD
             "reg_loss": reg,
             "rdmreg_loss": reg,
+=======
+            self.reg_name: reg,
+>>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81
             "inv_contrib": inv_contrib,
             "reg_contrib": reg_contrib,
             "l1_sparsity": l1_sparsity_metric(z.flatten(0, 1)),
             "l0_sparsity": l0_sparsity_metric(z.flatten(0, 1)),
+<<<<<<< HEAD
             **cov,
         }
 
@@ -174,3 +221,7 @@ if __name__ == "__main__":
     _ = RectifiedLpJEPAModule(
         encoder=nn.Identity(), projector=nn.Identity(), optimizer=torch.optim.AdamW, online_probe=nn.Identity()
     )
+=======
+            **self._covariance_metrics(z),
+        }
+>>>>>>> 504dbb4b1bdcef4de8af30d106b1e20689fb1f81

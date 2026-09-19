@@ -21,6 +21,7 @@ data:
   crop_size: 128
 
 model:
+  lr_eta_min_ratio: 0.5
   embedding_dim: 512
   projection_dim: 16
   num_classes: 10
@@ -28,7 +29,6 @@ model:
   num_global_crops: null
   probe_lr: 1e-3
   probe_weight_decay: 1e-7
-  loss_type: sigreg
   projector:
     hidden_channels:
       - 2048
