@@ -31,7 +31,7 @@ num_workers: 8
 
 output_folder: logs/eval_indomain_in1k_ep100
 # ~1.4 GB of fp16 features per backbone: keep the cache off the 95 GB home quota.
-cache_dir: /n/netscratch/dominici_lab/Lab/aborgi/eval_indomain_in1k_cache
+cache_dir: cache/eval_indomain_in1k_cache
 
 train_subset_per_class: null
 

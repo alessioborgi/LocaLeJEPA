@@ -258,7 +258,8 @@ def main(cfg: dict, only: list[str] | None, merge_only: bool = False, cached_onl
                         cache_path=path, tag=f"{name}/{key}/train", log_every=50,
                     )
                 except Exception:
-                    # e.g. image files missing under an intact metadata layout (netscratch sweep).
+                    # e.g. image files removed by a scratch-purge sweep while the metadata layout
+                    # they are indexed by remained intact.
                     logger.exception("%s/%s: feature extraction failed — skipping this target.", name, key)
                     continue
             X_t = subsample_rows(X_t, n_samples, seed)

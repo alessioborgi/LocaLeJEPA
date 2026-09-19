@@ -20,7 +20,7 @@
 device: null
 seed: 0
 
-data_root: /n/netscratch/dominici_lab/Lab/aborgi/transfer_datasets
+data_root: data/transfer_datasets
 datasets: [dtd, aircraft, cifar10, cifar100, flowers, food, pets]
 
 # Backbones were pretrained at crop 128; evaluate at the same resolution.
@@ -30,7 +30,7 @@ batch_size: 256
 num_workers: 8
 
 output_folder: logs/eval_transfer_in1k_ep100
-cache_dir: /n/netscratch/dominici_lab/Lab/aborgi/eval_transfer_in1k_cache
+cache_dir: cache/eval_transfer_in1k_cache
 
 linear:
   # Wide grid: the 7-point {0.01..10} grid was hit at both ends on the first pass.

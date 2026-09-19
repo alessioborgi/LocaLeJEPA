@@ -30,7 +30,7 @@ Prerequisite (one-time, must be done by the account owner):
     2. hf auth login          (or: huggingface-cli login)
 
 Usage:
-    python scripts/stage_imagenet1k_hf.py --dest /n/netscratch/<lab>/Lab/<user>/imagenet
+    python scripts/stage_imagenet1k_hf.py --dest <your-scratch>/imagenet
 """
 
 import argparse
