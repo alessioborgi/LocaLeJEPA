@@ -46,7 +46,7 @@ model:
 callbacks:
   dynamic_num_clusters:
     start: 1
-    max: 10
+    end: 10
     step_epochs: 10
 
 optimizer:

@@ -50,7 +50,7 @@ model:
 callbacks:
   dynamic_num_clusters:
     start: 1
-    max: 8
+    end: 8
     step_epochs: 100
 
 optimizer:

@@ -2,9 +2,10 @@ defaults:
   - default
   - _self_
 
-# k = min(max, start + epoch // step_epochs) on model.reg_loss.num_clusters
+# every step_epochs: k moves by step from start towards end, on model.reg_loss.num_clusters
 dynamic_num_clusters:
   _target_: src.callbacks.dynamic_num_clusters.DynamicNumClusters
   start: 1
-  max: 8
+  end: 8
   step_epochs: 100
+  step: 1
