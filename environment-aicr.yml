@@ -1,0 +1,102 @@
+# Conda environment for AICR/MGHPCC (Blackwell: RTX PRO 6000 sm_120, B200 sm_100).
+#
+# Versions are pinned from TWO independent sources that agree:
+#   * the repo's committed uv.lock resolved torch 2.14.0 with nvidia-cuda-runtime 13.0.96
+#   * /work/hu/dominici_lab_hu/conda/envs/shadows-b200, a working env built by another group
+#     ON THIS CLUSTER, reports torch 2.14.0+cu130 with
+#     arch ['sm_75','sm_80','sm_86','sm_90','sm_100','sm_120']
+# Driver on the rtx nodes is 595.71.05, which is new enough for CUDA 13.
+#
+# NOTE ON cu128: the recipe we were given used
+#   --extra-index-url https://download.pytorch.org/whl/cu128
+# but `--extra-index-url` only ADDS a source -- the resolver still took PyPI's newer wheel, and
+# the environment that recipe actually produced is +cu130. So the extra index was a no-op. It is
+# dropped here in favour of an exact pin, which is deterministic and matches both sources.
+#
+# THE RULE THAT STILL MATTERS: anything depending on torch comes from pip, never conda-forge.
+# `conda install lightning` pulls conda-forge's own pytorch -- an old or CPU-only build that
+# imports and runs while emitting no Blackwell kernels. PyTorch stopped shipping conda packages
+# around 2.5, so conda cannot supply a current build at all.
+#
+# Build (do NOT modify ~/.condarc -- it is shared config that other lab envs resolve through;
+# its first envs_dirs entry is already $HOME/conda/envs, which is where this lands):
+#   module load miniforge3
+#   source "$(conda info --base)/etc/profile.d/conda.sh"
+#   conda env create -f environment-aicr.yml
+#
+# Verify in a GPU job, ruling on the LD_LIBRARY_PATH-cleared run -- `module load miniforge3`
+# puts its lib on the path, so a broken env borrows it and passes the naive check:
+#   PY=$HOME/conda/envs/localejepa-aicr/bin/python
+#   env -u LD_LIBRARY_PATH "$PY" -c "import torch; print(torch.cuda.get_arch_list())"
+#   # must contain sm_120 on rtx-*, sm_100 on b200-*
+
+name: localejepa-aicr
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12          # repo declares requires-python >=3.12,<3.13; torch 2.14 has cp312
+  - pip
+
+  # conda-forge ONLY for packages with no torch dependency
+  - pillow>=10
+  - pyyaml>=6
+  - psutil>=5.9          # imported by fast_pytorch_kmeans, not declared by it
+
+  - pip:
+      # --- ALL PINNED EXACTLY. Resolved by the first successful build (job 996184,
+      # 2026-09-19) and cross-checked against uv.lock and /work/.../conda/envs/shadows-b200.
+      # torch, lightning and timm resolved IDENTICALLY to uv.lock; nvidia-cuda-runtime matches
+      # to the patch. Per research_rules/05 this is now a frozen identity surface: if a pin
+      # needs to move, stop and diagnose rather than re-blessing it. ---
+      - torch==2.14.0              # installs as 2.14.0+cu130; PyPI default is the CUDA 13 build
+      - torchvision==0.29.0
+      - numpy==2.4.6               # see NOTE ON NUMPY
+      - lightning==2.6.6
+      - timm==1.0.29
+      - fast-pytorch-kmeans==0.2.2
+      - hydra-core==1.3.3
+      - hydra-colorlog==1.2.0
+      - omegaconf==2.3.1
+      - rootutils==1.0.7
+      - rich==15.0.0
+      - wandb==0.28.0
+      # pinned to stop pip backtracking: an unpinned `datasets>=3.0` walked 5.0.1 -> 4.x -> 3.x
+      # and back, and consumed most of the build's runtime
+      - datasets==5.0.1
+      - huggingface-hub==1.32.0
+
+      # --- test tooling: kept in this file rather than only pyproject's dev group, so the
+      # environment that runs the suite is the one this pinned record describes ---
+      - pytest>=8.0
+      - pytest-cov>=5.0
+
+      # --- the repo's declared `experiments` extra (pyproject.toml). Needed by 12 files on
+      # this branch, including src/eval_angle_probe.py (the Yoda probe, part of the reported
+      # results) and scripts/verify_plainvit_result.py (the independent audit).
+      # Via pip, NOT conda-forge: all three depend on numpy, and conda-forge would install a
+      # second numpy alongside the pip-installed 2.4.6. Verified 2026-09-19 not to move any
+      # frozen pin. ---
+      - matplotlib==3.11.2
+      - scipy==1.18.1
+      - scikit-learn==1.9.1
+
+# NOTE ON NUMPY -- a deliberate divergence from uv.lock, flagged so it is checkable.
+# uv.lock resolved numpy 1.26.4 for linux x86_64; shadows-b200 runs numpy 2.4.6 with this exact
+# torch, on this exact hardware. Cluster-verified beat lockfile-verified here, because torch 2.14
+# is built against the numpy 2 ABI and pairing it with numpy 1.x is the riskier direction. The
+# repo's own numpy usage is numpy-2-safe throughout: numpy.polynomial.legendre.leggauss in
+# src/losses.py, and np.array / np.argwhere / np.squeeze in src/data/imagenet1k_datamodule.py.
+# If any numerical difference ever shows up against the published tables, this is the first
+# thing to check.
+
+# Transitives pinned by the above, recorded in env-lock-<date>.txt rather than here:
+#   contourpy 1.4.0, cycler 0.12.1, fonttools 4.65.0, joblib 1.6.0, kiwisolver 1.5.1,
+#   narwhals 2.26.0, pyparsing 3.3.2, threadpoolctl 3.7.0, cloudpickle 3.1.2
+#
+# NOT included, deliberately:
+#   escnn / py3nj  -- only the D4-ResNet-50 backbone needs them; py3nj is a Fortran build
+#                     needing gfortran + Python headers. The available toolkit module is
+#                     cuda/13.1.1, not 12.8. Add once the plain-ViT path is proven.
+#   flash-attn, bitsandbytes -- PyTorch SDPA is Blackwell-native; nothing here imports them.
+#   hf_transfer    -- hangs indefinitely on a stalled link (no read timeout). Set
+#                     HF_HUB_ENABLE_HF_TRANSFER=0 and HF_HUB_DOWNLOAD_TIMEOUT=30 instead.
