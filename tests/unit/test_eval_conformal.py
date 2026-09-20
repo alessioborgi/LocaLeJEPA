@@ -208,12 +208,37 @@ def test_the_l1_penalty_is_the_sum_of_absolute_inner_products():
     assert float(orthogonality_loss(jac, norm="l2")) == pytest.approx(0.25, abs=1e-6)
 
 
-def test_an_unrecognised_norm_falls_back_to_l2():
-    """No validation on ``ortho_norm``: anything that is not "l1" takes the l2 branch. Pinned as
-    behaviour, and it is worth knowing that a typo in a config silently selects Eq. (6) rather
-    than raising."""
+@pytest.mark.parametrize("bad", ["L1", "l_1", "", "ll", None])
+def test_an_unrecognised_norm_is_refused(bad):
+    """REPLACES ``test_an_unrecognised_norm_falls_back_to_l2``, which pinned the defect.
+
+    There was no validation: anything that was not the exact string ``"l1"`` fell through to the
+    l2 branch. So ``ortho_norm: L1`` in a config silently ran Eq. (6) instead of the variant that
+    pushes harder toward lower dimension -- and the two give **different inferred dimensions**,
+    which is this experiment's entire output. A wrong answer, reported confidently, from a
+    capitalisation.
+
+    ``configs/eval/conformal.yaml`` is splatted straight into ``CAEConfig(**kwargs)``, so an
+    unknown *key* already raised -- but a bad *value* passed silently. Now both fail loudly.
+    """
     jac = torch.tensor([[[1.0, 0.0], [0.5, 0.866]]])
-    assert float(orthogonality_loss(jac, norm="L1")) == float(orthogonality_loss(jac, norm="l2"))
+    with pytest.raises(ValueError, match="ortho_norm must be one of"):
+        orthogonality_loss(jac, norm=bad)
+
+
+def test_both_valid_norms_are_still_accepted():
+    """The guard must not be so tight that it breaks the documented configuration."""
+    jac = torch.tensor([[[1.0, 0.0], [0.5, 0.866]]])
+    assert float(orthogonality_loss(jac, norm="l1")) == pytest.approx(0.5, abs=1e-6)
+    assert float(orthogonality_loss(jac, norm="l2")) == pytest.approx(0.25, abs=1e-6)
+
+
+def test_a_bad_norm_is_caught_before_a_full_training_run():
+    """It reaches ``orthogonality_loss`` on the first batch, so a typo costs one forward pass
+    rather than the 2000 epochs the default protocol asks for."""
+    X, _, _ = torus_features()
+    with pytest.raises(ValueError, match="ortho_norm must be one of"):
+        train_conformal_autoencoder(X, short_config(ortho_norm="L2"), CPU)
 
 
 def test_every_distinct_pair_is_counted_exactly_once():

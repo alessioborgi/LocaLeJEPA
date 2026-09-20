@@ -77,15 +77,24 @@ def test_indexing_targets_is_off_by_default(imagenet_tree):
     assert isinstance(dataset.samples, list)
 
 
-def test_copy_data_is_an_unimplemented_trap(imagenet_tree):
-    """``copy_data=True`` -- the I-JEPA node-local staging path -- raises ``NotImplementedError``
-    with the body commented out. It is also the DEFAULT.
-
-    Worth a test rather than a note: on AICR the node-local copy is genuinely the right thing to
-    do (the dataset lives on /scratch and the compute nodes have local NVMe), so this is a
-    feature someone will reach for, and they should hit the error rather than assume it worked.
+def test_copy_data_defaults_to_off(imagenet_tree):
+    """It used to default to **True**, which raised ``NotImplementedError`` -- so constructing
+    ``ImageNet`` directly, rather than through the datamodule, failed for no stated reason. The
+    datamodule always passed False and all 25 configs set false, so the default was simply wrong.
     """
-    with pytest.raises(NotImplementedError):
+    dataset = ImageNet(root=str(imagenet_tree), transform=to_tensor, train=True)
+    assert len(dataset.samples) > 0
+
+
+def test_asking_for_node_local_copying_says_what_to_do_instead(imagenet_tree):
+    """Still unimplemented -- ``copy_imgnt_locally`` exists nowhere in the repo -- but the error
+    now names the working alternative.
+
+    This is a feature someone will reach for on AICR, where it is genuinely the right idea: the
+    dataset is on /scratch and the compute nodes have fast local NVMe. The answer is to stage in
+    the job script before training starts, not inside the datamodule.
+    """
+    with pytest.raises(NotImplementedError, match="Stage the dataset to node-local storage"):
         ImageNet(root=str(imagenet_tree), transform=to_tensor, train=True, copy_data=True)
 
 

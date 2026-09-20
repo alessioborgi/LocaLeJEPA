@@ -123,6 +123,9 @@ def latent_input_jacobian(model: ConformalAutoencoder, x: torch.Tensor) -> torch
     return torch.stack(grads, dim=1)  # (B, L, n)
 
 
+ORTHO_NORMS = ("l1", "l2")
+
+
 def orthogonality_loss(jac: torch.Tensor, norm: str = "l2") -> torch.Tensor:
     """Mean over the batch of the off-diagonal Gram penalty (Eq. 6, second term).
 
@@ -131,6 +134,12 @@ def orthogonality_loss(jac: torch.Tensor, norm: str = "l2") -> torch.Tensor:
     (Algorithm 1 note, Example C.1) to more aggressively encourage lower-
     dimensional latent spaces.
     """
+    # Validated rather than falling through: the two norms give genuinely different inferred
+    # dimensions -- which is this experiment's entire output -- and the old code treated anything
+    # that was not the exact string "l1" as l2. A config saying "L1" silently ran Eq. (6).
+    if norm not in ORTHO_NORMS:
+        raise ValueError(f"ortho_norm must be one of {ORTHO_NORMS}, got {norm!r}")
+
     # Gram matrix of latent gradients per sample: (B, L, L).
     gram = torch.bmm(jac, jac.transpose(1, 2))
     L = gram.shape[1]
@@ -152,7 +161,7 @@ class CAEConfig:
     n_tanh: int = 5
     n_linear: int = 2
     alpha: float = 1.0            # orthogonality weight (Eq. 6)
-    ortho_norm: str = "l2"        # "l2" (Eq. 6) or "l1" (encourages lower dim)
+    ortho_norm: str = "l2"        # "l2" (Eq. 6) or "l1" (encourages lower dim); validated
     lr: float = 1e-3
     epochs: int = 2000
     batch_size: int = 256
@@ -161,8 +170,11 @@ class CAEConfig:
     active_frac: float = 0.1      # latent active if grad-norm > active_frac * max
     seed: int = 0
     log_every: int = 100
-    patience: int = 0             # early stop if mean loss has not improved for
-                                  # `patience` logged checkpoints (0 disables)
+    # patience counts LOGGED CHECKPOINTS, not epochs -- with the default log_every=100 a
+    # patience of 3 is 300 epochs. The run also always logs `patience + 1` of them, because
+    # best_loss starts at infinity so the first checkpoint always improves on it and resets the
+    # counter. 0 disables early stopping entirely.
+    patience: int = 0
     min_delta: float = 1e-6       # minimum loss improvement to reset patience
 
 

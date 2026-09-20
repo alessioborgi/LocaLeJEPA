@@ -281,3 +281,47 @@ def test_the_body_is_headless_so_the_tangent_head_sees_features(hvit):
     be fitted on logits and ``num_features`` would not be the width it is sized against."""
     assert hvit.body.num_classes == 0
     assert hvit.tangent_head.in_features == hvit.body.num_features
+
+
+# --------------------------------------------------------------------------------------
+# the saturation guard
+# --------------------------------------------------------------------------------------
+
+def test_a_saturating_curvature_and_clip_radius_warn():
+    """Ledger T.suite-P2-9 made actionable.
+
+    ``hyp_c`` and ``clip_r`` are not independently sweepable: once ``tanh(sqrt(c) * clip_r)``
+    approaches 1, every tangent vector lands on the same shell and all magnitude information is
+    destroyed -- with no error, and a loss curve that looks entirely healthy. Someone sweeping
+    ``hyp_c`` upward would find the representation quietly collapsing and have nothing to point
+    at.
+
+    A warning rather than a raise: it is a bad operating point, not an invalid one, and the
+    ablation that demonstrates the collapse needs to be runnable.
+    """
+    from src.models.components.hyperbolic_vit import HyperbolicViT
+
+    with pytest.warns(RuntimeWarning, match="exponential map is saturated"):
+        HyperbolicViT(model_name="vit_tiny_patch16_224", embedding_dim=16, img_size=64,
+                      hyp_c=4.0, clip_r=2.3)
+
+
+def test_the_configured_operating_point_does_not_warn(recwarn):
+    """c=0.1 / clip_r=2.3 reaches 0.62 of the ball radius. If this ever starts warning, the
+    campaign's H-ViT runs have moved into the saturated regime and the guard is telling you
+    before the results do."""
+    from src.models.components.hyperbolic_vit import HyperbolicViT
+
+    HyperbolicViT(model_name="vit_tiny_patch16_224", embedding_dim=16, img_size=64,
+                  hyp_c=0.1, clip_r=2.3)
+
+    assert not [w for w in recwarn if "saturated" in str(w.message)]
+
+
+def test_no_warning_when_clipping_is_disabled():
+    """With ``clip_r=None`` there is no bound on the tangent norm to compare against, so the
+    check has nothing to say -- and must not crash trying."""
+    from src.models.components.hyperbolic_vit import HyperbolicViT
+
+    HyperbolicViT(model_name="vit_tiny_patch16_224", embedding_dim=16, img_size=64,
+                  hyp_c=4.0, clip_r=None)

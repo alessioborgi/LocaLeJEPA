@@ -27,7 +27,7 @@ class ImageNet(ImageFolder):
         train: bool = True,
         job_id: str | None = None,
         local_rank: int | None = None,
-        copy_data: bool = True,
+        copy_data: bool = False,
         index_targets: bool = False,
     ) -> None:
         suffix = "train/" if train else "val/"
@@ -35,17 +35,20 @@ class ImageNet(ImageFolder):
         root = str(root)
 
         if copy_data:
-            raise NotImplementedError
-        """
-            data_path = copy_imgnt_locally( # TODO: implement copy_imgnt_locally()
-                root=root,
-                suffix=suffix,
-                image_folder=image_folder,
-                tar_file=tar_file,
-                job_id=job_id,
-                local_rank=local_rank,
+            # Node-local staging was never implemented -- `copy_imgnt_locally` is defined nowhere
+            # in this repo, and the intended body was left behind as a dead string literal (now
+            # removed). The default was `True`, so anyone constructing ImageNet directly rather
+            # than through the datamodule hit this with no explanation.
+            #
+            # It is a real thing to want on AICR: the dataset lives on /scratch and the compute
+            # nodes have fast local NVMe. The working approach is to stage to $TMPDIR in the job
+            # script *before* training starts and point `root` at that -- see the staging section
+            # of the private cluster runbook. Do it outside the datamodule, not inside it.
+            raise NotImplementedError(
+                "copy_data=True is not implemented: copy_imgnt_locally() does not exist. "
+                "Stage the dataset to node-local storage in the job script and set the "
+                "datamodule's data_dir to that path instead."
             )
-        """
         if (not copy_data) or (data_path is None):
             data_path = os.path.join(root, image_folder, suffix)
 
