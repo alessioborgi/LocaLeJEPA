@@ -21,13 +21,16 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import subprocess
 import sys
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
+LOCK = REPO / ".mutation-in-progress"
 
 
 @dataclass(frozen=True)
@@ -190,6 +193,8 @@ def run_suite() -> int:
         # --no-cov: the coverage gate would fail every run and drown the failure count.
         [sys.executable, "-m", "pytest", "-q", "--tb=no", "-p", "no:cacheprovider", "--no-cov"],
         cwd=REPO, capture_output=True, text=True,
+        # the harness is the one holding the lock, so its own runs must be let through
+        env={**os.environ, "LOCALEJEPA_MUTATION_RUNNER": "1"},
     )
     match = re.search(r"(\d+) failed", result.stdout)
     if match:
@@ -197,6 +202,29 @@ def run_suite() -> int:
     if re.search(r"\d+ passed", result.stdout):
         return 0
     return -1
+
+
+@contextmanager
+def planting_lock():
+    """Announce that ``src/`` is being deliberately corrupted.
+
+    Learned the hard way: while a run was in flight I ran ``pytest`` in another shell and got a
+    failure from a *planted* defect, then ran ``git add -A && git commit``. That commit happened
+    to land between mutants and was clean -- but had it landed a moment earlier it would have
+    committed a deliberate defect under a message claiming the opposite, and the suite would have
+    been green on the next run because the harness reverts afterwards.
+
+    The lock makes the window visible: ``tests/conftest.py`` refuses to start a session while it
+    exists, so a concurrent test run says why instead of reporting nonsense.
+    """
+    LOCK.write_text(
+        "A mutation run is planting defects in src/ right now.\n"
+        "Do not run pytest, and do not commit, until it finishes.\n"
+    )
+    try:
+        yield
+    finally:
+        LOCK.unlink(missing_ok=True)
 
 
 def restore(path: str) -> None:
@@ -235,18 +263,19 @@ def main() -> int:
     print(f"baseline: {baseline} failing test(s)\n")
 
     killed, survived, invalid = [], [], []
-    for mutant in selected:
-        if not plant(mutant):
-            invalid.append(mutant)
-            print(f"  {'INVALID':9s} {mutant.label:28s} anchor not found exactly once")
-            continue
-        failures = run_suite()
-        restore(mutant.path)
-        verdict = "KILLED" if failures > baseline else "SURVIVED"
-        (killed if failures > baseline else survived).append(mutant)
-        if not args.report:
-            print(f"  {verdict:9s} {mutant.label:28s} {failures - baseline:+d} failures "
-                  f"| {mutant.why}")
+    with planting_lock():
+        for mutant in selected:
+            if not plant(mutant):
+                invalid.append(mutant)
+                print(f"  {'INVALID':9s} {mutant.label:28s} anchor not found exactly once")
+                continue
+            failures = run_suite()
+            restore(mutant.path)
+            verdict = "KILLED" if failures > baseline else "SURVIVED"
+            (killed if failures > baseline else survived).append(mutant)
+            if not args.report:
+                print(f"  {verdict:9s} {mutant.label:28s} {failures - baseline:+d} failures "
+                      f"| {mutant.why}")
 
     after = run_suite()
     print(f"\nrestored tree: {after} failing test(s) (baseline was {baseline})")

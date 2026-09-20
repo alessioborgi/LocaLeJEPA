@@ -181,3 +181,4 @@ results/figures/
 
 # Local Slurm submission scripts and job logs
 /slurm/
+.mutation-in-progress

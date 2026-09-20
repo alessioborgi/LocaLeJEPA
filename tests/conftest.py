@@ -9,9 +9,32 @@ clone, so anything that reaches the network or a filesystem outside ``tmp_path``
 from __future__ import annotations
 
 import math
+import os
+from pathlib import Path
 
 import pytest
 import torch
+
+
+def pytest_sessionstart(session):
+    """Refuse to run while ``tests/mutate.py`` has a defect planted in ``src/``.
+
+    Without this, a test run started in another shell during a mutation run reports failures from
+    a deliberately corrupted tree -- which looks exactly like a real regression, and is gone by
+    the time you look again because the harness reverts after each mutant. Worse, a ``git add -A``
+    in that window can stage the planted defect and commit it under a message saying the opposite.
+    Both happened here on 2026-09-19; the second one only missed by a few seconds.
+    """
+    if os.environ.get("LOCALEJEPA_MUTATION_RUNNER"):
+        return
+    lock = Path(__file__).resolve().parents[1] / ".mutation-in-progress"
+    if lock.exists():
+        pytest.exit(
+            "A mutation run is in progress -- src/ currently holds a PLANTED DEFECT.\n"
+            "Any failure you see now is fabricated, and committing now would capture it.\n"
+            "Wait for tests/mutate.py to finish, or delete " + str(lock) + " if it crashed.",
+            returncode=3,
+        )
 
 
 # --------------------------------------------------------------------------------------
