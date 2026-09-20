@@ -20,6 +20,11 @@ import sys
 
 import torch
 
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from src.eval.io import (  # noqa: E402
+    atomic_write, provenance_block, refuse_to_replace_with_placeholders,
+)
+
 FINAL_DIR = "logs/eval_indomain_in1k_ep100/per_backbone"
 BEST_DIR_OLD = "logs/eval_indomain_in1k/per_backbone"      # earlier best.ckpt evals
 OUT = "results/Imagenet1K_results.md"
@@ -202,7 +207,13 @@ def main():
         lines.append("")
     body = "\n".join(lines)
     doc = HEADER.format(n_done=n_done, n_rows=len(ROWS)) + body + FOOTER
-    with open(OUT, "w", encoding="utf-8") as f:
+    refuse_to_replace_with_placeholders(OUT, [FINAL_DIR, BEST_DIR_OLD])
+    # research_rules/05: a generated table must say where its numbers came from, and its
+    # inputs must travel with it. Archived under results/raw/ so the table is regenerable from
+    # a clone -- which none of the pre-2026-09-20 tables are (ledger X.fix-P2-2).
+    doc += provenance_block(os.path.relpath(__file__, os.path.join(os.path.dirname(__file__), "..")),
+                            [FINAL_DIR, BEST_DIR_OLD], archive_to="results/raw")
+    with atomic_write(OUT, "w", encoding="utf-8") as f:
         f.write(doc)
     print(body)
     print(f"\n{n_done}/{len(ROWS)} final-checkpoint rows filled -> {OUT}", file=sys.stderr)

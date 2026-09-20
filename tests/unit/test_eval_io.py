@@ -23,6 +23,8 @@ import torch
 
 from src.eval.io import atomic_torch_save, atomic_write, checkpoint_digest, load_tensor_cache
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
 
 # ======================================================================================
 # atomic_write
@@ -539,3 +541,186 @@ def test_no_evaluation_module_builds_a_cache_filename_by_hand():
         "build cache filenames with src.eval.io.feature_cache_path, not by hand -- a writer and "
         "a reader that disagree fail silently:\n  " + "\n  ".join(offenders)
     )
+
+
+# ======================================================================================
+# provenance: where a generated table's numbers came from
+# ======================================================================================
+
+def per_backbone(tmp_path, evaluation="eval_indomain_in1k_ep100", names=("vit_sigreg",)):
+    directory = tmp_path / "logs" / evaluation / "per_backbone"
+    directory.mkdir(parents=True)
+    for name in names:
+        (directory / f"{name}.json").write_text(json.dumps({"top1": 42.0, "name": name}))
+    return directory
+
+
+def test_the_block_records_script_commit_and_inputs(tmp_path):
+    from src.eval.io import provenance_block
+
+    block = provenance_block("scripts/make_x.py", [per_backbone(tmp_path)])
+    assert "scripts/make_x.py" in block
+    assert "at commit" in block
+    assert "eval_indomain_in1k_ep100/vit_sigreg.json" in block
+
+
+def test_a_dirty_tree_is_recorded_as_dirty():
+    """The suffix matters more than the hash. A table generated from a dirty tree cannot be tied
+    to any commit, so recording the bare hash would overstate what is known about it."""
+    from src.eval.io import _git_commit
+
+    commit = _git_commit()
+    assert commit != "unknown"
+    # this test runs from the repo, so whichever state it is in, the marker must be consistent
+    import subprocess
+    dirty = subprocess.run(["git", "status", "--porcelain"], cwd=REPO_ROOT,
+                           capture_output=True, text=True).stdout.strip()
+    assert commit.endswith("-dirty") == bool(dirty)
+
+
+def test_inputs_are_archived_next_to_the_output(tmp_path):
+    """The point of the whole exercise: a table you cannot regenerate is a claim, not a result.
+    Ledger X.fix-P2-2 -- `/logs` is gitignored and no JSON has ever been committed, so none of
+    the pre-2026-09-20 tables can be re-derived from a clone."""
+    from src.eval.io import provenance_block
+
+    archive = tmp_path / "results" / "raw"
+    provenance_block("s.py", [per_backbone(tmp_path, names=("a", "b"))], archive_to=archive)
+
+    copied = sorted(p.name for p in (archive / "eval_indomain_in1k_ep100").iterdir())
+    assert copied == ["a.json", "b.json"]
+
+
+def test_the_digest_changes_when_an_input_changes(tmp_path):
+    """So a table and its inputs can be checked against each other after the fact."""
+    from src.eval.io import provenance_block
+
+    directory = per_backbone(tmp_path)
+    before = provenance_block("s.py", [directory])
+    (directory / "vit_sigreg.json").write_text(json.dumps({"top1": 99.0}))
+    assert provenance_block("s.py", [directory]) != before
+
+
+def test_no_inputs_is_stated_plainly_not_left_blank(tmp_path):
+    """A report generated from nothing is a real state -- it is what a half-finished campaign
+    produces. An empty provenance table would read as "no provenance recorded" rather than "no
+    inputs", which are very different claims."""
+    from src.eval.io import provenance_block
+
+    block = provenance_block("s.py", [tmp_path / "absent"])
+    assert "No input files were found" in block
+    assert "cannot be regenerated" in block
+
+
+# ======================================================================================
+# refusing to replace a real table with placeholders
+# ======================================================================================
+
+def test_a_generator_refuses_to_overwrite_a_real_table_with_placeholders(tmp_path):
+    """FOUND 2026-09-20 by running a generator on a fresh clone -- the obvious first thing anyone
+    does. `/logs` is gitignored, so every `_load` returns None, every cell renders as an em dash,
+    and the script writes that over the committed table. Verified pre-existing: it reproduces on
+    the unmodified script.
+
+    Silent destruction of the only copy of a result, from a command that looks read-only.
+    """
+    from src.eval.io import refuse_to_replace_with_placeholders
+
+    out = tmp_path / "Results.md"
+    out.write_text("# real numbers from a real campaign\n")
+
+    with pytest.raises(SystemExit, match="REFUSING to overwrite"):
+        refuse_to_replace_with_placeholders(out, [tmp_path / "absent"])
+
+    assert "real numbers" in out.read_text(), "the table must be untouched"
+
+
+def test_a_partial_campaign_may_still_regenerate(tmp_path):
+    """Refusing only on *zero* inputs is deliberate. A half-finished campaign legitimately
+    regenerates a table with some rows still pending -- that is the normal working state and must
+    keep working. Over-tightening this would break the daily workflow."""
+    from src.eval.io import refuse_to_replace_with_placeholders
+
+    out = tmp_path / "Results.md"
+    out.write_text("# previous\n")
+    refuse_to_replace_with_placeholders(out, [per_backbone(tmp_path)])      # must not raise
+
+
+def test_a_first_generation_is_allowed(tmp_path):
+    """Nothing to destroy, so nothing to refuse."""
+    from src.eval.io import refuse_to_replace_with_placeholders
+
+    refuse_to_replace_with_placeholders(tmp_path / "NewResults.md", [tmp_path / "absent"])
+
+
+def test_force_overrides_the_refusal(tmp_path):
+    from src.eval.io import refuse_to_replace_with_placeholders
+
+    out = tmp_path / "Results.md"
+    out.write_text("# real\n")
+    refuse_to_replace_with_placeholders(out, [tmp_path / "absent"], force=True)
+
+
+def test_a_single_directory_may_be_passed_without_a_list(tmp_path):
+    """Callers pass a list, but a bare path is the obvious thing to write and must not silently
+    iterate the string character by character."""
+    from src.eval.io import provenance_block, refuse_to_replace_with_placeholders
+
+    directory = per_backbone(tmp_path)
+    assert "vit_sigreg.json" in provenance_block("s.py", directory)
+    assert "vit_sigreg.json" in provenance_block("s.py", str(directory))
+
+    out = tmp_path / "R.md"
+    out.write_text("# real\n")
+    refuse_to_replace_with_placeholders(out, directory)      # must not raise
+
+
+def test_non_json_files_in_the_input_directory_are_ignored(tmp_path):
+    """The per-backbone directory also receives `.tmp` files from the atomic writers, and on a
+    preempted job one can be left behind. It is not an input."""
+    from src.eval.io import provenance_block
+
+    directory = per_backbone(tmp_path)
+    (directory / "notes.txt").write_text("not a result")
+    (directory / "leftover.json.tmp").write_text("{ truncated")
+
+    block = provenance_block("s.py", [directory])
+    assert "1 input file(s)" in block
+    assert "notes.txt" not in block and "leftover" not in block
+
+
+def test_the_commit_is_unknown_rather_than_fatal_when_git_is_unavailable(monkeypatch):
+    """A report generator must not die because git is missing or the tree is not a repo -- and
+    "unknown" is itself accurate provenance, which is the point."""
+    import subprocess
+
+    import src.eval.io as io_module
+
+    monkeypatch.setattr(subprocess, "run",
+                        lambda *a, **k: (_ for _ in ()).throw(OSError("no git here")))
+    assert io_module._git_commit() == "unknown"
+
+
+def test_a_failing_git_command_is_also_unknown(monkeypatch):
+    """Not a repository: git runs but returns non-zero."""
+    import subprocess
+    import types
+
+    import src.eval.io as io_module
+
+    monkeypatch.setattr(subprocess, "run",
+                        lambda *a, **k: types.SimpleNamespace(returncode=128, stdout=""))
+    assert io_module._git_commit() == "unknown"
+
+
+@pytest.mark.parametrize("given, expected", [
+    ("logs/eval_indomain_in1k_ep100/per_backbone", "eval_indomain_in1k_ep100"),
+    ("logs/eval_rankme", "eval_rankme"),
+    ("", "inputs"),
+])
+def test_the_archive_subdirectory_is_named_after_the_evaluation(given, expected):
+    """So `results/raw/` is browsable by evaluation rather than a flat pile of backbone names
+    that collide across evaluations."""
+    from src.eval.io import _eval_name
+
+    assert _eval_name(given) == expected
