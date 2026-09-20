@@ -66,9 +66,13 @@ dependencies:
       - huggingface-hub==1.32.0
 
       # --- test tooling: kept in this file rather than only pyproject's dev group, so the
-      # environment that runs the suite is the one this pinned record describes ---
-      - pytest>=8.0
-      - pytest-cov>=5.0
+      # environment that runs the suite is the one this pinned record describes.
+      # Pinned exactly like everything else above, 2026-09-20. They were `>=` until then, which
+      # contradicted this file's own "ALL PINNED EXACTLY" and would have let a rebuild next month
+      # pick up pytest 10. Safe to pin now because both machines independently resolved to the
+      # same versions -- verified, not assumed. ---
+      - pytest==9.1.1
+      - pytest-cov==7.1.0
 
       # --- the repo's declared `experiments` extra (pyproject.toml). Needed by 12 files on
       # this branch, including src/eval_angle_probe.py (the Yoda probe, part of the reported
@@ -91,7 +95,15 @@ dependencies:
 
 # Transitives pinned by the above, recorded in env-lock-<date>.txt rather than here:
 #   contourpy 1.4.0, cycler 0.12.1, fonttools 4.65.0, joblib 1.6.0, kiwisolver 1.5.1,
-#   narwhals 2.26.0, pyparsing 3.3.2, threadpoolctl 3.7.0, cloudpickle 3.1.2
+#   narwhals 2.26.0, pyparsing 3.3.2, threadpoolctl 3.7.0, cloudpickle 3.1.2,
+#   coverage 7.16.1, iniconfig 2.3.0, pluggy 1.6.0   (the last three via pytest / pytest-cov)
+#
+# NOTE ON DRIFT, 2026-09-20 (cluster finding F38). The env built on 2026-09-19 predates the test
+# tooling lines, so `pytest` was absent from it although this file listed it -- the spec and the
+# artifact had silently diverged. Closed with a targeted pip install, with the frozen pins diffed
+# before and after (`PINS UNCHANGED`), and a NEW dated lock written rather than overwriting the
+# old one. Both locks are kept: a provenance file that silently changes is the failure
+# research_rules/05 warns about, and two dated files make drift visible instead.
 #
 # NOT included, deliberately:
 #   escnn / py3nj  -- only the D4-ResNet-50 backbone needs them; py3nj is a Fortran build
