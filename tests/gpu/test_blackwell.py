@@ -42,15 +42,38 @@ def test_the_build_carries_kernels_for_this_device():
 
 
 @CUDA
-def test_matmul_is_finite_in_fp32_and_bf16():
-    """bf16-mixed is what ``trainer=gpu`` and ``trainer=ddp`` use. The two need not agree
-    closely -- bf16 has ~8 mantissa bits, so a 1% gap over 4096 accumulations is expected -- but
-    both must be finite."""
+def test_matmul_is_finite_and_accurate_in_fp32_and_bf16():
+    """bf16-mixed is what ``trainer=gpu`` and ``trainer=ddp`` use, so a broken bf16 path would
+    corrupt every campaign run while leaving the fp32 tests green.
+
+    REWRITTEN AFTER FAILING ON THE CLUSTER, and the hardware was right. The first version
+    compared ``(a @ a).sum()`` between the two precisions with a 5% relative bound. That sum is a
+    **near-total cancellation**: for standard-normal ``a`` the signed sum is ~0.06% of the
+    unsigned mass (measured at n=1024), because 16.7M entries of random sign almost entirely
+    annihilate. Relative error on a quantity that has cancelled away is amplified by exactly the
+    factor it cancelled by, so the test was measuring the cancellation, not the arithmetic. On
+    sm_120 it read 14.7% and failed; the same bf16 result is accurate to 0.29% in Frobenius norm.
+
+    The tolerances, both stated as `research_rules/00` requires. **Must tolerate:** ~0.3%
+    Frobenius-relative error, which is what bf16's ~8 mantissa bits give over 4096 accumulations
+    -- measured 0.29% on CPU at n=1024. **Must catch:** a wrong or absent kernel, which moves
+    this to O(1), two orders of magnitude clear of the 2% bound.
+
+    Compared on the full matrix rather than any reduction of it, so no cancellation can hide an
+    error or manufacture one.
+    """
     a = torch.randn(4096, 4096, device="cuda")
-    fp32 = float((a @ a).sum())
-    bf16 = float((a.bfloat16() @ a.bfloat16()).float().sum())
-    assert torch.isfinite(torch.tensor([fp32, bf16])).all()
-    assert abs(fp32 - bf16) / abs(fp32) < 0.05, "bf16 should track fp32 to a few percent"
+    fp32 = a @ a
+    bf16 = (a.bfloat16() @ a.bfloat16()).float()
+
+    assert torch.isfinite(fp32).all(), "fp32 matmul produced non-finite values"
+    assert torch.isfinite(bf16).all(), "bf16 matmul produced non-finite values"
+
+    relative = float((bf16 - fp32).norm() / fp32.norm())
+    assert relative < 0.02, (
+        f"bf16 matmul differs from fp32 by {relative:.1%} in Frobenius norm; bf16 should give "
+        f"~0.3% over this many accumulations"
+    )
 
 
 @CUDA
