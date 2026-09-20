@@ -13,10 +13,22 @@ embedding 512-d, projector MLP [2048, 2048, 16] with BatchNorm, online linear pr
 frozen 512-d embedding (selects `best.ckpt` by `val/probe_acc`), AdamW, weight decay 5e-2,
 linear warm-up + cosine. Two recipes appear:
 
-| recipe | lr | warm-up | grad-clip | used by |
-|---|---|---|---|---|
-| baseline | 2e-3 (ViT, HViT) / 1e-3 (D4-RN50) | 1 epoch | none | `sigreg`, `susreg`, `subreg`, `rdmreg` |
-| stabilized | 1e-3 | 10 epochs | 1.0 | every `local_*` regularizer (λ=0.02 with the baseline recipe collapsed) |
+| recipe | lr | warm-up | grad-clip | `lr_eta_min_ratio` | used by |
+|---|---|---|---|---|---|
+| baseline | 2e-3 (ViT, HViT) / 1e-3 (D4-RN50) | 1 epoch | none | 0.5 | `sigreg`, `susreg`, `subreg`, `rdmreg` |
+| stabilized | 1e-3 | 10 epochs | 1.0 | **1.0** | every `local_*` regularizer (λ=0.02 with the baseline recipe collapsed) |
+
+`lr_eta_min_ratio` is the fourth difference and it is a **schedule-shape** difference, not a
+tuning detail. `src/models/lejepa_module.py` computes `eta_min = lr_eta_min_ratio * base_lr`, so:
+
+* baseline — `eta_min = 0.5 * 2e-3 = 1e-3`, a cosine decaying 2e-3 → 1e-3;
+* stabilized — `eta_min = 1.0 * 1e-3 = 1e-3`, i.e. **a constant 1e-3 after warm-up, not a cosine
+  at all**.
+
+Both arms do end at the same floor, which is why the difference was easy to miss when the ratio
+was introduced; but they get there along different curves from different peaks. The ViT-L/14
+paper configs use 2.0, which puts `eta_min` *above* the base lr and makes the schedule rise —
+same on both arms there.
 
 The ViT-L/14 "paper setting" configs (`*_paper`) instead follow LeJEPA §6.1: 2×224 px global +
 8×98 px local views, projector → 64-d, lr 5e-4, wd 0.1, 4-GPU DDP, global batch 256.
@@ -33,9 +45,9 @@ The ViT-L/14 "paper setting" configs (`*_paper`) instead follow LeJEPA §6.1: 2�
 
 What differs between the two columns (compare the YAMLs): `model/reg_loss` (`sigreg` →
 `localereg`), `model.lamb` (0.02 → 0.1; 0.05 → 0.1 in the paper setting),
-`model.reg_loss.num_clusters: 4` (= k), and the stabilized recipe (lr 1e-3 / warm-up 10 /
-grad-clip 1.0, except in the paper setting where only the clip is added). Everything else is
-identical.
+`model.reg_loss.num_clusters: 4` (= k), and the stabilized recipe — lr 1e-3, warm-up 10,
+grad-clip 1.0 **and `lr_eta_min_ratio` 0.5 → 1.0** (except in the paper setting, where only the
+clip is added). Everything else is identical.
 
 ## Ablations (ImageNet-1K, 100 epochs; `hvit_*` and `d4rn50_*` exist for both backbones)
 
