@@ -458,3 +458,84 @@ def test_an_omitted_epoch_is_allowed(tmp_path, ckpt):
     built = feature_cache_path(**cache_args(tmp_path, ckpt, epoch=None))
     assert "_ep" not in Path(built).name
     assert built != feature_cache_path(**cache_args(tmp_path, ckpt))
+
+
+def test_two_checkpoints_no_longer_collide_end_to_end(tmp_path):
+    """LEDGER C0-4, closed, through the real extraction function.
+
+    This is the reproduction script turned into a regression test. Before the fix, two different
+    checkpoints sharing a config `name` and a stored `epoch` produced the same cache path, so the
+    second evaluation loaded the first's features and reported them as its own -- silently.
+
+    Run A's features are all 1.0 and run B's are all 9.0, so a collision is visible *by value*
+    rather than by shape. A shape assertion would have passed on the defect.
+    """
+    from src.eval.indomain import extract_classification_features
+    from src.eval.io import feature_cache_path
+
+    class Const(torch.utils.data.Dataset):
+        def __init__(self, value):
+            self.value = value
+
+        def __len__(self):
+            return 4
+
+        def __getitem__(self, index):
+            return torch.full((3, 4, 4), float(self.value)), index % 2
+
+    extract = lambda images: images.flatten(1)[:, :4].float()  # noqa: E731
+
+    checkpoints = {}
+    for tag, payload in (("a", b"checkpoint A"), ("b", b"checkpoint B -- a different run")):
+        path = tmp_path / f"{tag}.ckpt"
+        path.write_bytes(payload)
+        checkpoints[tag] = path
+
+    features = {}
+    for tag, value in (("a", 1.0), ("b", 9.0)):
+        # identical in every respect EXCEPT the checkpoint -- the exact collision C0-4 described
+        cache = feature_cache_path(tmp_path / "cache", "vit_sigreg", "imagenet1k", "train",
+                                   128, 99, checkpoints[tag])
+        features[tag], _ = extract_classification_features(
+            extract, Const(value), batch_size=2, num_workers=0, cache_path=cache)
+
+    assert float(features["a"][0, 0]) == 1.0
+    assert float(features["b"][0, 0]) == 9.0, (
+        "run B reused run A's cached features -- C0-4 has come back"
+    )
+
+
+def test_no_evaluation_module_builds_a_cache_filename_by_hand():
+    """The key must be built in exactly one place.
+
+    It used to be assembled by hand in five, and three of those *read* what the other two wrote:
+    `eval_rankme` reconstructs `eval_indomain`'s and `eval_transfer`'s filenames, and
+    `scripts/verify_plainvit_result.py` reconstructs `eval_indomain`'s with `ep=99` hardcoded. A
+    divergence between a writer and a reader does not raise -- `eval_rankme` logs "no cached
+    features -- skipping this target" and carries on, so the symptom is a silently dropped target
+    and an expensive GPU re-extraction, not a failure.
+
+    Source-level, because that is what makes it total: it covers every module at once, including
+    the script, which no other test imports.
+    """
+    import re
+
+    repo = Path(__file__).resolve().parents[2]
+    targets = sorted((repo / "src").rglob("eval*.py")) + [repo / "scripts" / "verify_plainvit_result.py"]
+
+    offenders = []
+    for path in targets:
+        if path.name == "io.py":
+            continue
+        for number, line in enumerate(path.read_text().splitlines(), 1):
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                continue
+            # an f-string ending in .pt -- i.e. a cache filename assembled in place
+            if re.search(r'f"[^"]*\.pt"', stripped) and "feature_cache_path" not in stripped:
+                offenders.append(f"{path.relative_to(repo)}:{number}: {stripped[:80]}")
+
+    assert not offenders, (
+        "build cache filenames with src.eval.io.feature_cache_path, not by hand -- a writer and "
+        "a reader that disagree fail silently:\n  " + "\n  ".join(offenders)
+    )

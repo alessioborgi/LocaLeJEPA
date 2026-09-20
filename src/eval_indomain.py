@@ -42,6 +42,7 @@ from src.eval.indomain import extract_classification_features, get_indomain_spli
 from src.eval.knn_probe import weighted_knn
 from src.eval.linear_probe import run_linear_probe
 from src.eval.io import atomic_write
+from src.eval.io import feature_cache_path
 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger()
@@ -189,12 +190,16 @@ def main(cfg: dict, only: list[str] | None, merge_only: bool = False) -> None:
         epoch = torch.load(entry["checkpoint"], map_location="cpu", weights_only=False).get("epoch")
         logger.info("%s: feature dim %d, checkpoint epoch %s", name, feat_dim, epoch)
 
-        # Key the cache on the checkpoint epoch too: a backbone re-evaluated
-        # after further pretraining must not silently reuse stale features.
-        def cache(split: str, _name: str = name, _epoch=epoch) -> str | None:
-            if not cache_dir:
-                return None
-            return os.path.join(cache_dir, _name, f"{dataset_name}_{split}_{crop_size}_ep{_epoch}.pt")
+        # The key carries a digest of the checkpoint FILE, not just the backbone name and the
+        # epoch it reports. Ledger C0-4, reproduced 2026-09-20: two different checkpoints sharing
+        # a config `name` and a stored `epoch` collided on one cache file, and the second
+        # evaluation silently reported features computed from the first. Built in exactly one
+        # place (src/eval/io.py) because eval_rankme reconstructs these same filenames to read
+        # them, and a divergence there is a silent skip rather than an error.
+        def cache(split: str, _name: str = name, _epoch=epoch,
+                  _ckpt: str = entry["checkpoint"]) -> str | None:
+            return feature_cache_path(cache_dir, _name, dataset_name, split, crop_size,
+                                      _epoch, _ckpt)
 
         X_val, y_val = extract_classification_features(
             extract_fn, val_ds, batch_size=cfg.get("batch_size", 256),

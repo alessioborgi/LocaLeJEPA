@@ -48,6 +48,7 @@ from src.eval.indomain import extract_classification_features, get_indomain_spli
 from src.eval.rankme import load_projector, project_features, rankme, subsample_indices, subsample_rows  # noqa: E402
 from src.eval.transfer import TRANSFER_DATASETS, get_transfer_splits  # noqa: E402
 from src.eval.io import atomic_write
+from src.eval.io import feature_cache_path
 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger()
@@ -169,8 +170,16 @@ def main(cfg: dict, only: list[str] | None, merge_only: bool = False, cached_onl
         started = time.time()
 
         # ---- source (pretraining) dataset features: cache -> subset cache -> GPU extraction
-        full_cache = os.path.join(indomain_cache, name, f"{dataset_name}_train_{crop_size}_ep{epoch}.pt") if indomain_cache else None
-        subset_cache = os.path.join(cache_dir, name, f"{dataset_name}_train{n_samples}_{crop_size}_ep{epoch}.pt") if cache_dir else None
+        # These first two are RECONSTRUCTED, not written here: `full_cache` is eval_indomain's
+        # output and the transfer path below is eval_transfer's. If this file's idea of the
+        # filename ever diverged from theirs, nothing would raise -- the miss is handled by
+        # skipping the target (see the warning further down) and re-extracting on GPU. Silent and
+        # expensive. Hence one shared builder rather than three hand-rolled f-strings.
+        ckpt = entry["checkpoint"]
+        full_cache = feature_cache_path(indomain_cache, name, dataset_name, "train",
+                                        crop_size, epoch, ckpt)
+        subset_cache = feature_cache_path(cache_dir, name, dataset_name, f"train{n_samples}",
+                                          crop_size, epoch, ckpt)
         X_src = _load_cached(subset_cache)
         source_from = "subset_cache"
         if X_src is None:
@@ -231,7 +240,7 @@ def main(cfg: dict, only: list[str] | None, merge_only: bool = False, cached_onl
         # ---- target datasets (transfer train splits)
         targets = {}
         for key in transfer_keys:
-            path = os.path.join(transfer_cache, name, f"{key}_train_{crop_size}_ep{epoch}.pt") if transfer_cache else None
+            path = feature_cache_path(transfer_cache, name, key, "train", crop_size, epoch, ckpt)
             X_t = _load_cached(path)
             if X_t is None:
                 if cached_only or not cfg.get("transfer_data_root"):

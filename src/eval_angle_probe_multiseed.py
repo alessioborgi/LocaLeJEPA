@@ -28,6 +28,7 @@ rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
 from src.eval.angle_probe import circular_linear_probe  # noqa: E402
 from src.eval.io import atomic_write
+from src.eval.io import feature_cache_path
 
 
 def main():
@@ -54,7 +55,11 @@ def main():
 
     for entry in cfg["backbones"]:
         name = entry["name"]
-        cache_path = os.path.join(cache_dir, f"{name}_features.pt")
+        # Reconstructs what eval_angle_probe.py wrote -- same builder, same arguments. Unlike
+        # the rankme readers this one at least fails loudly (see the raise below), but a
+        # divergence would still send every backbone down that path for no good reason.
+        cache_path = feature_cache_path(cache_dir, name, "bobblehead", "all",
+                                        cfg.get("crop_size", 128), None, entry["checkpoint"])
         if not os.path.isfile(cache_path):
             raise FileNotFoundError(
                 f"Cached features not found: {cache_path}. Run src/eval_angle_probe.py first."
