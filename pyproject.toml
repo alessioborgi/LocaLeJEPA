@@ -41,7 +41,61 @@ experiments = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "pytest-cov>=5.0"]
+
+[tool.pytest.ini_options]
+# testpaths is load-bearing, not tidiness: every src/eval_*.py runs rootutils.setup_root() at
+# import, and scripts/verify_plainvit_result.py does json.load(open(...)) at import. Collecting
+# over src/ or scripts/ would execute those side effects.
+testpaths = ["tests"]
+addopts = "-m 'not gpu' --strict-markers"
+markers = [
+    "gpu: requires CUDA; run inside an allocation with `pytest -m gpu`",
+    "slow: excluded from the fast pre-commit run",
+]
+
+[tool.coverage.run]
+branch = true          # the defects we care about live in if-branches that line coverage
+                       # can satisfy by never taking
+source = ["src"]
+omit = [
+    # Vendored from equivision; escnn is not installed on either machine, so it cannot even
+    # be imported. We would not fix a defect found in it.
+    "src/models/components/e2resnet.py",
+    # Vendored from I-JEPA (Meta).
+    "src/models/components/vision_transformer.py",
+    "src/models/components/tensor_ops.py",
+    # nGPT-reference models. No config in the campaign instantiates either of them.
+    "src/models/components/nvit.py",
+    "src/models/components/spherical_vit.py",
+    # Prompts stdin (rich.prompt.Prompt.ask) and writes files as a side effect.
+    "src/utils/rich_utils.py",
+
+    # --- TIER B ---------------------------------------------------------------------------
+    # Entry points. Their main() bodies are orchestration over checkpoints, datasets and the
+    # network; faking those at scale costs more than it protects. Omitted from THIS config so
+    # the 95% floor means "the code that decides what gets computed", not an average diluted by
+    # untestable glue.
+    #
+    # They are NOT untested and NOT unmeasured: their separable helpers are covered in
+    # tests/helpers/test_report_helpers.py, and their coverage is reported without a floor by
+    #     pytest --cov=src --cov-branch --cov-config=tests/coverage-full.cfg
+    # which is the config to use when asking "how much of the repo is covered".
+    "src/eval_*.py",
+    "src/train.py",
+    "src/visualize_patch_pca.py",
+]
+
+[tool.coverage.report]
+fail_under = 95        # Tier A only -- see the TIER B note in the omit list above
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+]
 
 [tool.uv]
 # The lock targets Linux x86_64 (CUDA wheels) and macOS.
