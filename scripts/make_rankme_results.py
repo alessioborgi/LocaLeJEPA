@@ -221,7 +221,13 @@ def _acc(ind, tr, rank_epoch):
     """(knn, linear, transfer_avg) of the same checkpoint epoch, else None."""
     knn = lin = None
     if ind is not None and ind.get("epoch") == rank_epoch:
-        knn = (ind["knn"].get(KNN_K) or next(iter(ind["knn"].values())))["top1"]
+        # A missing k renders as an em dash. It must NEVER fall back to another k: the previous
+    # `.get(k) or next(iter(...))` reported the SMALLEST available k (the dict is built in
+    # ascending order) under the requested k's heading, with no marker. Ledger T.suite-P2-7.
+        # This one reaches furthest: the value feeds the RankMe-vs-accuracy correlation, so a
+        # substituted k would not merely misprint a cell -- it would enter a statistic.
+        hit = ind["knn"].get(KNN_K)
+        knn = hit["top1"] if hit else None
         lin = ind["linear"]["top1"]
     avg = _transfer_avg(tr) if (tr is not None and tr.get("epoch") == rank_epoch) else None
     return knn, lin, avg
