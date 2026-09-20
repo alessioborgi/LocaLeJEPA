@@ -27,6 +27,11 @@ import sys
 
 import torch
 
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from src.eval.io import (  # noqa: E402
+    atomic_write, provenance_block, refuse_to_replace_with_placeholders,
+)
+
 OUT = "results/report_plainViT_LastExp.md"
 MAX_EPOCHS = 100
 IND_DIR = "logs/eval_indomain_in1k_plainvit/per_backbone"
@@ -205,7 +210,13 @@ R² and mean absolute angular error on the test split.
 * checkpoints: `checkpoints/lejepa_vit_in1k_sigreg/`, `checkpoints/lejepa_vit_in1k_localballreg_l01_k4/`
 * pipeline: pretrain (`scripts/slurm_submit.sh`) → `src/eval_indomain.py --config configs/eval/indomain_in1k_plainvit.yaml` → `scripts/make_plainvit_report.py`
 """
-    with open(OUT, "w", encoding="utf-8") as f:
+    refuse_to_replace_with_placeholders(OUT, [IND_DIR, IND_DIR_REF])
+    # research_rules/05: a generated table must say where its numbers came from, and its
+    # inputs must travel with it. Archived under results/raw/ so the table is regenerable from
+    # a clone -- which none of the pre-2026-09-20 tables are (ledger X.fix-P2-2).
+    doc += provenance_block(os.path.relpath(__file__, os.path.join(os.path.dirname(__file__), "..")),
+                            [IND_DIR, IND_DIR_REF], archive_to="results/raw")
+    with atomic_write(OUT, "w", encoding="utf-8") as f:
         f.write(doc)
     print(doc)
     print(f"\n{n_ind}/2 classification + {n_yoda}/2 regression rows filled -> {OUT}", file=sys.stderr)

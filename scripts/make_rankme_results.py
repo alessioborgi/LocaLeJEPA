@@ -35,6 +35,11 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 from scipy.stats import spearmanr  # noqa: E402
 
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from src.eval.io import (  # noqa: E402
+    atomic_write, provenance_block, refuse_to_replace_with_placeholders,
+)
+
 RANK_DIR = "logs/eval_rankme_in1k_ep100/per_backbone"
 IND_DIRS = ["logs/eval_indomain_in1k_ep100/per_backbone", "logs/eval_indomain_in1k_plainvit/per_backbone"]
 TRANSFER_DIR = "logs/eval_transfer_in1k_ep100/per_backbone"
@@ -555,7 +560,13 @@ def main():
     figures(data)
     doc = HEADER.format(n_done=n_done, n_rows=len(ROWS)) + body1 + "\n" + TABLE2_HEADER + body2 \
         + FOOTER.format(observations=_observations(data))
-    with open(OUT, "w", encoding="utf-8") as f:
+    refuse_to_replace_with_placeholders(OUT, [RANK_DIR, *IND_DIRS, TRANSFER_DIR])
+    # research_rules/05: a generated table must say where its numbers came from, and its
+    # inputs must travel with it. Archived under results/raw/ so the table is regenerable from
+    # a clone -- which none of the pre-2026-09-20 tables are (ledger X.fix-P2-2).
+    doc += provenance_block(os.path.relpath(__file__, os.path.join(os.path.dirname(__file__), "..")),
+                            [RANK_DIR, *IND_DIRS, TRANSFER_DIR], archive_to="results/raw")
+    with atomic_write(OUT, "w", encoding="utf-8") as f:
         f.write(doc)
     print(body1)
     print(body2)
