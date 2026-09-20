@@ -77,12 +77,27 @@ def _train_head(
     device: torch.device,
     seed: int,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """SGD + cosine schedule on a single linear layer; returns (weight, bias)."""
+    """SGD + cosine schedule on a single linear layer; returns (weight, bias).
+
+    Everything random here is driven by ``seed``: the initialisation and the shuffle. The head is
+    built and initialised on **CPU** and only then moved, which is what makes that true -- the
+    previous version called ``trunc_normal_`` after ``.to(device)``, so on CUDA it drew from the
+    global CUDA RNG that nothing ever seeds, and on CPU from the global CPU stream. It also makes
+    the result device-independent, so a probe run on the cluster matches one run on a workstation.
+
+    Exact on CPU. On GPU, ``F.cross_entropy``/``F.linear`` backward use atomics and
+    ``torch.use_deterministic_algorithms`` is not set, so a residual last-digit jitter remains --
+    smaller than the initialisation spread this replaces, but not zero.
+    """
     generator = torch.Generator(device="cpu").manual_seed(seed)
     dim = train_features.shape[1]
-    head = torch.nn.Linear(dim, num_classes).to(device)
-    torch.nn.init.trunc_normal_(head.weight, std=0.01)
+    # skip_init, not nn.Linear(...): the constructor's kaiming/uniform init draws from the global
+    # RNG and is then entirely overwritten below, so it is both wasted work and -- the part that
+    # matters -- a perturbation of whatever stream the caller is using.
+    head = torch.nn.utils.skip_init(torch.nn.Linear, dim, num_classes)
+    torch.nn.init.trunc_normal_(head.weight, std=0.01, generator=generator)
     torch.nn.init.zeros_(head.bias)
+    head = head.to(device)
 
     optimizer = torch.optim.SGD(head.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay)
     num_samples = train_features.shape[0]
@@ -132,7 +147,9 @@ def run_linear_probe(
         epochs, batch_size, weight_decay, momentum: SGD schedule.
         standardize: per-dimension mean/std normalisation fit on the train split.
         val_frac: fraction of the train split held out for LR selection.
-        seed: controls the held-out split and the shuffling.
+        seed: controls the held-out split, the minibatch shuffling, and the head
+            initialisation. Every grid point and the final refit share it, so the
+            search varies the learning rate and nothing else.
 
     Returns:
         ``{"top1", "top5", "best_lr", "search": [...], "epochs", ...}`` with

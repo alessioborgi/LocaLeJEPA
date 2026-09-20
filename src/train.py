@@ -50,8 +50,12 @@ def train(cfg: DictConfig) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     :param cfg: A DictConfig configuration composed by Hydra.
     :return: A tuple with metrics and dict with all instantiated objects.
     """
-    # set seed for random number generators in pytorch, numpy and python.random
-    if cfg.get("seed"):
+    # set seed for random number generators in pytorch, numpy and python.random.
+    # `is not None`, not truthiness: `seed: 0` is the most natural seed anyone would reach for,
+    # and under `if cfg.get("seed"):` it silently did nothing at all -- the same defect class as
+    # the linear probe's unseeded head. No config in the repo currently sets `seed: 0` for
+    # training (they use 42 or null), so nothing that has already run is affected.
+    if cfg.get("seed") is not None:
         L.seed_everything(cfg.seed, workers=True)
 
     data_cfg = cfg.data.copy()

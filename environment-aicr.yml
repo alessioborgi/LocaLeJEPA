@@ -2,8 +2,8 @@
 #
 # Versions are pinned from TWO independent sources that agree:
 #   * the repo's committed uv.lock resolved torch 2.14.0 with nvidia-cuda-runtime 13.0.96
-#   * /work/hu/dominici_lab_hu/conda/envs/shadows-b200, a working env built by another group
-#     ON THIS CLUSTER, reports torch 2.14.0+cu130 with
+#   * `shadows-b200`, a working env built by another group ON THIS CLUSTER (its path is a
+#     site-specific location recorded in the private runbook, not here), reports 2.14.0+cu130 with
 #     arch ['sm_75','sm_80','sm_86','sm_90','sm_100','sm_120']
 # Driver on the rtx nodes is 595.71.05, which is new enough for CUDA 13.
 #
@@ -44,7 +44,7 @@ dependencies:
 
   - pip:
       # --- ALL PINNED EXACTLY. Resolved by the first successful build (job 996184,
-      # 2026-09-19) and cross-checked against uv.lock and /work/.../conda/envs/shadows-b200.
+      # 2026-09-19) and cross-checked against uv.lock and the `shadows-b200` reference env.
       # torch, lightning and timm resolved IDENTICALLY to uv.lock; nvidia-cuda-runtime matches
       # to the patch. Per research_rules/05 this is now a frozen identity surface: if a pin
       # needs to move, stop and diagnose rather than re-blessing it. ---
