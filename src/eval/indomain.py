@@ -27,6 +27,8 @@ from torch.utils.data import DataLoader, Dataset, Subset
 from torchvision import transforms
 from torchvision.datasets import ImageFolder
 
+from src.eval.io import atomic_torch_save, load_tensor_cache
+
 logger = logging.getLogger(__name__)
 
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
@@ -122,8 +124,8 @@ def extract_classification_features(
     Features are stored as float16 (halves the 1.28M x 512 ImageNet bank to
     ~1.3 GB) and labels as int64. If ``cache_path`` exists it is loaded instead.
     """
-    if cache_path is not None and os.path.isfile(cache_path):
-        blob = torch.load(cache_path, map_location="cpu")
+    blob = load_tensor_cache(cache_path)
+    if blob is not None:
         logger.info("%s: loaded cached features %s from %s", tag, tuple(blob["X"].shape), cache_path)
         return blob["X"], blob["y"]
 
@@ -149,8 +151,7 @@ def extract_classification_features(
     targets = torch.cat(labels, dim=0)
 
     if cache_path is not None:
-        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-        torch.save({"X": features, "y": targets}, cache_path)
+        atomic_torch_save({"X": features, "y": targets}, cache_path)
         logger.info("%s: cached features %s to %s", tag, tuple(features.shape), cache_path)
 
     return features, targets

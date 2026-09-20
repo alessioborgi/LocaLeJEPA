@@ -26,6 +26,8 @@ from typing import Optional
 import torch
 from torch.utils.data import DataLoader, Dataset
 
+from src.eval.io import atomic_torch_save, load_tensor_cache
+
 ExtractFn = Callable[[torch.Tensor], torch.Tensor]
 
 
@@ -205,8 +207,8 @@ def extract_features(
     Returns:
         ``(X, y)`` with ``X`` of shape ``(N, embedding_dim)``.
     """
-    if cache_path is not None and os.path.isfile(cache_path):
-        blob = torch.load(cache_path, map_location="cpu")
+    blob = load_tensor_cache(cache_path)
+    if blob is not None:
         return blob["X"], blob["y"]
 
     loader = DataLoader(
@@ -232,7 +234,6 @@ def extract_features(
     y = _stack_labels(labels)
 
     if cache_path is not None:
-        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
-        torch.save({"X": X, "y": y}, cache_path)
+        atomic_torch_save({"X": X, "y": y}, cache_path)
 
     return X, y

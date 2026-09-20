@@ -47,6 +47,7 @@ from src.eval.extract import load_backbone  # noqa: E402
 from src.eval.indomain import extract_classification_features, get_indomain_splits  # noqa: E402
 from src.eval.rankme import load_projector, project_features, rankme, subsample_indices, subsample_rows  # noqa: E402
 from src.eval.transfer import TRANSFER_DATASETS, get_transfer_splits  # noqa: E402
+from src.eval.io import atomic_write
 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger()
@@ -60,10 +61,8 @@ def _per_backbone_dir(out_dir: str) -> str:
 
 def _save_backbone(name: str, entry: dict, out_dir: str) -> None:
     path = os.path.join(_per_backbone_dir(out_dir), f"{name}.json")
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as file:
+    with atomic_write(path, "w", encoding="utf-8") as file:
         json.dump(entry, file, indent=2)
-    os.replace(tmp, path)
 
 
 def _collect_results(out_dir: str, order: list[str]) -> dict:
@@ -81,9 +80,9 @@ def _collect_results(out_dir: str, order: list[str]) -> dict:
 def _write_results(results: dict, out_dir: str, dataset_keys: list[str]) -> None:
     if not results:
         return
-    with open(os.path.join(out_dir, "results.json"), "w", encoding="utf-8") as file:
+    with atomic_write(os.path.join(out_dir, "results.json"), "w", encoding="utf-8") as file:
         json.dump(results, file, indent=2)
-    with open(os.path.join(out_dir, "results.csv"), "w", newline="", encoding="utf-8") as file:
+    with atomic_write(os.path.join(out_dir, "results.csv"), "w", newline="", encoding="utf-8") as file:
         writer = csv.writer(file)
         header = ["backbone", "experiment", "checkpoint", "epoch", "feat_dim", "proj_dim", "n_source",
                   "rankme_repr", "classical_rank_repr", "rankme_repr_centered", "rankme_emb", "classical_rank_emb"]

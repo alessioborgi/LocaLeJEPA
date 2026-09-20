@@ -43,6 +43,7 @@ from src.eval.extract import load_backbone  # noqa: E402
 from src.eval.indomain import extract_classification_features  # noqa: E402
 from src.eval.linear_probe import run_linear_probe  # noqa: E402
 from src.eval.transfer import TRANSFER_DATASETS, get_transfer_splits  # noqa: E402
+from src.eval.io import atomic_write
 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger()
@@ -69,10 +70,8 @@ def _load_backbone_entry(name: str, out_dir: str) -> dict | None:
 def _save_backbone(name: str, entry: dict, out_dir: str) -> None:
     """One file per backbone so concurrent per-backbone jobs never clobber."""
     path = _backbone_file(name, out_dir)
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as file:
+    with atomic_write(path, "w", encoding="utf-8") as file:
         json.dump(entry, file, indent=2)
-    os.replace(tmp, path)
 
 
 def _collect_results(out_dir: str, order: list[str]) -> dict:
@@ -98,9 +97,9 @@ def _write_results(results: dict, out_dir: str, keys: list[str]) -> None:
         return
     for entry in results.values():
         entry["avg_top1"] = _average(entry, keys)
-    with open(os.path.join(out_dir, "results.json"), "w", encoding="utf-8") as file:
+    with atomic_write(os.path.join(out_dir, "results.json"), "w", encoding="utf-8") as file:
         json.dump(results, file, indent=2)
-    with open(os.path.join(out_dir, "results.csv"), "w", newline="", encoding="utf-8") as file:
+    with atomic_write(os.path.join(out_dir, "results.csv"), "w", newline="", encoding="utf-8") as file:
         writer = csv.writer(file)
         header = ["backbone", "experiment", "checkpoint", "epoch", "feat_dim"]
         header += [f"{k}_top1" for k in keys] + ["avg_top1"] + [f"{k}_top5" for k in keys] + [f"{k}_lr" for k in keys]

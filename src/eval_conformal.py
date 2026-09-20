@@ -47,6 +47,7 @@ from src.eval.conformal_autoencoder import (  # noqa: E402
     train_conformal_autoencoder,
 )
 from src.eval.extract import extract_features, load_backbone  # noqa: E402
+from src.eval.io import atomic_write
 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger()
@@ -189,9 +190,9 @@ def main(cfg: dict) -> None:
         print(f'{name:28s}  {r["feat_dim"]:5d}  {r["inferred_dim"]:12d}  {r["final_recon"]:10.2e}')
     print("=" * 64)
 
-    with open(os.path.join(out_dir, "results.json"), "w", encoding="utf-8") as f:
+    with atomic_write(os.path.join(out_dir, "results.json"), "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2)
-    with open(os.path.join(out_dir, "results.csv"), "w", newline="", encoding="utf-8") as f:
+    with atomic_write(os.path.join(out_dir, "results.csv"), "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(["backbone", "feat_dim", "inferred_dim", "final_recon"])
         for name, r in results.items():

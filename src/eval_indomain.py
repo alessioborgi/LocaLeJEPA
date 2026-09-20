@@ -41,6 +41,7 @@ from src.eval.extract import load_backbone  # noqa: E402
 from src.eval.indomain import extract_classification_features, get_indomain_splits, subsample_per_class
 from src.eval.knn_probe import weighted_knn
 from src.eval.linear_probe import run_linear_probe
+from src.eval.io import atomic_write
 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger()
@@ -54,7 +55,7 @@ def _per_backbone_dir(out_dir: str) -> str:
 
 def _save_backbone(name: str, entry: dict, out_dir: str) -> None:
     """One file per backbone so concurrent per-backbone jobs never clobber."""
-    with open(os.path.join(_per_backbone_dir(out_dir), f"{name}.json"), "w", encoding="utf-8") as file:
+    with atomic_write(os.path.join(_per_backbone_dir(out_dir), f"{name}.json"), "w", encoding="utf-8") as file:
         json.dump(entry, file, indent=2)
 
 
@@ -74,11 +75,11 @@ def _collect_results(out_dir: str, order: list[str]) -> dict:
 def _write_results(results: dict, out_dir: str) -> None:
     if not results:
         return
-    with open(os.path.join(out_dir, "results.json"), "w", encoding="utf-8") as file:
+    with atomic_write(os.path.join(out_dir, "results.json"), "w", encoding="utf-8") as file:
         json.dump(results, file, indent=2)
 
     k_report = sorted({int(k) for entry in results.values() for k in entry["knn"]})
-    with open(os.path.join(out_dir, "results.csv"), "w", newline="", encoding="utf-8") as file:
+    with atomic_write(os.path.join(out_dir, "results.csv"), "w", newline="", encoding="utf-8") as file:
         writer = csv.writer(file)
         header = ["backbone", "experiment", "checkpoint", "epoch", "feat_dim", "n_train", "n_val"]
         header += [f"knn{k}_top1" for k in k_report] + [f"knn{k}_top5" for k in k_report]

@@ -289,22 +289,44 @@ def test_the_atomic_writers_never_expose_a_partial_file(tmp_path, module_name):
     assert list(written.parent.glob("*.tmp")) == [], "the temporary file must not be left behind"
 
 
-def test_the_indomain_writer_is_not_atomic_unlike_its_two_siblings():
-    """FINDING, pinned as a test because it is invisible otherwise.
+def test_no_evaluation_entry_point_writes_a_final_artifact_non_atomically():
+    """REPLACES ``test_the_indomain_writer_is_not_atomic_unlike_its_two_siblings``.
 
-    ``eval_transfer`` and ``eval_rankme`` both write ``.tmp`` then ``os.replace``.
-    ``eval_indomain._save_backbone`` -- the one whose numbers appear in the headline table --
-    writes the destination directly. Same three-line function, same preemptable partition, one
-    of the three unprotected.
+    That test asserted ``"os.replace" not in`` the body of ``eval_indomain._save_backbone``, and
+    its docstring said to delete it once the writer was brought into line. Deleting it outright
+    would have left nothing guarding the property, and -- worse -- because the fix moved the
+    ``os.replace`` into ``src/eval/io.py`` rather than inlining it, the old assertion would have
+    kept **passing** while the behaviour changed. A false green is worse than no test.
 
-    Asserted on the source text rather than by simulating a kill, which is what makes it cheap.
-    When ``eval_indomain`` is brought into line this test fails and should be deleted; that is
-    the intended end of it.
+    So it generalises instead: no evaluation module may open a final artifact for writing
+    directly. Every one of them must go through ``atomic_write`` / ``atomic_torch_save``, because
+    every one of them runs on a partition that kills without warning.
+
+    Source-level, which is what makes it cheap and total -- it covers the ten entry points and
+    the two feature caches in one pass, including files no other test imports.
     """
-    source = (REPO / "src" / "eval_indomain.py").read_text()
-    body = source.split("def _save_backbone")[1].split("\ndef ")[0]
-    assert "os.replace" not in body, (
-        "eval_indomain._save_backbone now looks atomic -- confirm it, then delete this test"
+    import re
+
+    offenders = []
+    for path in sorted((REPO / "src").rglob("eval*.py")) + [
+        REPO / "src" / "eval" / "indomain.py", REPO / "src" / "eval" / "extract.py",
+    ]:
+        if path.name == "io.py":
+            continue
+        for number, line in enumerate(path.read_text().splitlines(), start=1):
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                continue
+            # a write-mode open() of anything that is not already a .tmp
+            if re.search(r'\bopen\([^)]*["\']w', stripped) and "atomic_write" not in stripped:
+                offenders.append(f"{path.relative_to(REPO)}:{number}: {stripped[:80]}")
+            if re.search(r"\btorch\.save\(", stripped):
+                offenders.append(f"{path.relative_to(REPO)}:{number}: {stripped[:80]}")
+
+    assert not offenders, (
+        "these write a final artifact directly; a job killed mid-write loses it, and for a "
+        "feature cache it wedges the backbone until a human intervenes. Route them through "
+        "src/eval/io.py:\n  " + "\n  ".join(offenders)
     )
 
 
