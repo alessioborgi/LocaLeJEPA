@@ -159,44 +159,77 @@ def test_spearman_is_monotone_not_linear(rankme_report):
 
 
 # ======================================================================================
-# THE SILENT-k SUBSTITUTION -- three copies of one defect
+# THE SILENT-k SUBSTITUTION -- fixed; these were xfail(strict=True) until the fix
 # ======================================================================================
 #
-# All three do ``entry["knn"].get(str(k)) or next(iter(entry["knn"].values()))``. When the
-# requested k is absent, the fallback reports a DIFFERENT k's accuracy under the requested k's
-# heading, with no marker. The column header says "k-NN (k=20)"; the number can be k=10.
+# All four sites did `entry["knn"].get(str(k)) or next(iter(entry["knn"].values()))`. When the
+# requested k was absent the fallback reported a DIFFERENT k's accuracy under the requested k's
+# heading, with no marker -- and specifically the SMALLEST available k, because `k_values` is
+# sorted ascending before the dict is built. A column headed "k-NN (k=20)" could carry k=10.
 #
-# The expression is not even a correct presence check: ``.get(...)`` returning a falsy value
-# would also trigger the fallback, though in practice these are always dicts.
+# The expression was not even a correct presence check: a falsy `.get(...)` would also have
+# triggered it.
 #
-# The contrast is ``eval_indomain._write_results``, which writes "" for a missing k in the CSV.
-# The machine-readable output is honest; the human-readable one is not. Pinned below.
+# Fixed 2026-09-20. Each site now returns None for a missing k and renders an em dash. These
+# tests were `xfail(strict=True)` and are now ordinary assertions -- which is exactly what strict
+# xfail is for: the day the code was fixed they failed, demanding to be flipped.
+#
+# Worth keeping in view: the markdown paths substituted, while the LaTeX paths in the same two
+# scripts index directly and raise KeyError. One script, two behaviours, and the honest one was
+# the one nobody reads. They now agree.
 
-XFAIL_SILENT_K = pytest.mark.xfail(
-    strict=True,
-    reason="CONFIRMED DEFECT: a missing k falls back to an arbitrary other k under the requested "
-           "heading. Pinned, not endorsed; the fix is a separate decision.",
-)
-
-
-@XFAIL_SILENT_K
 def test_in1k_report_does_not_substitute_another_k(in1k_report):
     """Requested k=20, available k=10 only. Reporting 90.0 under a 'k=20' heading is wrong."""
-    top1, _, _, _ = in1k_report._cell(knn_entry(**{"10": 90.0}), k=20)
-    assert top1 != "90.0", "k=10's accuracy is being reported as k=20"
+    top1, linear, top5, _ = in1k_report._cell(knn_entry(**{"10": 90.0}), k=20)
+    assert top1 == "—", "k=10's accuracy must not be reported as k=20"
+    assert top5 == "—"
+    assert linear == "50.0", "the linear column is unaffected and must still be reported"
 
 
-@XFAIL_SILENT_K
 def test_plainvit_report_does_not_substitute_another_k(plainvit_report):
-    assert plainvit_report._knn(knn_entry(**{"10": 90.0}), k="20")["top1"] != 90.0
+    assert plainvit_report._knn(knn_entry(**{"10": 90.0}), k="20") is None
+    assert plainvit_report._knn_pct(knn_entry(**{"10": 90.0}), "top1") == "—"
 
 
-@XFAIL_SILENT_K
 def test_rankme_acc_does_not_substitute_another_k(rankme_report):
-    """The third copy, and the one that reaches furthest: this number feeds the RankMe-vs-accuracy
-    correlation, so a substituted k does not merely misprint a cell -- it enters a statistic."""
+    """The copy that reaches furthest: this number feeds the RankMe-vs-accuracy correlation, so a
+    substituted k would not merely misprint a cell -- it would enter a statistic."""
     ind = {"epoch": 9, "knn": {"10": {"top1": 90.0}}, "linear": {"top1": 50.0}}
-    assert rankme_report._acc(ind, None, 9)[0] != 90.0
+    knn, lin, _ = rankme_report._acc(ind, None, 9)
+
+    assert knn is None, "a missing k must not borrow another k's accuracy into the correlation"
+    assert lin == 50.0, "the linear number is still available and must survive"
+
+
+def test_a_missing_k_is_dropped_from_the_correlation_rather_than_faked(rankme_report):
+    """The consequence of the above, stated where it matters. `_spearman` drops None pairs and
+    then refuses below four points, so a missing k shrinks the sample honestly instead of
+    inflating it with a substituted value."""
+    xs = [1.0, 2.0, None, 4.0]
+    assert rankme_report._spearman(xs, [1.0, 2.0, 3.0, 4.0]) == (None, 3)
+
+
+def test_the_indomain_table_prints_a_dash_for_a_missing_k(capsys):
+    """The printed table is what gets read into a paper. It must show the gap."""
+    from src.eval_indomain import _print_table
+
+    _print_table({"only_k10": knn_entry(**{"10": 90.0})}, "imagenet1k", report_k=20)
+    printed = capsys.readouterr().out
+
+    assert "90.0" not in printed, "k=10's accuracy leaked into a k=20 table"
+    assert "—" in printed
+    assert "50.0" in printed, "the linear column is still reported"
+
+
+def test_the_markdown_and_latex_paths_agree_about_a_missing_k(in1k_report):
+    """They disagreed: markdown substituted, LaTeX raised KeyError. Both now treat a missing k as
+    absent -- LaTeX by raising, markdown by rendering a dash -- so neither can report a number
+    that was never measured."""
+    entry = knn_entry(**{"10": 90.0})
+    assert in1k_report._cell(entry, k=20)[0] == "—"
+
+    with pytest.raises(KeyError):
+        _ = entry["knn"]["20"]
 
 
 def test_all_three_copies_agree_when_the_requested_k_is_present(in1k_report, plainvit_report,

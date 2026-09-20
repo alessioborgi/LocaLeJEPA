@@ -74,7 +74,19 @@ def _status(ckdir):
 
 
 def _knn(entry, k="20"):
-    return entry["knn"].get(k) or next(iter(entry["knn"].values()))
+    """The requested k, or None if it is absent.
+
+    A missing k renders as an em dash. It must NEVER fall back to another k: the previous
+    # `.get(k) or next(iter(...))` reported the SMALLEST available k (the dict is built in
+    # ascending order) under the requested k's heading, with no marker. Ledger T.suite-P2-7.
+    """
+    return entry["knn"].get(k)
+
+
+def _knn_pct(entry, field, k="20"):
+    """One k-NN percentage as a table cell, or an em dash when that k was not evaluated."""
+    hit = _knn(entry, k)
+    return f"{hit[field]:.1f}" if hit else "—"
 
 
 def _yoda(key):
@@ -93,7 +105,7 @@ def _ind_rows(rows, ind_dir, with_best):
             out.append(f"| {label} | {_status(ckdir)} | — | — | — | — |" + (" — |" if with_best else ""))
             continue
         n += 1
-        kn, li = _knn(final), final["linear"]
+        li = final["linear"]
         cell = ""
         if with_best:
             if best is None:
@@ -101,9 +113,9 @@ def _ind_rows(rows, ind_dir, with_best):
             elif best["epoch"] == final["epoch"]:
                 cell = f" same as final (ep {best['epoch']}) |"
             else:
-                cell = f" ep {best['epoch']}: {_knn(best)['top1']:.1f} / {best['linear']['top1']:.1f} |"
-        out.append(f"| {label} | final (ep {final['epoch']}) | **{kn['top1']:.1f}** | **{li['top1']:.1f}** "
-                   f"| {kn['top5']:.1f} | {li['top5']:.1f} |{cell}")
+                cell = f" ep {best['epoch']}: {_knn_pct(best, 'top1')} / {best['linear']['top1']:.1f} |"
+        out.append(f"| {label} | final (ep {final['epoch']}) | **{_knn_pct(final, 'top1')}** "
+                   f"| **{li['top1']:.1f}** | {_knn_pct(final, 'top5')} | {li['top5']:.1f} |{cell}")
     return out, n
 
 

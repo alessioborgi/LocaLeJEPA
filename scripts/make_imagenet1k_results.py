@@ -161,8 +161,13 @@ def _ckpt_epoch(path):
 
 
 def _cell(entry, k=20):
-    knn = entry["knn"].get(str(k)) or next(iter(entry["knn"].values()))
-    return f'{knn["top1"]:.1f}', f'{entry["linear"]["top1"]:.1f}', f'{knn["top5"]:.1f}', f'{entry["linear"]["top5"]:.1f}'
+    # A missing k renders as an em dash. It must NEVER fall back to another k: the previous
+    # `.get(k) or next(iter(...))` reported the SMALLEST available k (the dict is built in
+    # ascending order) under the requested k's heading, with no marker. Ledger T.suite-P2-7.
+    knn = entry["knn"].get(str(k))
+    knn_top1 = f'{knn["top1"]:.1f}' if knn else "—"
+    knn_top5 = f'{knn["top5"]:.1f}' if knn else "—"
+    return knn_top1, f'{entry["linear"]["top1"]:.1f}', knn_top5, f'{entry["linear"]["top5"]:.1f}'
 
 
 def main():

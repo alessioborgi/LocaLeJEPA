@@ -103,10 +103,15 @@ def _print_table(results: dict, dataset: str, report_k: int) -> None:
     print(f'{"Backbone":28s} {"ep":>4s} {f"k-NN@{report_k} (%)":>14s} {"Linear (%)":>11s} {"kNN top5":>9s} {"Lin top5":>9s}')
     print("-" * 84)
     for name, entry in results.items():
-        knn = entry["knn"].get(str(report_k)) or next(iter(entry["knn"].values()))
+        # A missing k renders as an em dash. It must NEVER fall back to another k: the previous
+    # `.get(k) or next(iter(...))` reported the SMALLEST available k (the dict is built in
+    # ascending order) under the requested k's heading, with no marker. Ledger T.suite-P2-7.
+        knn = entry["knn"].get(str(report_k))
+        top1 = f'{knn["top1"]:14.1f}' if knn else f'{"—":>14s}'
+        top5 = f'{knn["top5"]:9.1f}' if knn else f'{"—":>9s}'
         print(
-            f'{name:28s} {str(entry.get("epoch", "?")):>4s} {knn["top1"]:14.1f} '
-            f'{entry["linear"]["top1"]:11.1f} {knn["top5"]:9.1f} {entry["linear"]["top5"]:9.1f}'
+            f'{name:28s} {str(entry.get("epoch", "?")):>4s} {top1} '
+            f'{entry["linear"]["top1"]:11.1f} {top5} {entry["linear"]["top5"]:9.1f}'
         )
     print("=" * 84)
 
