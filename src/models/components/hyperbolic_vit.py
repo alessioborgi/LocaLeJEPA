@@ -9,6 +9,9 @@ Improvements in Metric Learning", CVPR 2022 (arXiv:2203.10833).
 Official code: https://github.com/htdt/hyp_metric (MIT license).
 """
 
+import math
+import warnings
+
 import timm
 import torch
 import torch.nn as nn
@@ -50,6 +53,23 @@ class HyperbolicViT(nn.Module):
             drop_path_rate=drop_path_rate,
             img_size=img_size,
         )
+
+        # hyp_c and clip_r are NOT independently sweepable. expmap0 composes tanh with a
+        # projection that clamps at (1 - 1e-3)/sqrt(c), so once tanh(sqrt(c) * clip_r) approaches
+        # 1 every tangent vector lands on the same shell and all magnitude information is
+        # destroyed -- silently, with no error and a perfectly healthy-looking loss. At c=1.0
+        # with 16-dim features of ordinary norm the map is already saturated; the configured
+        # c=0.1 / clip_r=2.3 reaches 0.62 of the ball radius and is fine.
+        if clip_r is not None:
+            reach = math.tanh(math.sqrt(hyp_c) * clip_r)
+            if reach > 0.95:
+                warnings.warn(
+                    f"HyperbolicViT: hyp_c={hyp_c} with clip_r={clip_r} reaches {reach:.4f} of "
+                    f"the ball radius, so the exponential map is saturated -- distinct features "
+                    f"will collapse onto one shell and their magnitudes will be lost. Lower "
+                    f"hyp_c or clip_r (the campaign uses 0.1 / 2.3, which reaches 0.62).",
+                    RuntimeWarning, stacklevel=2,
+                )
 
         self.tangent_head = nn.Linear(self.body.num_features, embedding_dim)
         self.to_poincare = ToPoincare(c=hyp_c, clip_radius=clip_r)
