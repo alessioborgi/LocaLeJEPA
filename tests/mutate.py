@@ -193,8 +193,11 @@ MUTANTS: list[Mutant] = [
            "std = features.float().std(dim=0)",
            "a constant feature dimension divides by zero and NaNs the probe"),
     # --- hygiene batch (T.suite-P3-10, P3-11, P2-9) ---
+    # anchored on the following line too: ImageNet.__init__ and ImageNet1KDataModule.__init__
+    # now both read `copy_data: bool = False`, so the bare line is ambiguous
     Mutant("copy-data-default-on", "src/data/imagenet1k_datamodule.py",
-           "        copy_data: bool = False,\n", "        copy_data: bool = True,\n",
+           "        copy_data: bool = False,\n        index_targets: bool = False,",
+           "        copy_data: bool = True,\n        index_targets: bool = False,",
            "constructing ImageNet directly raises NotImplementedError for no stated reason"),
     Mutant("ortho-norm-unvalidated", "src/eval/conformal_autoencoder.py",
            "    if norm not in ORTHO_NORMS:\n        raise ValueError(f\"ortho_norm must be one of {ORTHO_NORMS}, got {norm!r}\")",
