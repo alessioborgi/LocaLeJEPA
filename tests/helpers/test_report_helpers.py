@@ -317,8 +317,14 @@ def test_no_evaluation_entry_point_writes_a_final_artifact_non_atomically():
             stripped = line.strip()
             if stripped.startswith("#"):
                 continue
-            # a write-mode open() of anything that is not already a .tmp
-            if re.search(r'\bopen\([^)]*["\']w', stripped) and "atomic_write" not in stripped:
+            # An open() in a writing mode. NOT `open\([^)]*["']w` -- that was the first
+            # version and a mutant walked straight through it: `[^)]*` stops at the first
+            # `)`, which every real call has inside its path expression
+            # (`os.path.join(_per_backbone_dir(out_dir), ...)`). Found by planting
+            # `non-atomic-indomain-save` and watching it survive.
+            if ("open(" in stripped
+                    and re.search(r'["\'](w|wb|a|ab|x)[btx+]*["\']', stripped)
+                    and "atomic_write" not in stripped):
                 offenders.append(f"{path.relative_to(REPO)}:{number}: {stripped[:80]}")
             if re.search(r"\btorch\.save\(", stripped):
                 offenders.append(f"{path.relative_to(REPO)}:{number}: {stripped[:80]}")
