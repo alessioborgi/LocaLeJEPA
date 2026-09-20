@@ -47,59 +47,126 @@ def test_standardize_std_is_floored_to_avoid_dividing_by_zero():
 # training and evaluation
 # --------------------------------------------------------------------------------------
 
-def test_train_head_is_not_reproducible_from_its_seed_alone():
-    """FINDING, pinned deliberately.
+HEAD_ARGS = dict(num_classes=4, lr=0.1, epochs=3, batch_size=64, weight_decay=0.0,
+                 momentum=0.9, mean=None, std=None, device=torch.device("cpu"))
 
-    ``_train_head`` takes a ``seed``, but that seed only feeds the ``torch.Generator`` used for
-    the shuffle permutation. The head itself -- ``nn.Linear(...)`` followed by
-    ``trunc_normal_`` -- draws from the **global** RNG, which the seed never touches. So two
-    calls with the same seed in the same process start from different weights.
 
-    Measured consequence at the probe level: repeated ``run_linear_probe(seed=0)`` calls span
-    **0.417 percentage points** of top-1 on easy synthetic data. The reported tables quote
-    Linear (%) to 0.1 pp, and ``eval_indomain.py`` probes backbones in a loop, so the Nth
-    backbone's initialisation depends on how many ran before it -- meaning ``--only <name>``
-    does not reproduce the number the full sweep produced for that backbone.
+def test_train_head_is_reproducible_from_its_seed_alone():
+    """WAS A FINDING (ledger T.suite-P1-5), fixed. This test is its inverse.
 
-    Pinned rather than fixed: seeding the global RNG inside ``_train_head`` would change every
-    reported Linear (%) number, so it belongs with the experimental-settings discussion.
+    ``_train_head``'s ``seed`` used to feed only the shuffle ``Generator``; the head itself --
+    ``nn.Linear(...)`` then ``trunc_normal_`` -- drew from the **global** RNG, and because
+    ``.to(device)`` ran first, on CUDA that was the global *CUDA* RNG, which nothing in the repo
+    ever seeds. Two calls with the same seed started from different weights.
+
+    Measured before the fix: repeated ``run_linear_probe(seed=0)`` spanned **0.417 pp** of top-1
+    on easy synthetic data, on CPU. Published tables quote Linear (%) to 0.1 pp, and
+    ``eval_indomain.py`` probes backbones in a loop, so the Nth backbone's initialisation
+    depended on how many ran before it -- ``--only <name>`` did not reproduce the sweep's number.
+
+    Now exact, with no global seeding by the caller. Zero tolerance deliberately: this is either
+    reproducible or it is not.
     """
     x, y = separable()
-    args = dict(num_classes=4, lr=0.1, epochs=3, batch_size=64, weight_decay=0.0,
-                momentum=0.9, mean=None, std=None, device=torch.device("cpu"))
-    first, _ = _train_head(x, y, seed=0, **args)
-    second, _ = _train_head(x, y, seed=0, **args)
-    assert not torch.allclose(first, second), (
-        "if this now passes, the head initialisation has been brought under the seed -- a "
-        "welcome fix, but one that moves every published Linear (%) number"
-    )
-
-
-def test_train_head_is_reproducible_once_the_global_rng_is_fixed():
-    """The counterpart, and the workaround: seeding globally before the call makes the probe
-    exactly reproducible. Any caller that needs a reproducible number must do this."""
-    x, y = separable()
-    args = dict(num_classes=4, lr=0.1, epochs=3, batch_size=64, weight_decay=0.0,
-                momentum=0.9, mean=None, std=None, device=torch.device("cpu"))
-    torch.manual_seed(999)
-    first, first_bias = _train_head(x, y, seed=0, **args)
-    torch.manual_seed(999)
-    second, second_bias = _train_head(x, y, seed=0, **args)
+    first, first_bias = _train_head(x, y, seed=0, **HEAD_ARGS)
+    second, second_bias = _train_head(x, y, seed=0, **HEAD_ARGS)
     torch.testing.assert_close(first, second, rtol=0, atol=0)
     torch.testing.assert_close(first_bias, second_bias, rtol=0, atol=0)
 
 
-def test_the_seed_does_control_the_shuffle_order():
-    """The seed is not inert -- it drives the minibatch permutation. With the global RNG pinned,
-    two different seeds must still diverge, which isolates the generator's actual effect."""
+def test_the_probe_does_not_depend_on_the_callers_global_rng():
+    """The property that makes ``--only <name>`` reproduce the full sweep.
+
+    Two calls with the same seed but wildly different global RNG states must agree exactly. This
+    is the test that would have caught the original defect, and the one that catches it coming
+    back: the old code's result was a function of how much global randomness had been consumed
+    before it, which is to say of the backbone's *position in the loop*.
+    """
     x, y = separable()
-    args = dict(num_classes=4, lr=0.3, epochs=5, batch_size=16, weight_decay=0.0,
-                momentum=0.9, mean=None, std=None, device=torch.device("cpu"))
-    torch.manual_seed(7)
+    torch.manual_seed(1)
+    first, _ = _train_head(x, y, seed=0, **HEAD_ARGS)
+
+    torch.manual_seed(12345)
+    _ = torch.randn(1000)                       # advance the global stream arbitrarily
+    second, _ = _train_head(x, y, seed=0, **HEAD_ARGS)
+
+    torch.testing.assert_close(first, second, rtol=0, atol=0)
+
+
+def test_the_probe_leaves_the_callers_global_rng_alone():
+    """The converse courtesy: the probe draws from its own generator, so it must not perturb the
+    stream its caller is using. ``eval_indomain`` runs probes between other seeded work."""
+    x, y = separable()
+    torch.manual_seed(4)
+    before = torch.randn(3)
+
+    torch.manual_seed(4)
+    _train_head(x, y, seed=0, **HEAD_ARGS)
+    after = torch.randn(3)
+
+    torch.testing.assert_close(before, after, rtol=0, atol=0)
+
+
+def test_every_learning_rate_in_the_search_starts_from_the_same_initialisation():
+    """A quieter consequence of the fix, and a real improvement to the protocol.
+
+    ``run_linear_probe`` calls ``_train_head`` once per grid point with the same ``seed``. Before
+    the fix each call drew a *different* init from the advancing global RNG, so the search was
+    comparing (learning rate x initialisation) pairs and attributing the whole difference to the
+    learning rate. Now the init is a function of the seed alone, so the grid varies the one thing
+    it is supposed to vary.
+    """
+    x, y = separable()
+    at_lr = {lr: _train_head(x, y, seed=0, **{**HEAD_ARGS, "lr": lr, "epochs": 0})[0]
+             for lr in (0.01, 0.1, 1.0)}
+
+    reference = at_lr[0.01]
+    for lr, weight in at_lr.items():
+        torch.testing.assert_close(weight, reference, rtol=0, atol=0,
+                                   msg=f"lr={lr} started from a different initialisation")
+
+
+def test_the_initialisation_is_a_small_centred_normal():
+    """Not merely deterministic -- deterministic *and* the intended distribution. std=0.01 keeps
+    the initial logits near zero so the cosine schedule has somewhere to go; a defect that seeded
+    the head but changed its scale would pass every test above.
+
+    Note on the name ``trunc_normal_``: its ``a``/``b`` bounds are **absolute**, defaulting to
+    +/-2.0, not multiples of ``std``. At std=0.01 they are 200 sigma away, so no truncation ever
+    occurs and this is a plain normal. Asserted as such rather than as a truncation, because a
+    test that expected clipping at 2*std would be testing something the code does not do.
+    """
+    x, y = separable(n_per_class=5)
+    weight, bias = _train_head(x, y, seed=0, **{**HEAD_ARGS, "epochs": 0})
+
+    assert float(bias.abs().max()) == 0.0, "the bias starts at exactly zero"
+    assert abs(float(weight.mean())) < 0.005, "centred"
+    assert 0.005 < float(weight.std()) < 0.02, f"std {float(weight.std()):.4f} is not ~0.01"
+
+
+def test_different_seeds_still_give_different_results():
+    """The seed is not inert. Without this, a "fix" that hard-coded one initialisation -- or
+    ignored the seed entirely -- would satisfy every reproducibility test above while making the
+    multi-seed spread identically zero."""
+    x, y = separable()
+    args = {**HEAD_ARGS, "lr": 0.3, "epochs": 5, "batch_size": 16}
     a, _ = _train_head(x, y, seed=0, **args)
-    torch.manual_seed(7)
     b, _ = _train_head(x, y, seed=1, **args)
     assert not torch.allclose(a, b)
+
+
+def test_the_seed_controls_the_shuffle_as_well_as_the_initialisation():
+    """Both, not just the init. At ``epochs=0`` no shuffle happens, so two seeds differ only in
+    their init; with epochs > 0 they differ in both. Pinning the init and asserting the seeds
+    still diverge shows the permutation is genuinely seed-driven too."""
+    x, y = separable()
+    at_zero_epochs = {seed: _train_head(x, y, seed=seed, **{**HEAD_ARGS, "epochs": 0})[0]
+                      for seed in (0, 1)}
+    assert not torch.allclose(at_zero_epochs[0], at_zero_epochs[1]), "inits differ"
+
+    trained = {seed: _train_head(x, y, seed=seed, **{**HEAD_ARGS, "lr": 0.3, "epochs": 5})[0]
+               for seed in (0, 1)}
+    assert not torch.allclose(trained[0], trained[1])
 
 
 def test_evaluate_returns_percentages_and_top5_dominates_top1():

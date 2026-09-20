@@ -37,7 +37,7 @@ def tiny_imagenette(tmp_path):
     return tmp_path
 
 
-def run_training(experiment: str, data_root: Path, out_dir: Path):
+def run_training(experiment: str, data_root: Path, out_dir: Path, extra: list[str] | None = None):
     os.environ["PROJECT_ROOT"] = str(REPO)
     GlobalHydra.instance().clear()
     try:
@@ -68,6 +68,7 @@ def run_training(experiment: str, data_root: Path, out_dir: Path):
                     # resolved paths are supplied directly instead of faking the resolver.
                     f"paths.output_dir={out_dir}/run",
                     f"paths.work_dir={out_dir}",
+                    *(extra or []),
                 ],
             )
             from src.train import train
@@ -156,3 +157,28 @@ def test_the_local_regularizer_actually_takes_its_local_path(tiny_imagenette, tm
     assert len(fell_back) < len(calls), (
         f"every step fell back to the global test: {calls[:3]}"
     )
+
+
+@pytest.mark.parametrize("seed, should_seed", [(0, True), (42, True), (None, False)])
+def test_seed_zero_actually_seeds(tiny_imagenette, tmp_path, monkeypatch, seed, should_seed):
+    """``seed: 0`` must seed.
+
+    ``src/train.py`` guarded on truthiness, so ``seed: 0`` -- the most natural seed anyone picks --
+    silently skipped ``seed_everything`` entirely, and the run proceeded unseeded while its config
+    said otherwise. Latent today (training configs use 42 or null), but it is the same defect as
+    the linear probe's unseeded head and it would have been discovered the hard way.
+
+    ``None`` must still skip: that is the documented "do not seed" value, and forcing a seed on
+    every run would change what ``seed: null`` means.
+    """
+    import src.train as train_module
+
+    seen = []
+    monkeypatch.setattr(train_module.L, "seed_everything",
+                        lambda value, workers=False: seen.append(value))
+
+    out = tmp_path / "out"
+    run_training("lejepa/vit_imagenette_sigreg", tiny_imagenette, out,
+                 extra=[f"seed={'null' if seed is None else seed}"])
+
+    assert seen == ([seed] if should_seed else [])
