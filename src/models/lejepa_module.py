@@ -4,6 +4,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import inspect
 from collections.abc import Callable
 from typing import Any
 
@@ -14,6 +15,25 @@ from torch import nn
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 
 from src import losses
+
+
+def _accepts_keyword(fn: Callable[..., Any], name: str) -> bool:
+    """True if ``fn`` declares ``name`` as a real keyword parameter.
+
+    A bare ``**kwargs`` does not count: a function that merely swallows ``stats`` would leave it
+    empty, and the module would log nothing while believing the regularizer had reported.
+    ``functools.partial`` objects resolve through to the wrapped signature, which is how the
+    Hydra-instantiated ``local_*`` regularizers (``_partial_: true``) are detected.
+    """
+    try:
+        parameters = inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return False
+    parameter = parameters.get(name)
+    return parameter is not None and parameter.kind in (
+        inspect.Parameter.KEYWORD_ONLY,
+        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+    )
 
 
 class LeJEPAModule(LightningModule):
@@ -59,6 +79,10 @@ class LeJEPAModule(LightningModule):
         self.reg_loss = reg_loss
         self.inv_loss = inv_loss
         self.reg_name = getattr(reg_loss, "func", reg_loss).__name__
+        # Decided once: the local regularizers report their realised partition through a `stats`
+        # out-param (src/losses.py::local_loss). DynamicNumClusters re-wraps `reg_loss` in a
+        # partial every epoch, which keeps the parameter, so the answer does not go stale.
+        self._reg_takes_stats = _accepts_keyword(reg_loss, "stats")
 
         self.embedding_dim = embedding_dim
         self.projection_dim = projection_dim
@@ -144,7 +168,8 @@ class LeJEPAModule(LightningModule):
     def model_step(self, views: torch.Tensor) -> tuple[torch.Tensor, dict[str, Any]]:
         emb, proj = self.forward(views)
         inv_loss = self.inv_loss(proj)
-        reg = self.reg_loss(proj)
+        reg_stats: dict[str, float] = {}
+        reg = self.reg_loss(proj, stats=reg_stats) if self._reg_takes_stats else self.reg_loss(proj)
 
         lejepa_loss = reg * self.lamb + inv_loss * (1.0 - self.lamb)
 
@@ -156,6 +181,9 @@ class LeJEPAModule(LightningModule):
             "inv_contrib": inv_loss * (1.0 - self.lamb),
             "reg_contrib": reg * self.lamb,
             **self._covariance_metrics(proj),
+            # Realised-K diagnostics, logged as train/local/*. Absent for a global regularizer,
+            # so an empty column means "not a local run", never "K was as configured".
+            **{f"local/{key}": value for key, value in reg_stats.items()},
         }
 
     @torch.no_grad()

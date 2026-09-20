@@ -1,12 +1,17 @@
 """``local_loss`` -- the proposed method, and the file with the most silent-wrongness surface.
 
-Two behaviours here are pinned as **findings, not endorsements**: the silent fallback to the
-global test, and the gap between the configured and effective cluster count. Both are real, both
-are currently unreported by the code, and both would change results if altered. The tests exist so
-that changing either fails loudly; whether to change them is a separate design decision.
+Two behaviours here are pinned as **findings, not endorsements**: the fallback to the global
+test, and the gap between the configured and effective cluster count. Both are real and both
+would change results if altered. Until 2026-09-20 both were also *unreported*; the campaign plan's
+C1 made them observable through an opt-in ``stats`` out-param, and the tests that pinned the
+silence were inverted in the same commit (the standing rule: a fix that pins a finding inverts
+its test). The behaviours themselves are unchanged and still pinned.
 """
 
 from __future__ import annotations
+
+import inspect
+from functools import partial
 
 import pytest
 import torch
@@ -63,12 +68,18 @@ def test_does_not_fall_back_at_the_real_training_batch_size():
     assert min(spy.sizes) >= 4
 
 
-def test_the_fallback_result_is_indistinguishable_from_a_local_one():
-    """Pins the *absence* of a signal. If a future change adds a flag, a warning or a different
-    return type, this test fails and the ledger entry gets revisited -- which is the intent."""
+def test_the_fallback_is_reported_through_stats_and_the_return_is_unchanged():
+    """INVERTED 2026-09-20 (C1). This test pinned the *absence* of a signal: the fallback
+    returned a bare scalar and nothing else. The signal now exists, opt-in -- pass ``stats={}``
+    and the fallback is written there, with the realised count (zero surviving clusters) and the
+    kept fraction (nothing kept locally). The return type is unchanged on purpose: every caller
+    and every saved config keeps working, and a caller that does not ask still gets nothing."""
+    stats: dict[str, float] = {}
     out = local_loss(torch.randn(4, 8, 16), loss=Spy(), num_clusters=4, min_cluster_size=4,
-                     **TORCH_BACKEND)
+                     stats=stats, **TORCH_BACKEND)
     assert isinstance(out, torch.Tensor) and out.shape == ()
+    assert stats == {"configured_clusters": 4.0, "effective_clusters": 0.0,
+                     "kept_fraction": 0.0, "fallback": 1.0}
 
 
 # --------------------------------------------------------------------------------------
@@ -82,17 +93,26 @@ def test_small_k_keeps_every_cluster_at_batch_64(k, min_expected):
     assert worst == min_expected
 
 
-def test_large_k_silently_loses_clusters_at_batch_64():
-    """FINDING, pinned deliberately.
+def test_large_k_loses_clusters_at_batch_64_and_stats_say_so():
+    """FINDING kept, its SILENCE inverted 2026-09-20 (C1).
 
     ``num_clusters`` is an upper bound, not the effective count: clusters below
-    ``min_cluster_size`` are skipped and nothing reports it. At N=64 a configured k=16 runs with
-    roughly ten. Any ablation sweeping k past ~8 at this batch size is not sweeping what its
-    label says.
+    ``min_cluster_size`` are skipped. At N=64 a configured k=16 runs with roughly ten, so an
+    ablation sweeping k past ~8 at this batch size is not sweeping what its label says -- which
+    is why the campaign's tables carry a realised-K column. The report must agree with an
+    independent count of the inner-loss calls (the Spy), seed by seed.
     """
-    used = [_clusters_used(16, n=64, seed=s) for s in range(20)]
+    used, reported = [], []
+    for seed in range(20):
+        torch.manual_seed(seed)
+        spy, stats = Spy(), {}
+        local_loss(torch.randn(4, 64, 16), loss=spy, num_clusters=16, min_cluster_size=4,
+                   stats=stats, **TORCH_BACKEND)
+        used.append(0 if spy.sizes == [64] else len(spy.sizes))
+        reported.append(int(stats["effective_clusters"]))
     assert max(used) < 16, "expected fewer effective clusters than configured"
     assert min(used) >= 2, "but not so few that the statistic degenerates"
+    assert reported == used, "stats must agree with an independent count of the inner calls"
 
 
 def _clusters_used(k: int, n: int, seed: int) -> int:
@@ -351,3 +371,91 @@ def test_detaching_the_clustering_does_not_detach_the_loss():
 
     assert proj.grad is not None
     assert float(proj.grad.abs().sum()) > 0.0
+
+
+# --------------------------------------------------------------------------------------
+# realised K -- the ``stats`` out-param (campaign plan C1, 2026-09-20)
+# --------------------------------------------------------------------------------------
+
+STATS_KEYS = {"configured_clusters", "effective_clusters", "kept_fraction", "fallback"}
+
+
+def test_stats_report_the_partition_exactly(monkeypatch):
+    """Pin the *values*, on a partition chosen by hand: the k-means backend is replaced by fixed
+    labels 30/30/2/2 at ``min_cluster_size=4``, so exactly two clusters survive and 60 of the 64
+    samples are kept. Random data cannot pin this -- its partition is whatever k-means finds."""
+    import src.losses as losses_module
+
+    labels = torch.tensor([0] * 30 + [1] * 30 + [2] * 2 + [3] * 2)
+    monkeypatch.setattr(losses_module, "_torch_kmeans_labels",
+                        lambda x, num_clusters, **kwargs: labels)
+    spy, stats = Spy(), {}
+    local_loss(torch.randn(4, 64, 16), loss=spy, num_clusters=4, min_cluster_size=4,
+               stats=stats, **TORCH_BACKEND)
+
+    assert sorted(spy.sizes) == [30, 30]
+    assert set(stats) == STATS_KEYS
+    assert stats == {"configured_clusters": 4.0, "effective_clusters": 2.0,
+                     "kept_fraction": 60 / 64, "fallback": 0.0}
+
+
+def _deterministic(proj: torch.Tensor) -> torch.Tensor:
+    return proj.float().square().mean()
+
+
+def test_k_equals_one_is_the_global_statistic():
+    """K=1 is the "locality off" control inside every ablation table: one cluster holds the whole
+    batch, so the local loss must *be* the global one.
+
+    Not a per-call identity, though. The sketched tests draw fresh random slices on every call
+    (``_sketch_test``: ``A = torch.randn(D, num_slices)``), so two calls on the same input differ
+    by sampling noise -- measured 0.609 vs 0.632 at 256 slices when this test was first written
+    with the naive assertion. Two things are pinned instead:
+
+    1. with a deterministic inner test the identity is exact: the one cluster IS the batch;
+    2. with the real centred ball test the *only* difference is the RNG stream: replaying the
+       backend's single ``randperm`` draw (its centroid initialisation) and then calling the
+       inner test reproduces the local value bitwise. Nothing else happens between the batch
+       and the statistic.
+    """
+    torch.manual_seed(0)
+    proj = torch.randn(4, 64, 16)
+
+    stats: dict[str, float] = {}
+    local = local_loss(proj, loss=_deterministic, num_clusters=1, stats=stats, **TORCH_BACKEND)
+    torch.testing.assert_close(local, _deterministic(proj), rtol=1e-6, atol=1e-6)
+    assert stats == {"configured_clusters": 1.0, "effective_clusters": 1.0,
+                     "kept_fraction": 1.0, "fallback": 0.0}
+
+    inner = partial(ballreg_loss, center=True)
+    torch.manual_seed(1)
+    local = local_loss(proj, loss=inner, num_clusters=1, **TORCH_BACKEND)
+    torch.manual_seed(1)
+    torch.randperm(64)                       # the backend's one draw, replayed
+    torch.testing.assert_close(local, inner(proj), rtol=0, atol=0)
+
+
+def test_stats_none_leaves_the_loss_bit_identical():
+    """The out-param is opt-in and free: the same seed with and without ``stats`` gives the same
+    tensor, bitwise -- same ops on the same values in the same process, so exact is earned."""
+    def run(**extra):
+        torch.manual_seed(0)
+        return local_loss(torch.randn(4, 64, 16), loss=sigreg_loss, num_clusters=4,
+                          **TORCH_BACKEND, **extra)
+
+    torch.testing.assert_close(run(), run(stats={}), rtol=0, atol=0)
+
+
+@pytest.mark.parametrize("preset", [local_sigreg_loss, local_ballreg_loss])
+def test_the_presets_declare_and_pass_stats_through(preset):
+    """The Hydra targets are the presets, not ``local_loss``. ``stats`` must be a *declared*
+    parameter on each: the module detects it by signature, and a bare ``**kwargs`` would not
+    do -- it would forward the dict and yet look, from outside, like a regularizer that cannot
+    report."""
+    parameter = inspect.signature(preset).parameters.get("stats")
+    assert parameter is not None and parameter.kind is inspect.Parameter.KEYWORD_ONLY
+
+    stats: dict[str, float] = {}
+    preset(torch.randn(4, 64, 16), num_clusters=2, stats=stats, **TORCH_BACKEND)
+    assert set(stats) == STATS_KEYS
+    assert stats["effective_clusters"] == 2.0 and stats["fallback"] == 0.0
