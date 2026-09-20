@@ -31,6 +31,7 @@ import rootutils
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
 from src.eval.angle_probe import _circular_metrics  # noqa: E402
+from src.eval.io import atomic_write
 
 OUT_DIR = "logs/eval_angle_probe_lowdata"
 SIZES = [5, 10, 20, 50, 100, 500, 800, 2000, 4000, 8097]
@@ -147,11 +148,11 @@ def main():
             print(row)
             summary["backbones"][name]["sizes"][ts] = entry
 
-    with open(os.path.join(OUT_DIR, "results_lowdata.json"), "w", encoding="utf-8") as f:
+    with atomic_write(os.path.join(OUT_DIR, "results_lowdata.json"), "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
 
     # tidy CSV: one row per (backbone, size, angle)
-    with open(os.path.join(OUT_DIR, "results_lowdata.csv"), "w", newline="", encoding="utf-8") as f:
+    with atomic_write(os.path.join(OUT_DIR, "results_lowdata.csv"), "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(["backbone", "train_size", "eff_train", "angle",
                     "r2_mean", "r2_std", "mae_mean", "mae_std", "n_seeds"])

@@ -27,6 +27,7 @@ import rootutils
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
 from src.eval.angle_probe import circular_linear_probe  # noqa: E402
+from src.eval.io import atomic_write
 
 
 def main():
@@ -89,9 +90,9 @@ def main():
                   f"   MAE = {mae.mean():.2f} +/- {mae.std(ddof=1):.2f} deg")
 
     os.makedirs(out_dir, exist_ok=True)
-    with open(os.path.join(out_dir, "results_multiseed.json"), "w", encoding="utf-8") as f:
+    with atomic_write(os.path.join(out_dir, "results_multiseed.json"), "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
-    with open(os.path.join(out_dir, "results_multiseed.csv"), "w", newline="", encoding="utf-8") as f:
+    with atomic_write(os.path.join(out_dir, "results_multiseed.csv"), "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         head = ["backbone", "n_seeds"]
         for k in range(2):
