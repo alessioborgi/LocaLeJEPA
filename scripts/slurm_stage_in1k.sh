@@ -2,7 +2,12 @@
 #SBATCH --job-name=stage_in1k
 #SBATCH --account=dominici_lab_hu
 #SBATCH --partition=cpu
-#SBATCH --cpus-per-task=4
+# -c 2, not 4. stage_imagenet1k_hf.py is a single-threaded loop writing files:
+# I/O-bound, not CPU-bound. Asking for 4 makes the job queue behind
+# QOSMaxCpuPerUserLimit waiting for four free slots instead of two, which is
+# what happened to job 1004159. (The -c 4 advice belongs to the TEST SUITE,
+# where torch spawns a thread per core and 4 matches OMP_NUM_THREADS.)
+#SBATCH --cpus-per-task=2
 #SBATCH --mem=64G
 #SBATCH --time=10:00:00
 #SBATCH --output=/scratch/clabat9_hu/localejepa/slurm/stage_in1k-%j.out
