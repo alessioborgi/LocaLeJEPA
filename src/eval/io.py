@@ -151,3 +151,46 @@ def checkpoint_digest(checkpoint_path: str | os.PathLike, length: int = 8) -> st
     stat = os.stat(resolved)
     key = f"{resolved}:{stat.st_size}:{stat.st_mtime_ns}".encode()
     return hashlib.blake2b(key, digest_size=max(1, length // 2)).hexdigest()[:length]
+
+
+def feature_cache_path(
+    cache_dir: str | os.PathLike | None,
+    backbone: str,
+    dataset: str,
+    split: str,
+    crop_size: int,
+    epoch: Any,
+    checkpoint: str | os.PathLike,
+) -> str | None:
+    """The one place a feature-cache filename is built.
+
+    ``<cache_dir>/<backbone>/<dataset>_<split>_<crop>_ep<epoch>_<digest>.pt``, or ``None`` when
+    no ``cache_dir`` is configured (every caller already treats None as "do not cache").
+
+    **Why this exists at all.** The key used to be assembled by hand in five places, and three of
+    them *read what the other two wrote* -- ``eval_rankme`` reconstructs the filenames that
+    ``eval_indomain`` and ``eval_transfer`` produced. A divergence between a writer and a reader
+    does not raise: ``eval_rankme`` logs "no cached features -- skipping this target" and carries
+    on, so the failure is a silently dropped target plus an expensive GPU re-extraction. One
+    builder means a writer and a reader cannot drift apart.
+
+    **Why ``checkpoint`` is required.** It is the fix for ledger C0-4, reproduced 2026-09-20: the
+    key carried the backbone's config *name* and its stored *epoch*, so two genuinely different
+    checkpoints sharing both collided, and the second run silently reported features computed by
+    the first -- no exception, no warning. Making the argument mandatory means a caller that
+    forgets it gets a ``TypeError`` rather than quietly reverting to the unprotected key, which
+    is the whole failure mode being closed.
+
+    ``epoch`` is strictly redundant once the digest is present -- a different epoch is a different
+    file and so a different digest -- but it stays in the name because operators grep for it when
+    working out which run a cache belongs to. ``None`` is accepted and omits that component, for
+    callers that never load the epoch.
+    """
+    if not cache_dir:
+        return None
+
+    stem = f"{dataset}_{split}_{crop_size}"
+    if epoch is not None:
+        stem += f"_ep{epoch}"
+    stem += f"_{checkpoint_digest(checkpoint)}"
+    return os.path.join(os.fspath(cache_dir), backbone, stem + ".pt")

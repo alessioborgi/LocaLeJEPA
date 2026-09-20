@@ -38,10 +38,22 @@ def test_the_old_project_name_is_gone_outside_results():
 
     `results/` is exempt: `LocalReg_complexity.md` explains why its filename was retained, and
     `BallRegRadius_results.md` holds live W&B URLs under the old project that would break.
+
+    Two files are exempt for the same structural reason: they have to *name* the string in order
+    to forbid or plant it. `tests/mutate.py` stores the "before" text of every defect, and this
+    file states what it is checking for. Without the exemption, planting a mutant for a docs
+    regression makes the docs guard fail -- which is exactly what happened when
+    `readme-stale-project-name` was added, and it went out in a pushed commit because the mutants
+    were verified without re-running the full suite afterwards.
+
+    The exemption is by explicit path, not by directory: a *different* test file reintroducing
+    the old name is still a finding, because the reason for exemption is specific to these two.
     """
+    exempt = {"tests/mutate.py", "tests/test_docs_match_the_code.py"}
     offenders = [
         f"{path.relative_to(REPO)}:{number}"
         for path in tracked_text_files()
+        if str(path.relative_to(REPO)) not in exempt
         if "results/" not in str(path.relative_to(REPO))
         for number, line in enumerate(path.read_text(errors="ignore").splitlines(), 1)
         if "BundLeJEPA" in line
