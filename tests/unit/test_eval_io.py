@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 
 import pytest
 import torch
@@ -358,3 +359,102 @@ def test_a_torch_save_failure_before_the_temporary_exists_is_still_reported(tmp_
         atomic_torch_save({"X": torch.zeros(1)}, target)
 
     assert not target.is_file()
+
+
+# ======================================================================================
+# feature_cache_path -- one builder, so a writer and a reader cannot drift apart
+# ======================================================================================
+
+def cache_args(tmp_path, ckpt, **over):
+    base = dict(cache_dir=tmp_path / "cache", backbone="vit_sigreg", dataset="imagenet1k",
+                split="train", crop_size=128, epoch=99, checkpoint=ckpt)
+    return {**base, **over}
+
+
+@pytest.fixture
+def ckpt(tmp_path):
+    path = tmp_path / "a.ckpt"
+    path.write_bytes(b"checkpoint A")
+    return path
+
+
+def test_the_path_has_the_documented_shape(tmp_path, ckpt):
+    from src.eval.io import checkpoint_digest, feature_cache_path
+
+    built = feature_cache_path(**cache_args(tmp_path, ckpt))
+    assert built.endswith(f"imagenet1k_train_128_ep99_{checkpoint_digest(ckpt)}.pt")
+    assert Path(built).parent.name == "vit_sigreg", "per-backbone subdirectory is preserved"
+
+
+def test_two_different_checkpoints_never_share_a_cache_entry(tmp_path, ckpt):
+    """LEDGER C0-4, reproduced 2026-09-20 and confirmed EXACTLY as claimed -- unlike C0-3, this
+    one is genuinely silent.
+
+    The key carried the backbone's config *name* and its stored *epoch*. Two different checkpoints
+    sharing both -- a re-run that overwrote `last.ckpt`, or a `name` reused across configs -- hit
+    the same file, and the second evaluation reported features computed from the first. Nothing
+    raised, nothing warned, the job completed and the table was wrong.
+    """
+    from src.eval.io import feature_cache_path
+
+    other = tmp_path / "b.ckpt"
+    other.write_bytes(b"checkpoint B -- a different run entirely")
+
+    assert feature_cache_path(**cache_args(tmp_path, ckpt)) != \
+        feature_cache_path(**cache_args(tmp_path, other))
+
+
+def test_forgetting_the_checkpoint_is_an_error_not_a_silent_fallback(tmp_path):
+    """The argument is mandatory on purpose. If it defaulted to None the key would quietly revert
+    to the unprotected form -- reintroducing C0-4 in exactly the way that made it invisible."""
+    from src.eval.io import feature_cache_path
+
+    with pytest.raises(TypeError):
+        feature_cache_path(tmp_path, "vit", "imagenet1k", "train", 128, 99)
+
+
+def test_a_writer_and_a_reader_agree_given_the_same_inputs(tmp_path, ckpt):
+    """THE PROPERTY THE WHOLE COMMIT EXISTS FOR.
+
+    ``eval_rankme`` does not write the in-domain or transfer caches -- it reconstructs their
+    filenames and reads them. A divergence does not raise: rankme logs "no cached features --
+    skipping this target" and continues, dropping the target and re-extracting on GPU. Silent,
+    expensive degradation. Two independent calls must produce byte-identical paths.
+    """
+    from src.eval.io import feature_cache_path
+
+    writer = feature_cache_path(**cache_args(tmp_path, ckpt))
+    reader = feature_cache_path(**cache_args(tmp_path, ckpt))
+    assert writer == reader
+
+
+@pytest.mark.parametrize("field, value", [
+    ("dataset", "cifar10"), ("split", "val"), ("crop_size", 224), ("epoch", 50),
+    ("backbone", "vit_localballreg"),
+])
+def test_every_component_separates_the_cache(tmp_path, ckpt, field, value):
+    """Each field must actually discriminate. A component that silently dropped out of the key
+    would make two different extractions collide -- which is C0-4 in a new costume."""
+    from src.eval.io import feature_cache_path
+
+    assert feature_cache_path(**cache_args(tmp_path, ckpt)) != \
+        feature_cache_path(**cache_args(tmp_path, ckpt, **{field: value}))
+
+
+def test_no_cache_dir_means_no_caching(tmp_path, ckpt):
+    """Every call site already treats None as "do not cache", and passing None must not be an
+    error -- `cache_dir` is optional in every eval config."""
+    from src.eval.io import feature_cache_path
+
+    assert feature_cache_path(**cache_args(tmp_path, ckpt, cache_dir=None)) is None
+    assert feature_cache_path(**cache_args(tmp_path, ckpt, cache_dir="")) is None
+
+
+def test_an_omitted_epoch_is_allowed(tmp_path, ckpt):
+    """`eval_conformal` never loads the epoch. It still gets checkpoint identity, which is what
+    matters -- the digest subsumes the epoch anyway."""
+    from src.eval.io import feature_cache_path
+
+    built = feature_cache_path(**cache_args(tmp_path, ckpt, epoch=None))
+    assert "_ep" not in Path(built).name
+    assert built != feature_cache_path(**cache_args(tmp_path, ckpt))
