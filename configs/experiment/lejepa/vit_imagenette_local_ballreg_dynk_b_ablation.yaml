@@ -64,7 +64,7 @@ callbacks:
 logger:
   wandb:
     entity: ines-gare-org
-    project: BundLeJEPA
+    project: LocaLeJEPA
     group: dynk_b_ablation
     name: dynk_B${data.batch_size}_seed${seed}
 

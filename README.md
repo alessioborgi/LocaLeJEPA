@@ -37,9 +37,20 @@ and swaps the regularizer through the `model/reg_loss` config group
 | `localereg`      | **LocaLe-Reg (ours)**: uniform-ball target in `k` k-means neighbourhoods (centred per cluster) |
 
 The `locale_*` configs compose `local.yaml` (`local_loss`: k-means over the batch, then a test
-per neighbourhood) with the global test placed at `loss`, so the test's parameters are set
-once and are the same inside the neighbourhoods: `model.reg_loss.num_clusters=4`,
-`model.reg_loss.loss.scale_grid=true`, `model.reg_loss.loss.num_slices=1024`.
+per neighbourhood) with the global test placed at `loss`, so the test's parameters are set once
+and are the same inside every neighbourhood. The neighbourhood count is set directly
+(`model.reg_loss.num_clusters=4`); the inner test's parameters live one level down, under
+`model.reg_loss.loss.*` — `model.reg_loss.num_slices` is **not** a valid override on a local
+config, because `local_loss` has no such parameter.
+
+The inner test inherits `uniform_reg.yaml`: `num_slices: 256`, `t_max: 3.0`, `scale_grid: true`.
+Note `scale_grid` is a parameter of the uniform-ball test only — `sigreg_loss` does not take it,
+so it does not apply to `locale_sigreg`.
+
+**One pair does not share a statistic resolution.** `vitl14_in1k_sigreg_paper` sets
+`num_slices: 1024` over `t_max: 5.0`, while its local counterpart uses the inherited 256 / 3.0.
+It is the only config in the repo that sets 1024, and it is the *baseline* arm. The 100-epoch
+ImageNet-1K comparison is unaffected — both arms use 256 / 3.0 there.
 
 Everything else — multi-view augmentation, projector, online linear probe used for checkpoint
 selection, AdamW + linear warm-up + cosine schedule — is shared by all variants, so a
@@ -60,7 +71,9 @@ src/
   models/lejepa_module.py      LeJEPAModule: encode, reg_loss + invariance, online probe, optimizer, schedule
   models/components/           hyperbolic ViT head, D4-equivariant ResNet (escnn)
   data/                        Imagenette / ImageNet-1K datamodules, multi-view transforms
-  eval/                        frozen-backbone loading, feature extraction, k-NN and linear probes
+  eval/                        frozen-backbone loading, feature extraction, crash-safe IO, and the
+                               probes: k-NN, linear, transfer, RankMe, angle (Yoda), patch-PCA,
+                               conformal autoencoder
   utils/                       Hydra/Lightning helpers (from lightning-hydra-template)
 configs/
   train.yaml                   root config; `experiment=<name>` selects a full experiment
@@ -84,8 +97,8 @@ anything beyond smoke tests. Install [`uv`](https://docs.astral.sh/uv/) once
 (`curl -LsSf https://astral.sh/uv/install.sh | sh`), then:
 
 ```bash
-git clone https://github.com/alessioborgi/BundLeJEPA.git
-cd BundLeJEPA
+git clone https://github.com/alessioborgi/LocaLeJEPA.git
+cd LocaLeJEPA
 uv sync
 ```
 
@@ -133,6 +146,13 @@ uv run python src/train.py experiment=lejepa/vit_imagenette_localballreg_l01_k4 
   trainer=cpu trainer.max_epochs=1 +trainer.limit_train_batches=3 +trainer.limit_val_batches=2 \
   +trainer.limit_test_batches=2 data.batch_size=8 data.num_workers=0 logger=csv
 ```
+
+It checks that the pipeline runs, and nothing else. The `val/probe_acc` and `test/probe_acc` it
+prints are **not metrics**: `limit_val_batches=2` at `batch_size=8` is 16 images, and because the
+val loader is unshuffled over a class-sorted `ImageFolder` all 16 come from the first class of
+ten. Two smoke runs differing 0.359 vs 0.031 look like a dramatic result and mean nothing.
+(`val/probe_acc` is also the checkpoint-selection monitor, so the `trainer.test` table it prints
+at the end carries the same degenerate number.)
 
 Logging defaults to Weights & Biases (`configs/logger/wandb.yaml`, entity `sheaf_hypergraphs`);
 pass `logger=csv` for a local CSV log. The W&B entity, project and offline mode are read from

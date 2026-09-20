@@ -7,6 +7,14 @@
 """Downstream evaluation utilities for LocaLeJEPA.
 
 Currently exposes:
-  - :mod:`src.eval.extract`              frozen-backbone loading + feature caching
+  - :mod:`src.eval.extract`               frozen-backbone loading + feature caching
+  - :mod:`src.eval.io`                    crash-safe writes, self-healing cache loads
+  - :mod:`src.eval.indomain`              in-domain splits, transform, feature extraction
+  - :mod:`src.eval.knn_probe`             similarity-weighted k-NN
+  - :mod:`src.eval.linear_probe`          frozen-feature linear probe
+  - :mod:`src.eval.transfer`              the seven out-of-domain transfer datasets
+  - :mod:`src.eval.rankme`                RankMe effective rank, projector loading
+  - :mod:`src.eval.angle_probe`           circular (Yoda) angle recovery
+  - :mod:`src.eval.patch_pca`             patch-token PCA visualisation
   - :mod:`src.eval.conformal_autoencoder` Conformal-Autoencoder dimension detection
 """
