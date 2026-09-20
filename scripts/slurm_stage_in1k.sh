@@ -10,8 +10,8 @@
 #SBATCH --cpus-per-task=2
 #SBATCH --mem=64G
 #SBATCH --time=10:00:00
-#SBATCH --output=/scratch/clabat9_hu/localejepa/slurm/stage_in1k-%j.out
-#SBATCH --error=/scratch/clabat9_hu/localejepa/slurm/stage_in1k-%j.err
+#SBATCH --output=slurm-stage_in1k-%j.out
+#SBATCH --error=slurm-stage_in1k-%j.err
 #
 # Stage ImageNet-1K from the HuggingFace cache into a PERSISTENT ImageFolder tree.
 #
@@ -30,16 +30,42 @@
 # with the rest of the lab. /scratch is subject to the 30-day purge -- the purge
 # canary is planted and must be read before relying on this tree long-term.
 #
-#   sbatch scripts/slurm_stage_in1k.sh
+#   IN1K_DEST=$SCRATCH/localejepa/data \
+#   HF_HOME=$SCRATCH/hf \
+#   sbatch --chdir=$SCRATCH/localejepa/slurm scripts/slurm_stage_in1k.sh
 #
-# Override the destination with IN1K_DEST=/some/path sbatch --export=ALL,...
+# ($SCRATCH is whatever your site's scratch mount is -- not named here on purpose; the mount
+#  point is itself site-specific and tests/test_no_absolute_paths.py rejects it.)
+#
+# --chdir sets where the slurm-*.out logs land; the #SBATCH paths are relative on purpose.
 set -euo pipefail
 
-DEST="${IN1K_DEST:-/scratch/clabat9_hu/localejepa/data}"
-REPO="${REPO:-/work/hu/dominici_lab_hu/cbattiloro_localejepa/LocaLeJEPA}"
+# No site paths in this file. It is tracked, the repo is destined for publication, and
+# tests/test_no_absolute_paths.py enforces that -- it caught the first version of this script.
+# Everything site-specific arrives through the environment; the repo locates itself.
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PY="${PY:-$HOME/conda/envs/localejepa-aicr/bin/python}"
 
-export HF_HOME=/scratch/clabat9_hu/hf
+if [[ -z "${IN1K_DEST:-}" ]]; then
+    echo "IN1K_DEST is unset. Point it at a PERSISTENT directory -- NOT /tmp, which is" >&2
+    echo "node-local and is how job 997480 lost 150 GB of staged ImageNet (finding F39)." >&2
+    echo "  IN1K_DEST=\$SCRATCH/localejepa/data HF_HOME=\$SCRATCH/hf sbatch $0" >&2
+    exit 2
+fi
+if [[ -z "${HF_HOME:-}" ]]; then
+    echo "HF_HOME is unset. It must be the JOB's cache, holding the ILSVRC shards:" >&2
+    echo "a token under ~/.cache/huggingface passes the login-node check and then 401s" >&2
+    echo "inside the job." >&2
+    exit 2
+fi
+case "$IN1K_DEST" in
+    /tmp/*|/tmp) echo "REFUSING: IN1K_DEST is under /tmp, which is node-local and is wiped when" >&2
+                 echo "the allocation ends. That is exactly how job 997480 lost 150 GB (F39)." >&2
+                 exit 2 ;;
+esac
+DEST="$IN1K_DEST"
+
+export HF_HOME
 export HF_HUB_DISABLE_XET=1          # F27: Xet is a separate backend; 68 KB/s vs 7 MB/s
 export HF_HUB_ENABLE_HF_TRANSFER=0   # hangs on a stalled link, no read timeout
 export HF_HUB_DOWNLOAD_TIMEOUT=30
