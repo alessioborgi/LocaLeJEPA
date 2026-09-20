@@ -38,6 +38,7 @@ import torch.nn.functional as F
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from src.eval.extract import load_backbone  # noqa: E402
 from src.eval.indomain import get_indomain_splits  # noqa: E402
+from src.eval.io import feature_cache_path  # noqa: E402
 
 # Feature cache written by src/eval_indomain.py. Relative by default, so it resolves against
 # the directory the evaluation was run from (the same convention as the eval configs'
@@ -98,8 +99,17 @@ def main():
     feats = {}
     for name, (exp, ckpt, ep) in BACKBONES.items():
         log(f"\n## {name}", out)
-        Xtr, ytr = (lambda b: (b["X"], b["y"]))(torch.load(f"{CACHE}/{name}/imagenet1k_train_128_ep{ep}.pt", map_location="cpu"))
-        Xva, yva = (lambda b: (b["X"], b["y"]))(torch.load(f"{CACHE}/{name}/imagenet1k_val_128_ep{ep}.pt", map_location="cpu"))
+        # Reconstructs eval_indomain's cache filenames, so it must use the same builder. It was
+        # a hardcoded literal with ep=99 baked in, which would have broken silently the moment
+        # the key format changed -- the reason this script is converted in the same commit as the
+        # writers rather than afterwards.
+        def _cached(split):
+            path = feature_cache_path(CACHE, name, "imagenet1k", split, 128, ep, ckpt)
+            blob = torch.load(path, map_location="cpu")
+            return blob["X"], blob["y"]
+
+        Xtr, ytr = _cached("train")
+        Xva, yva = _cached("val")
         feats[name] = (Xtr, ytr, Xva, yva)
 
         # 1. cache integrity

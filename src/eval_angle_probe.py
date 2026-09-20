@@ -33,6 +33,7 @@ from src.data.bobblehead_datamodule import build_eval_transform, get_bobblehead_
 from src.eval.angle_probe import circular_linear_probe, pca_2d  # noqa: E402
 from src.eval.extract import extract_features, load_backbone  # noqa: E402
 from src.eval.io import atomic_write
+from src.eval.io import feature_cache_path
 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger()
@@ -154,7 +155,12 @@ def main(cfg: dict) -> None:
             experiment=entry["experiment"], checkpoint_path=entry["checkpoint"],
             device=device, crop_size=crop_size,
         )
-        cache_path = os.path.join(cfg["cache_dir"], f"{name}_features.pt") if cfg.get("cache_dir") else None
+        # `<name>_features.pt` carried neither the dataset, the crop size nor the checkpoint, so
+        # it collided across ALL of them -- the yoda configs run at both 128 and 224, and they
+        # shared one cache entry. A worse instance of ledger C0-4 than the one it was raised for.
+        # Written here and READ by eval_angle_probe_multiseed.py, so both must use this builder.
+        cache_path = feature_cache_path(cfg.get("cache_dir"), name, "bobblehead", "all",
+                                        crop_size, None, entry["checkpoint"])
         X, y = extract_features(
             extract_fn, dataset, batch_size=cfg.get("batch_size", 256),
             num_workers=cfg.get("num_workers", 8), device=device, cache_path=cache_path,

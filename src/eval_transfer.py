@@ -44,6 +44,7 @@ from src.eval.indomain import extract_classification_features  # noqa: E402
 from src.eval.linear_probe import run_linear_probe  # noqa: E402
 from src.eval.transfer import TRANSFER_DATASETS, get_transfer_splits  # noqa: E402
 from src.eval.io import atomic_write
+from src.eval.io import feature_cache_path
 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger()
@@ -221,10 +222,9 @@ def main(cfg: dict, only: list[str] | None, datasets: list[str] | None, merge_on
                 continue
             logger.info("%s/%s: train %d | test %d | classes %d", name, display, len(train_ds), len(test_ds), num_classes)
 
-            def cache(split: str) -> str | None:
-                if not cache_dir:
-                    return None
-                return os.path.join(cache_dir, name, f"{key}_{split}_{crop_size}_ep{epoch}.pt")
+            def cache(split: str, _key: str = key, _ckpt: str = entry["checkpoint"]) -> str | None:
+                # See the note in eval_indomain: one builder, checkpoint-identified.
+                return feature_cache_path(cache_dir, name, _key, split, crop_size, epoch, _ckpt)
 
             X_train, y_train = extract_classification_features(
                 extract_fn, train_ds, batch_size=cfg.get("batch_size", 256),
