@@ -592,12 +592,23 @@ def test_inputs_are_archived_next_to_the_output(tmp_path):
 
 
 def test_the_digest_changes_when_an_input_changes(tmp_path):
-    """So a table and its inputs can be checked against each other after the fact."""
+    """So a table and its inputs can be checked against each other after the fact.
+
+    The replacement is the SAME NUMBER OF BYTES as the original, deliberately. The first version
+    of this test rewrote the file to a shorter string, so the `bytes` column alone distinguished
+    the two blocks and the test passed even with the digest removed -- a mutant walked straight
+    through it. Only a same-size change isolates the digest.
+    """
     from src.eval.io import provenance_block
 
     directory = per_backbone(tmp_path)
+    original = (directory / "vit_sigreg.json").read_text()
     before = provenance_block("s.py", [directory])
-    (directory / "vit_sigreg.json").write_text(json.dumps({"top1": 99.0}))
+
+    changed = original.replace("42.0", "99.0")
+    assert len(changed) == len(original), "the point of this test is a same-size change"
+    (directory / "vit_sigreg.json").write_text(changed)
+
     assert provenance_block("s.py", [directory]) != before
 
 
