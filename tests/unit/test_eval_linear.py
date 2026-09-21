@@ -247,3 +247,50 @@ def test_the_result_records_the_settings_it_was_produced_with():
     assert out["epochs"] == 7 and out["batch_size"] == 32
     assert out["weight_decay"] == pytest.approx(1e-4)
     assert {"top1", "top5", "train_top1", "best_lr", "search"} <= set(out)
+
+
+# --------------------------------------------------------------------------------------
+# the LeJEPA-protocol probe (campaign C4, decision 3)
+# --------------------------------------------------------------------------------------
+
+LEJEPA_ARGS = dict(num_classes=4, lr=1e-3, epochs=5, batch_size=64, weight_decay=1e-6, momentum=0.9,
+                   mean=None, std=None, device=torch.device("cpu"))
+
+
+def test_the_lejepa_probe_is_reproducible_from_its_seed_alone():
+    torch.manual_seed(0)
+    x, y = separable()
+    first, first_bias = _train_head(x, y, seed=0, probe="lejepa", **LEJEPA_ARGS)
+    second, second_bias = _train_head(x, y, seed=0, probe="lejepa", **LEJEPA_ARGS)
+    torch.testing.assert_close(first, second, rtol=0, atol=0)
+    torch.testing.assert_close(first_bias, second_bias, rtol=0, atol=0)
+
+
+def test_the_lejepa_probe_is_scale_invariant_because_of_its_layer_norm():
+    """LayerNorm before the linear layer makes the probe blind to a global rescaling of the
+    features -- the property that distinguishes it from ours (which standardises per dimension
+    instead). Multiplying every feature by 10 must leave every prediction unchanged."""
+    torch.manual_seed(0)
+    x, y = separable()
+    weight, bias = _train_head(x, y, seed=0, probe="lejepa", **LEJEPA_ARGS)
+    top1, _ = _evaluate(weight, bias, x, y, None, None, torch.device("cpu"), layer_norm=True)
+    scaled, _ = _evaluate(weight, bias, 10.0 * x, y, None, None, torch.device("cpu"), layer_norm=True)
+    assert top1 == scaled and top1 > 90.0
+
+
+def test_run_linear_probe_reports_which_protocol_it_used():
+    torch.manual_seed(0)
+    x, y = separable()
+    ours = run_linear_probe(x, y, x, y, num_classes=4, lr_grid=[0.1], epochs=3, batch_size=64,
+                            device="cpu", seed=0)
+    theirs = run_linear_probe(x, y, x, y, num_classes=4, lr_grid=[1e-3], epochs=5, batch_size=64,
+                              weight_decay=1e-6, standardize=False, device="cpu", seed=0, probe="lejepa")
+    assert ours["probe"] == "sgd" and theirs["probe"] == "lejepa"
+    assert theirs["top1"] > 90.0, "AdamW + LayerNorm must learn the separable toy problem"
+
+
+def test_an_unknown_probe_is_refused():
+    torch.manual_seed(0)
+    x, y = separable()
+    with pytest.raises(ValueError, match="probe must be"):
+        run_linear_probe(x, y, x, y, num_classes=4, lr_grid=[0.1], epochs=1, device="cpu", probe="ridge")

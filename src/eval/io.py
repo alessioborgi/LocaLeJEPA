@@ -161,6 +161,7 @@ def feature_cache_path(
     crop_size: int,
     epoch: Any,
     checkpoint: str | os.PathLike,
+    feature: str = "encoder",
 ) -> str | None:
     """The one place a feature-cache filename is built.
 
@@ -192,6 +193,11 @@ def feature_cache_path(
     stem = f"{dataset}_{split}_{crop_size}"
     if epoch is not None:
         stem += f"_ep{epoch}"
+    if feature != "encoder":
+        # A pipeline variant is a discriminator (research_rules/05): cls2 features of the same
+        # checkpoint must never be served from -- or overwrite -- its encoder-mode cache. The
+        # default mode keeps its key unchanged, so no existing cache is orphaned.
+        stem += f"_{feature}"
     stem += f"_{checkpoint_digest(checkpoint)}"
     return os.path.join(os.fspath(cache_dir), backbone, stem + ".pt")
 

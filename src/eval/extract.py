@@ -82,7 +82,7 @@ def load_backbone(
             config_name="train",
             overrides=[f"experiment={experiment}", f"data.crop_size={crop_size}", *(overrides or [])],
         )
-    if feature not in ("encoder", "patch"):
+    if feature not in ("encoder", "patch", "cls2"):
         raise ValueError(f"Unknown feature mode: {feature}")
     encoder = hydra.utils.instantiate(cfg.model.encoder)
     embedding_dim = int(cfg.model.embedding_dim)
@@ -93,6 +93,13 @@ def load_backbone(
                    ("forward_features", "patch_embed", "num_prefix_tokens", "num_features")):
             raise ValueError("Patch extraction requires a timm ViT or HyperbolicViT")
         embedding_dim = int(patch_body.num_features)
+    cls_body = None
+    if feature == "cls2":
+        cls_body = encoder.body if hasattr(encoder, "to_poincare") else encoder
+        if not all(hasattr(cls_body, attr) for attr in ("forward_intermediates", "num_prefix_tokens", "num_features")) \
+                or int(cls_body.num_prefix_tokens) < 1:
+            raise ValueError("cls2 extraction requires a timm ViT (or a HyperbolicViT body) with a class token")
+        embedding_dim = 2 * int(cls_body.num_features)
     GlobalHydra.instance().clear()
 
     ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
@@ -147,6 +154,8 @@ def load_backbone(
         images = images.to(device, non_blocking=True)
         if patch_body is not None:
             return vit_spatial_patch_tokens(patch_body, images).float().cpu()
+        if cls_body is not None:
+            return vit_last_two_cls(cls_body, images).float().cpu()
         feats = encoder(images)
         if feats.ndim != 2:
             raise RuntimeError(
@@ -156,6 +165,24 @@ def load_backbone(
         return feats.float().cpu()
 
     return extract_fn, embedding_dim
+
+
+def vit_last_two_cls(body, images):
+    """LeJEPA's probe input: the class token of the last two blocks, post-norm, concatenated.
+
+    Their linear probe (`stable_pretraining` ``OnlineProbe``, per the LeJEPA README) reads
+    ``concat(CLS[-2], CLS[-1])`` -> LayerNorm -> Linear. timm's ``forward_intermediates`` returns
+    both blocks' outputs with the final norm applied (``norm=True``, the DINOv2 convention) and
+    the prefix tokens kept; forward hooks on ``blocks[-2]`` would give the pre-norm activation
+    and fight ``grad_checkpointing``. This is a different representation from the trained
+    ``embedding_dim`` head the ``encoder`` mode returns, not a superset of it -- hence its own
+    feature mode and its own cache key.
+    """
+    outs = body.forward_intermediates(images, indices=2, return_prefix_tokens=True, norm=True,
+                                      output_fmt="NLC", intermediates_only=True)
+    if len(outs) != 2:
+        raise ValueError(f"Expected the last two blocks, got {len(outs)} intermediates")
+    return torch.cat([prefix[:, 0] for _, prefix in outs], dim=1)
 
 
 def vit_spatial_patch_tokens(body, images):

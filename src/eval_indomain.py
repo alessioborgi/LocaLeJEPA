@@ -159,6 +159,12 @@ def main(cfg: dict, only: list[str] | None, merge_only: bool = False) -> None:
 
     knn_cfg = cfg.get("knn", {})
     linear_cfg = cfg.get("linear", {})
+    # Two pipeline discriminators (research_rules/05), written into every result and into the
+    # cache key: which representation was probed and which probe protocol was used. "encoder" +
+    # "sgd" is ours; "cls2" + "lejepa" is LeJEPA's protocol (campaign decision 3), reported in a
+    # separate, labelled column and never mixed with the other.
+    feature = str(cfg.get("feature", "encoder"))
+    probe = str(linear_cfg.get("probe", "sgd"))
 
     config_order = [entry["name"] for entry in cfg["backbones"]]
     failures: list[str] = []
@@ -180,6 +186,7 @@ def main(cfg: dict, only: list[str] | None, merge_only: bool = False) -> None:
                 device=device,
                 crop_size=crop_size,
                 overrides=entry.get("overrides"),
+                feature=feature,
             )
         except Exception:
             # A checkpoint whose architecture has drifted from its config must not
@@ -199,7 +206,7 @@ def main(cfg: dict, only: list[str] | None, merge_only: bool = False) -> None:
         def cache(split: str, _name: str = name, _epoch=epoch,
                   _ckpt: str = entry["checkpoint"]) -> str | None:
             return feature_cache_path(cache_dir, _name, dataset_name, split, crop_size,
-                                      _epoch, _ckpt)
+                                      _epoch, _ckpt, feature=feature)
 
         X_val, y_val = extract_classification_features(
             extract_fn, val_ds, batch_size=cfg.get("batch_size", 256),
@@ -229,7 +236,7 @@ def main(cfg: dict, only: list[str] | None, merge_only: bool = False) -> None:
             momentum=float(linear_cfg.get("momentum", 0.9)),
             standardize=bool(linear_cfg.get("standardize", True)),
             val_frac=float(linear_cfg.get("val_frac", 0.02)),
-            device=device, seed=int(cfg.get("seed", 0)),
+            device=device, seed=int(cfg.get("seed", 0)), probe=probe,
         )
         logger.info(
             "%s: linear top-1 = %.2f%%  top-5 = %.2f%%  (lr=%g, train top-1 = %.2f%%)",
@@ -241,6 +248,8 @@ def main(cfg: dict, only: list[str] | None, merge_only: bool = False) -> None:
             "checkpoint": entry["checkpoint"],
             "epoch": epoch,
             "feat_dim": feat_dim,
+            "feature": feature,
+            "probe": probe,
             "dataset": dataset_name,
             "crop_size": crop_size,
             "n_train": int(X_train.shape[0]),
