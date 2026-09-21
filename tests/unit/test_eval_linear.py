@@ -250,6 +250,80 @@ def test_the_result_records_the_settings_it_was_produced_with():
 
 
 # --------------------------------------------------------------------------------------
+# the eval-selected protocol (campaign C7, decision 16)
+# --------------------------------------------------------------------------------------
+
+def test_train_head_epoch_callback_sees_every_epoch_and_changes_nothing():
+    """The eval-selected protocol reads the reported split after every epoch through a callback;
+    the strict path passes none. The callback must fire once per epoch, in order, and the
+    weights at the end must be exactly those of the callback-free run."""
+    x, y = separable()
+    seen = []
+    with_cb, _ = _train_head(x, y, seed=0, epoch_callback=lambda e, w, b: seen.append((e, float(w.sum()))), **HEAD_ARGS)
+    without, _ = _train_head(x, y, seed=0, **HEAD_ARGS)
+    assert [e for e, _ in seen] == [1, 2, 3]
+    torch.testing.assert_close(with_cb, without, rtol=0, atol=0)
+    assert seen[-1][1] == pytest.approx(float(without.sum()))
+
+
+def test_eval_selected_reports_the_maximum_over_lr_wd_and_epoch_and_names_the_argmax():
+    """Decision 16: the number is the best of every (lr, wd) run's per-epoch curve on the
+    reported split, and the result says which point won -- not the last grid point, not the
+    final epoch."""
+    x, y = separable()
+    out = run_linear_probe(x, y, x, y, num_classes=4, lr_grid=[0.001, 0.3], epochs=6, batch_size=64,
+                           device="cpu", seed=0, select_on="eval", wd_grid=[0.0, 1e-3])
+    assert out["select_on"] == "eval" and len(out["search"]) == 4
+    assert out["top1"] == max(max(row["eval_top1_by_epoch"]) for row in out["search"])
+    winner = next(r for r in out["search"] if r["lr"] == out["best_lr"] and r["weight_decay"] == out["best_weight_decay"])
+    assert winner["eval_top1_by_epoch"][out["best_epoch"] - 1] == out["top1"]
+    assert winner["best_epoch"] == out["best_epoch"] and len(winner["eval_top1_by_epoch"]) == 6
+    assert out["best_weight_decay"] in (0.0, 1e-3)
+
+
+def test_eval_selected_is_an_upper_bound_of_the_strict_protocol_on_the_same_data():
+    """The construction that makes the ambiguity in the author's answer irrelevant: with the same
+    seed, grid and epochs the strict number is one point of the eval-selected sweep (the chosen
+    lr at the final epoch, same deterministic head), so the maximum can only be >= it."""
+    x, y = separable()
+    common = dict(num_classes=4, lr_grid=[0.01, 0.3, 1.0], epochs=5, batch_size=64, device="cpu", seed=0, val_frac=0.2)
+    strict = run_linear_probe(x, y, x, y, **common)
+    selected = run_linear_probe(x, y, x, y, select_on="eval", **common)
+    assert selected["top1"] >= strict["top1"]
+    strict_point = next(r for r in selected["search"] if r["lr"] == strict["best_lr"])
+    assert strict_point["eval_top1_by_epoch"][-1] == pytest.approx(strict["top1"])
+
+
+def test_eval_selected_does_select_on_the_reported_split():
+    """The inverse of the strict test above: here the reported split MUST have a say. A test set
+    of pure noise changes the chosen point, because the choice is made on it."""
+    x, y = separable()
+    noise_x, noise_y = torch.randn_like(x), torch.randint(0, 4, y.shape)
+    common = dict(num_classes=4, lr_grid=[0.01, 0.3], epochs=6, batch_size=64, device="cpu", seed=0, select_on="eval")
+    honest = run_linear_probe(x, y, x, y, **common)
+    with_noise = run_linear_probe(x, y, noise_x, noise_y, **common)
+    assert with_noise["top1"] < honest["top1"]
+    # every per-epoch curve the selection reads is scored on the test set, so every one changes
+    # with it (the argmax may or may not move: near chance, ties are cheap)
+    for a, b in zip(honest["search"], with_noise["search"]):
+        assert a["eval_top1_by_epoch"] != b["eval_top1_by_epoch"], (a, b)
+    assert with_noise["top1"] == max(max(r["eval_top1_by_epoch"]) for r in with_noise["search"])
+
+
+def test_the_strict_protocol_is_untouched_by_the_new_keywords():
+    x, y = separable()
+    common = dict(num_classes=4, lr_grid=[0.01, 0.3], epochs=4, batch_size=64, device="cpu", seed=0, val_frac=0.2)
+    before = run_linear_probe(x, y, x, y, **common)
+    after = run_linear_probe(x, y, x, y, select_on="train_slice", wd_grid=None, **common)
+    assert before["top1"] == after["top1"] and before["best_lr"] == after["best_lr"]
+    assert after["select_on"] == "train_slice" and after["best_epoch"] == 4
+    with pytest.raises(ValueError, match="wd_grid belongs to select_on='eval'"):
+        run_linear_probe(x, y, x, y, wd_grid=[0.0, 1e-4], **common)
+    with pytest.raises(ValueError, match="select_on"):
+        run_linear_probe(x, y, x, y, select_on="test", **common)
+
+
+# --------------------------------------------------------------------------------------
 # the LeJEPA-protocol probe (campaign C4, decision 3)
 # --------------------------------------------------------------------------------------
 

@@ -92,7 +92,38 @@ def indomain(specs, *, crop: int, out: str, batch: int, workers: int, protocol: 
   standardize: false                         # the LayerNorm is the normalisation
   val_frac: 0.02
 """
+    ours_evalsel = """linear:
+  select_on: eval                            # decision 16: lr x wd x epoch chosen on the EVALUATION split, best reported
+  lr_grid: [0.01, 0.03, 0.1, 0.3, 1.0, 3.0, 10.0]
+  wd_grid: [0.0, 0.0001]
+  epochs: 50
+  batch_size: 4096
+  weight_decay: 0.0
+  momentum: 0.9
+  standardize: true
+  val_frac: 0.02
+"""
+    theirs_evalsel = """linear:
+  probe: lejepa                              # LayerNorm -> Linear, AdamW (campaign decision 3)
+  select_on: eval                            # decision 16: lr x wd x epoch chosen on the EVALUATION split, best reported
+  lr_grid: [0.0001, 0.0003, 0.001, 0.003]
+  wd_grid: [0.000001, 0.0001]
+  epochs: 50
+  batch_size: 4096
+  weight_decay: 0.000001
+  standardize: false                         # the LayerNorm is the normalisation
+  val_frac: 0.02
+"""
     head = {
+        "ours_evalsel": "# ImageNet-1K in-domain evaluation, OUR probe, EVAL-SELECTED (campaign decision 16): the linear\n"
+                        "# probe's learning rate, weight decay and epoch are chosen on the 50k validation split itself\n"
+                        "# and the best is reported -- Balestriero's account of how LeJEPA's published numbers were\n"
+                        "# produced. An UPPER BOUND of the published protocol, for the labelled secondary column and the\n"
+                        "# appendix; never a headline cell. Same features and cache as the strict config.\n",
+        "lejepa_evalsel": "# ImageNet-1K in-domain evaluation of the ViT-L/14 pair under LeJEPA's PROBE (cls2, LayerNorm ->\n"
+                          "# Linear, AdamW) AND LeJEPA's SELECTION (decision 16: lr x wd x epoch chosen on the validation\n"
+                          "# split, best reported): the closest mirror of the published protocol, for the appendix; the\n"
+                          "# published 74.24 is still cited, not compared (their training used EMA + masking, decision 13).\n",
         "ours": "# ImageNet-1K in-domain k-NN + linear evaluation, OUR protocol (src/eval_indomain.py):\n"
                 "# frozen encoder output, full 1.28M-image train split as k-NN bank / probe train set,\n"
                 "# weighted cosine k-NN (k=20 reported, T=0.07) and one linear layer on standardized\n"
@@ -123,8 +154,8 @@ knn:
   temperature: 0.07
   report_k: 20
   chunk_size: 128
-{ours if protocol == "ours" else theirs}backbones:
-""" + backbone_entries(specs, best_twins=(protocol == "ours")))
+{ {"ours": ours, "lejepa": theirs, "ours_evalsel": ours_evalsel, "lejepa_evalsel": theirs_evalsel}[protocol] }backbones:
+""" + backbone_entries(specs, best_twins=(protocol != "lejepa")))
 
 
 def transfer(specs, *, crop: int, out: str, batch: int, workers: int) -> str:
@@ -218,6 +249,14 @@ def render_all() -> dict[str, str]:
         "configs/eval/indomain_in1k_vitl14_lejepaprobe.yaml":
             indomain(vitl, crop=238, out="eval_indomain_in1k_vitl14_lejepaprobe", batch=128, workers=16,
                      protocol="lejepa", feature="cls2"),
+        # decision 16: the eval-selected probe (upper bound of the published protocol), last + best twins
+        "configs/eval/indomain_in1k_evalsel.yaml":
+            indomain(in1k, crop=128, out="eval_indomain_in1k_evalsel", batch=256, workers=8, protocol="ours_evalsel"),
+        "configs/eval/indomain_in1k_vitl14_evalsel.yaml":
+            indomain(vitl, crop=238, out="eval_indomain_in1k_vitl14_evalsel", batch=128, workers=16, protocol="ours_evalsel"),
+        "configs/eval/indomain_in1k_vitl14_lejepaprobe_evalsel.yaml":
+            indomain(vitl, crop=238, out="eval_indomain_in1k_vitl14_lejepaprobe_evalsel", batch=128, workers=16,
+                     protocol="lejepa_evalsel", feature="cls2"),
         "configs/eval/transfer_in1k_campaign.yaml":
             transfer(in1k, crop=128, out="eval_transfer_in1k_campaign", batch=256, workers=8),
         "configs/eval/transfer_in1k_vitl14_campaign.yaml":

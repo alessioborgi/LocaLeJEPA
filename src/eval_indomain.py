@@ -84,7 +84,7 @@ def _write_results(results: dict, out_dir: str) -> None:
         writer = csv.writer(file)
         header = ["backbone", "experiment", "checkpoint", "epoch", "feat_dim", "n_train", "n_val"]
         header += [f"knn{k}_top1" for k in k_report] + [f"knn{k}_top5" for k in k_report]
-        header += ["linear_top1", "linear_top5", "linear_best_lr"]
+        header += ["linear_top1", "linear_top5", "linear_best_lr", "linear_best_wd", "linear_best_epoch", "probe_select", "checkpoint_kind"]
         writer.writerow(header)
         for name, entry in results.items():
             row = [
@@ -93,7 +93,9 @@ def _write_results(results: dict, out_dir: str) -> None:
             ]
             row += [f'{entry["knn"][str(k)]["top1"]:.2f}' if str(k) in entry["knn"] else "" for k in k_report]
             row += [f'{entry["knn"][str(k)]["top5"]:.2f}' if str(k) in entry["knn"] else "" for k in k_report]
-            row += [f'{entry["linear"]["top1"]:.2f}', f'{entry["linear"]["top5"]:.2f}', entry["linear"]["best_lr"]]
+            row += [f'{entry["linear"]["top1"]:.2f}', f'{entry["linear"]["top5"]:.2f}', entry["linear"]["best_lr"],
+                    entry["linear"].get("best_weight_decay"), entry["linear"].get("best_epoch"),
+                    entry.get("probe_select", "train_slice"), entry.get("checkpoint_kind")]
             writer.writerow(row)
 
 
@@ -165,6 +167,11 @@ def main(cfg: dict, only: list[str] | None, merge_only: bool = False) -> None:
     # separate, labelled column and never mixed with the other.
     feature = str(cfg.get("feature", "encoder"))
     probe = str(linear_cfg.get("probe", "sgd"))
+    # a third discriminator (decision 16): how the probe's settings were chosen. "train_slice" is
+    # the strict headline; "eval" selects lr x wd x epoch on the reported split and is an upper
+    # bound of LeJEPA's published protocol -- reported only in its own labelled column.
+    select_on = str(linear_cfg.get("select_on", "train_slice"))
+    wd_grid = linear_cfg.get("wd_grid")
 
     config_order = [entry["name"] for entry in cfg["backbones"]]
     failures: list[str] = []
@@ -195,7 +202,10 @@ def main(cfg: dict, only: list[str] | None, merge_only: bool = False) -> None:
             failures.append(name)
             continue
         epoch = torch.load(entry["checkpoint"], map_location="cpu", weights_only=False).get("epoch")
-        logger.info("%s: feature dim %d, checkpoint epoch %s", name, feat_dim, epoch)
+        # which checkpoint of the run this is (last / best / ...): recorded from the file, so a
+        # generator labels a column from the data and never from a filename it was handed
+        checkpoint_kind = os.path.splitext(os.path.basename(entry["checkpoint"]))[0]
+        logger.info("%s: feature dim %d, checkpoint epoch %s (%s)", name, feat_dim, epoch, checkpoint_kind)
 
         # The key carries a digest of the checkpoint FILE, not just the backbone name and the
         # epoch it reports. Ledger C0-4, reproduced 2026-09-20: two different checkpoints sharing
@@ -237,10 +247,12 @@ def main(cfg: dict, only: list[str] | None, merge_only: bool = False) -> None:
             standardize=bool(linear_cfg.get("standardize", True)),
             val_frac=float(linear_cfg.get("val_frac", 0.02)),
             device=device, seed=int(cfg.get("seed", 0)), probe=probe,
+            select_on=select_on, wd_grid=[float(w) for w in wd_grid] if wd_grid else None,
         )
         logger.info(
-            "%s: linear top-1 = %.2f%%  top-5 = %.2f%%  (lr=%g, train top-1 = %.2f%%)",
-            name, linear["top1"], linear["top5"], linear["best_lr"], linear["train_top1"],
+            "%s: linear top-1 = %.2f%%  top-5 = %.2f%%  (%s; lr=%g, wd=%g, epoch %s, train top-1 = %.2f%%)",
+            name, linear["top1"], linear["top5"], select_on, linear["best_lr"], linear["best_weight_decay"],
+            linear["best_epoch"], linear["train_top1"],
         )
 
         _save_backbone(name, {
@@ -250,6 +262,8 @@ def main(cfg: dict, only: list[str] | None, merge_only: bool = False) -> None:
             "feat_dim": feat_dim,
             "feature": feature,
             "probe": probe,
+            "probe_select": select_on,
+            "checkpoint_kind": checkpoint_kind,
             "dataset": dataset_name,
             "crop_size": crop_size,
             "n_train": int(X_train.shape[0]),
