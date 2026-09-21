@@ -59,8 +59,9 @@ branch = true          # the defects we care about live in if-branches that line
                        # can satisfy by never taking
 source = ["src"]
 omit = [
-    # Vendored from equivision; escnn is not installed on either machine, so it cannot even
-    # be imported. We would not fix a defect found in it.
+    # Vendored from equivision. escnn is a post-create install (environment-aicr.yml) since 2026-09-21
+    # and tests/unit/test_e2resnet_builds.py builds the D4 encoder; kept off the Tier A floor because
+    # it is vendored, not because it cannot run.
     "src/models/components/e2resnet.py",
     # Vendored from I-JEPA (Meta).
     "src/models/components/vision_transformer.py",
