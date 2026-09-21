@@ -488,6 +488,24 @@ def calibration_run(tmp_path: Path, *, first: range, second: range, lr_jump: flo
     return root
 
 
+def test_launch_and_calibrate_override_sets_are_exactly_these(capsys):
+    """F47: the shell composes nothing itself. The tokens are pinned so a change here is a
+    change someone meant; the composition against every cell is in the manifests test."""
+    assert C.launch_overrides(1, 16) == ["trainer=gpu", "logger=csv", "data.num_workers=16"]
+    assert C.launch_overrides(4, 16) == ["trainer=ddp", "trainer.devices=4", "trainer.num_nodes=1", "logger=csv", "data.num_workers=16"]
+    calib = C.calibrate_overrides(200)
+    assert calib == ["callbacks=calibrate", "+trainer.max_steps=200", "+trainer.limit_val_batches=0",
+                     "+trainer.num_sanity_val_steps=0", "callbacks.learning_rate_monitor.logging_interval=step",
+                     "trainer.log_every_n_steps=1"]
+    assert C.calibrate_overrides(200, 150) == calib + ["callbacks.self_interrupt.at_step=150"]
+    assert all(" " not in token for token in calib), "the shell splits the printed line on spaces"
+    C.main(["launch-overrides", "--gpus", "8", "--cpus", "16"])
+    C.main(["calibrate-overrides", "--max-steps", "200", "--interrupt", "150"])
+    out = capsys.readouterr().out.splitlines()
+    assert out[0] == "trainer=ddp trainer.devices=8 trainer.num_nodes=1 logger=csv data.num_workers=16"
+    assert out[1].endswith("trainer.log_every_n_steps=1 callbacks.self_interrupt.at_step=150")
+
+
 def online_csv(path: Path, values: list[float], *, epoch0: int = 0) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     rows = ["epoch,step,train/loss_step,val/probe_acc"]

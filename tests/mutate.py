@@ -366,6 +366,10 @@ MUTANTS: list[Mutant] = [
            '        if not line or line.startswith("#"):',
            "the conda half of the lock enters the hash and every preflight refuses again"),
     # --- C7, decision 16: the eval-selected column and the online curve ---
+    Mutant("c7b-calibrate-overrides-no-per-step-rows", "scripts/aicr/campaign.py",
+           '           "trainer.log_every_n_steps=1"]',
+           '           ]',
+           "calibrate mode logs every 50 steps again and the seam check calls a working resume broken"),
     Mutant("c7-evalsel-final-not-max", "src/eval/linear_probe.py",
            "            epoch, top1, top5 = max(curve, key=lambda c: c[1])     # earliest epoch on a tie",
            "            epoch, top1, top5 = curve[-1]",
