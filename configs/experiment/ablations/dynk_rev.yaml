@@ -1,0 +1,14 @@
+# @package _global_
+# base + k scheduled 16 -> 2 (-2 every 12 epochs, k=2 from epoch 84): the REVERSE ramp of
+# ablations/dynk, the second "dynamic" arm of the K-axis tables (campaign decision 10).
+# DynamicNumClusters counts down when end < start; `step` stays a positive magnitude.
+defaults:
+  - /experiment/ablations/base
+  - override /callbacks: dynamic_num_clusters
+  - _self_
+callbacks:
+  dynamic_num_clusters:
+    start: 16
+    end: 2
+    step_epochs: 12
+    step: 2

@@ -1,0 +1,45 @@
+# @package _global_
+# THE CONTROL (campaign decision 1): LeJEPA's SIGReg under the LOCAL arm's recipe -- lr 1e-3,
+# 10 warm-up epochs, grad-clip 1.0, cosine to peak/1000 -- on the plain ViT-S/8, ImageNet-1K,
+# 100 epochs. Identical to lejepa/vit_in1k_localballreg_l01_k4 except `model/reg_loss` (sigreg,
+# the default) and lambda, which the manifest sets to the declared local lambda. It separates
+# what the regularizer changed from what the recipe changed; the headline claim needs it once,
+# on this backbone (state/02-METHOD-AND-CLAIMS.md R1).
+defaults:
+  - override /data: imagenet1k
+  - override /model: lejepa
+  - override /model/encoder: timm_vit
+  - override /optimizer: adamw
+  - override /trainer: gpu
+  - _self_
+tags: ["lejepa", "imagenet1k", "vit-small-p8", "sigreg", "control", "local-recipe"]
+trainer:
+  max_epochs: 100
+  accumulate_grad_batches: 4
+  gradient_clip_val: 1.0
+data:
+  batch_size: 64
+  num_workers: 8
+  crop_size: 128
+  copy_data: false
+model:
+  lr_eta_min_ratio: 0.001
+  embedding_dim: 512
+  projection_dim: 16
+  num_classes: 1000
+  use_online_probe: true
+  num_global_crops: null
+  probe_lr: 1e-3
+  probe_weight_decay: 1e-7
+  warmup_epochs: 10
+  lamb: 0.1               # provisional; the manifest sets the declared local lambda
+  projector:
+    hidden_channels:
+      - 2048
+      - 2048
+      - ${model.projection_dim}
+  encoder:
+    model_name: vit_small_patch8_224
+optimizer:
+  lr: 1e-3
+  weight_decay: 5e-2

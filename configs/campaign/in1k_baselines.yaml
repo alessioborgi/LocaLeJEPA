@@ -1,0 +1,13 @@
+# Phase 3b: the six 128 px baselines, 4 GPUs each at 64 per GPU (the same experiment as 1 GPU at 64 x 4).
+name: in1k_baselines
+seeds: [0]
+gpus: 4
+micro_batch: 64
+max_epochs: 100
+blocks:
+  - {tag: vit_sigreg,    experiment: lejepa/vit_in1k_sigreg,                  overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1}}
+  - {tag: vit_rdmreg,    experiment: rectifiedlpjepa/vit_in1k_rdmreg,          overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1}}
+  - {tag: d4rn50_sigreg, experiment: lejepa/d4rn50_in1k_sigreg,               overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1}}
+  - {tag: d4rn50_rdmreg, experiment: rectifiedlpjepa/d4rn50_in1k_rdmreg,       overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1}}
+  - {tag: hvit_sigreg,   experiment: lejepa/hvit_in1k_sigreg,                 overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1}}
+  - {tag: hvit_rdmreg,   experiment: rectifiedlpjepa/hvit_in1k_rdmreg,         overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1}}

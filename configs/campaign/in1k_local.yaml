@@ -1,0 +1,26 @@
+# Phase 4: the three 128 px LocaLeJEPA arms and the control at the DECLARED (lambda, K).
+# PROVISIONAL values are today's configs (lambda 0.1, K 4); decision 15 allows launching them
+# speculatively on day 1, to be used ONLY if the declaration equals them.
+name: in1k_local
+seeds: [0]
+gpus: 4
+micro_batch: 64
+max_epochs: 100
+short: {model.lamb: lam, model.reg_loss.num_clusters: k}
+blocks:
+  - tag: vit_local
+    experiment: lejepa/vit_in1k_localballreg_l01_k4
+    axes: {model.lamb: [0.1], model.reg_loss.num_clusters: [4]}
+    overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1}
+  - tag: d4rn50_local
+    experiment: lejepa/d4rn50_in1k_localballreg_l01_k4
+    axes: {model.lamb: [0.1], model.reg_loss.num_clusters: [4]}
+    overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1}
+  - tag: hvit_local
+    experiment: lejepa/hvit_in1k_localballreg_l01_k4
+    axes: {model.lamb: [0.1], model.reg_loss.num_clusters: [4]}
+    overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1}
+  - tag: vit_control                    # SIGReg under the local recipe, at the declared lambda (decision 1)
+    experiment: lejepa/vit_in1k_sigreg_localrecipe
+    axes: {model.lamb: [0.1]}
+    overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1}

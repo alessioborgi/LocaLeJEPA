@@ -1,0 +1,8 @@
+# Phase 2, ViT-L/14 at 238 px on one 8-GPU node -- a 30-minute BATCH job on b200-batch (rule 4).
+name: calibration_8gpu
+seeds: [0]
+gpus: 8
+micro_batch: 64
+max_epochs: 100
+blocks:
+  - {tag: calib_vitl14, experiment: lejepa/vitl14_in1k_sigreg_paper, overrides: {logger: csv}}

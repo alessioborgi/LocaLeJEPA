@@ -1,0 +1,46 @@
+# Phase 3a: one factorial wave (decision 14). 84 cells x 3 seeds = 252 runs, ~25 min each.
+name: ablation_grid
+seeds: [0, 1, 2]
+gpus: 1
+max_epochs: 100
+short: {model.lamb: lam, model.reg_loss.num_clusters: k, data.batch_size: b, trainer.accumulate_grad_batches: x}
+blocks:
+  - tag: fixk                         # 5 x 6 x 2 = 60 cells; K=1 is the global statistic, K=32 at B=64 is degenerate by design
+    experiment: ablations/base
+    axes:
+      model.lamb: [0.02, 0.05, 0.1, 0.2, 0.3]
+      model.reg_loss.num_clusters: [1, 2, 4, 8, 16, 32]
+      batch:
+      - {data.batch_size: 64, trainer.accumulate_grad_batches: 4, micro_batch: 64}
+      - {data.batch_size: 256, trainer.accumulate_grad_batches: 1, micro_batch: 256}
+    overrides: {logger: csv}
+  - tag: fwd                          # K 2 -> 16, +2 every 12 epochs
+    experiment: ablations/dynk
+    axes:
+      model.lamb: [0.02, 0.05, 0.1, 0.2, 0.3]
+      batch:
+      - {data.batch_size: 64, trainer.accumulate_grad_batches: 4, micro_batch: 64}
+      - {data.batch_size: 256, trainer.accumulate_grad_batches: 1, micro_batch: 256}
+    overrides: {logger: csv}
+  - tag: rev                          # K 16 -> 2
+    experiment: ablations/dynk_rev
+    axes:
+      model.lamb: [0.02, 0.05, 0.1, 0.2, 0.3]
+      batch:
+      - {data.batch_size: 64, trainer.accumulate_grad_batches: 4, micro_batch: 64}
+      - {data.batch_size: 256, trainer.accumulate_grad_batches: 1, micro_batch: 256}
+    overrides: {logger: csv}
+  - tag: sigreg                       # scale row: LeJEPA at MINIMAL.md's recipe, 100 epochs
+    experiment: lejepa/vit_imagenette_sigreg
+    axes:
+      batch:
+      - {data.batch_size: 64, trainer.accumulate_grad_batches: 4, micro_batch: 64}
+      - {data.batch_size: 256, trainer.accumulate_grad_batches: 1, micro_batch: 256}
+    overrides: {logger: csv, trainer.max_epochs: 100}
+  - tag: rdmreg                       # scale row: Rectified LpJEPA, 100 epochs
+    experiment: rectifiedlpjepa/vit_imagenette_rdmreg
+    axes:
+      batch:
+      - {data.batch_size: 64, trainer.accumulate_grad_batches: 4, micro_batch: 64}
+      - {data.batch_size: 256, trainer.accumulate_grad_batches: 1, micro_batch: 256}
+    overrides: {logger: csv, trainer.max_epochs: 100}

@@ -1,0 +1,9 @@
+# Phase 2, 1-GPU geometries (devel partitions allow 2 GPUs per user): MODE=calibrate, 200 steps.
+name: calibration_1gpu
+seeds: [0]
+gpus: 1
+max_epochs: 100
+blocks:
+  - {tag: calib_imagenette_b256, experiment: ablations/base, micro_batch: 256, overrides: {logger: csv}}
+  - {tag: calib_imagenette_b64,  experiment: ablations/base, micro_batch: 64,
+     overrides: {logger: csv, data.batch_size: 64, trainer.accumulate_grad_batches: 4}}

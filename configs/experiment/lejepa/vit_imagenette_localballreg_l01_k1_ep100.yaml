@@ -26,7 +26,7 @@ data:
   crop_size: 128
 
 model:
-  lr_eta_min_ratio: 0.01
+  lr_eta_min_ratio: 0.001  # cosine to peak/1000 (campaign decision 6; was 0.01: cosine to 1% of the peak)
   embedding_dim: 512
   projection_dim: 16
   num_classes: 10

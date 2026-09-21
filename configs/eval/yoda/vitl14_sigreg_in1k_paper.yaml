@@ -6,7 +6,7 @@
 #   python src/eval_angle_probe.py           --config configs/eval/yoda/vitl14_sigreg_in1k_paper.yaml
 #   python src/eval_angle_probe_multiseed.py --config configs/eval/yoda/vitl14_sigreg_in1k_paper.yaml --n-seeds 10
 device: null
-crop_size: 224   # paper eval resolution (ViT-L/14)
+crop_size: 238   # paper eval resolution (ViT-L/14)
 data_dir: data
 output_folder: logs/eval_angle_probe_yoda_vitl14_sigreg_in1k_paper
 cache_dir: logs/eval_angle_probe_yoda_vitl14_sigreg_in1k_paper/cache

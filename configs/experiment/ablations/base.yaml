@@ -2,7 +2,7 @@
 # Common recipe of the three ablation tables: LocaLe-Reg (lambda 0.2, k 4) on Imagenette with the
 # Euclidean ViT-S/8, 100 epochs, batch 256 without accumulation (the regularizer, k-means and
 # the optimizer all see 256 samples), one LR schedule for every run: lr 1e-3, 10 warm-up
-# epochs, cosine to 1% of the peak, grad-clip 1.0, seed 42. Not run on its own: the sweeps inherit it.
+# epochs, cosine to peak/1000, grad-clip 1.0, seed 42 (the campaign manifests override the seed). Not run on its own: the sweeps inherit it.
 
 defaults:
   - /experiment/lejepa/vit_imagenette_localballreg_l01_k4
@@ -20,7 +20,7 @@ data:
 
 model:
   lamb: 0.2
-  lr_eta_min_ratio: 0.01
+  lr_eta_min_ratio: 0.001  # cosine to peak/1000 (campaign decision 6; was 0.01: cosine to 1% of the peak)
   encoder:
     grad_checkpointing: true
 

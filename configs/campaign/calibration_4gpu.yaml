@@ -1,0 +1,10 @@
+# Phase 2, the 128 px ImageNet-1K geometry on 4 GPUs -- a 30-minute BATCH job (devel caps at 2 GPUs).
+name: calibration_4gpu
+seeds: [0]
+gpus: 4
+micro_batch: 64
+max_epochs: 100
+blocks:
+  - {tag: calib_vit_in1k,    experiment: lejepa/vit_in1k_sigreg,    overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1}}
+  - {tag: calib_d4rn50_in1k, experiment: lejepa/d4rn50_in1k_sigreg, overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1}}
+  - {tag: calib_hvit_in1k,   experiment: lejepa/hvit_in1k_sigreg,   overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1}}
