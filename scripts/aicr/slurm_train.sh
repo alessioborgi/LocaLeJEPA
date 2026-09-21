@@ -19,6 +19,7 @@
 #   REQUEUE_LEFT  how many successors may still be submitted (default 2)
 #   TIME_LIMIT    the --time this job was given, so a successor asks for the same
 #   GRID_INDEX    only on a successor: the array task it continues
+#   CKPT_ROOT_OVERRIDE  optional: this submission's checkpoint root (ablation waves -> /scratch)
 # Site roots come from $REPO/scripts/aicr/roots.env (git-ignored; template beside it).
 #
 # Sequence, and what each step refuses on:
@@ -46,6 +47,11 @@ source "$REPO/scripts/aicr/roots.env"
 for name in PY CKPT_ROOT LOG_ROOT DATA_ROOT ENV_LOCK; do
     [ "${!name:-CHANGE_ME}" != "CHANGE_ME" ] || { echo "roots.env still has $name=CHANGE_ME" >&2; exit 2; }
 done
+# Per-submission checkpoint root: `campaign.py submit --export CKPT_ROOT_OVERRIDE=<dir>` sends an
+# ablation wave's ~150 GB to /scratch (decision 14) WITHOUT editing roots.env between submissions:
+# a task reads roots.env when it STARTS, so a file edited after submission would route the
+# late-starting tasks of the same array to the other root. The successor carries it (below).
+CKPT_ROOT="${CKPT_ROOT_OVERRIDE:-$CKPT_ROOT}"
 
 cd "$REPO"
 export SLURM_EXPORT_ENV=ALL          # steps inherit THIS script's environment, not sbatch's --export=NONE
@@ -162,7 +168,8 @@ case "$VERDICT" in
        if [ "$REQUEUE_LEFT" -gt 0 ]; then
            CMD="$($CAMPAIGN successor --requeue-left "$REQUEUE_LEFT" --time "${TIME_LIMIT:?TIME_LIMIT was not exported}" \
                   --script "$REPO/scripts/aicr/slurm_train.sh" \
-                  --export "GRID=$GRID" --export "REPO=$REPO" --export "GRID_INDEX=$INDEX" --export "TIME_LIMIT=$TIME_LIMIT")"
+                  --export "GRID=$GRID" --export "REPO=$REPO" --export "GRID_INDEX=$INDEX" --export "TIME_LIMIT=$TIME_LIMIT" \
+                  ${CKPT_ROOT_OVERRIDE:+--export "CKPT_ROOT_OVERRIDE=$CKPT_ROOT_OVERRIDE"})"
            echo "successor: $CMD"
            eval "$CMD"
            exit 0
