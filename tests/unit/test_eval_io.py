@@ -512,7 +512,7 @@ def test_no_evaluation_module_builds_a_cache_filename_by_hand():
 
     It used to be assembled by hand in five, and three of those *read* what the other two wrote:
     `eval_rankme` reconstructs `eval_indomain`'s and `eval_transfer`'s filenames, and
-    `scripts/verify_plainvit_result.py` reconstructs `eval_indomain`'s with `ep=99` hardcoded. A
+    `scripts/verify_indomain_result.py` reconstructs `eval_indomain`'s with `ep=99` hardcoded. A
     divergence between a writer and a reader does not raise -- `eval_rankme` logs "no cached
     features -- skipping this target" and carries on, so the symptom is a silently dropped target
     and an expensive GPU re-extraction, not a failure.
@@ -523,7 +523,7 @@ def test_no_evaluation_module_builds_a_cache_filename_by_hand():
     import re
 
     repo = Path(__file__).resolve().parents[2]
-    targets = sorted((repo / "src").rglob("eval*.py")) + [repo / "scripts" / "verify_plainvit_result.py"]
+    targets = sorted((repo / "src").rglob("eval*.py")) + [repo / "scripts" / "verify_indomain_result.py"]
 
     offenders = []
     for path in targets:

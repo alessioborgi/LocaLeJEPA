@@ -150,7 +150,8 @@ def render(root: Path) -> tuple[str, dict[str, dict], str]:
                     n_done += 1
                 row.append(f"{k1} / {l1}")
                 cells[f"{family}/{arm}/{kind}"] = {
-                    "run": run.run_name, "knn20": entry["knn"].get(str(REPORT_K), {}).get("top1"),
+                    "run": run.run_name, "row": f"| {title} |",
+                    "knn20": entry["knn"].get(str(REPORT_K), {}).get("top1"),
                     "linear": entry["linear"]["top1"], "epoch": entry.get("epoch"),
                     # where provenance_block archives it: results/raw/<eval name>/<file>
                     "source": f"{_eval_name(eval_dir)}/{path.name}",
@@ -183,7 +184,8 @@ def render(root: Path) -> tuple[str, dict[str, dict], str]:
         _, l1, _, _ = _cell(entry)
         row.append(f"linear {l1}")
         cells[f"vitl14/{arm}/lejepa_protocol"] = {
-            "run": run.run_name, "knn20": entry["knn"].get(str(REPORT_K), {}).get("top1"),
+            "run": run.run_name, "row": "| ViT-L/14 |",
+            "knn20": entry["knn"].get(str(REPORT_K), {}).get("top1"),
             "linear": entry["linear"]["top1"], "epoch": entry.get("epoch"),
             "source": f"{_eval_name(LEJEPA_PROTOCOL_VITL)}/{run.run_name}.json",
         }

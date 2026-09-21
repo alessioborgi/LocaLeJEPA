@@ -45,7 +45,7 @@ dev = ["pytest>=8.0", "pytest-cov>=5.0"]
 
 [tool.pytest.ini_options]
 # testpaths is load-bearing, not tidiness: every src/eval_*.py runs rootutils.setup_root() at
-# import, and scripts/verify_plainvit_result.py does json.load(open(...)) at import. Collecting
+# import, and scripts/verify_indomain_result.py does json.load(open(...)) at import. Collecting
 # over src/ or scripts/ would execute those side effects.
 testpaths = ["tests"]
 addopts = "-m 'not gpu' --strict-markers"

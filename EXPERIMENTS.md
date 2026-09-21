@@ -22,7 +22,7 @@ eval_angle_probe*.py        ridge probe of the two figurine rotation angles (+ m
 src/eval_conformal.py           Conformal-Autoencoder intrinsic-dimension detection on frozen features
 scripts/make_*.py           regenerate the result tables in results/ (+ LaTeX in paper/)
 scripts/download_transfer_datasets.py   torchvision transfer datasets
-scripts/verify_plainvit_result.py   independent audit of the headline plain-ViT numbers
+scripts/verify_indomain_result.py   independent audit of the headline plain-ViT numbers
 scripts/slurm_submit.sh     the single SLURM launcher
 scripts/benchmark_regularizers.py   forward+backward time / memory of the regularizers on synthetic batches
 visualisations/             torus / low-data figures of the Yoda probe (write to visualisations/figures/)

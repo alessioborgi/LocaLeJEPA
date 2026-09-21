@@ -130,7 +130,7 @@ def test_the_audit_catches_a_hand_edited_digit_and_a_stale_archive(in1k, audit, 
 
     edited = table.replace("41.2 / 55.3", "41.2 / 56.3")
     problems = audit.audit(edited, payload, Path("results/raw"))
-    assert any("vit/lejepa/last" in p and "not in the table" in p for p in problems)
+    assert any("vit/lejepa/last" in p and "not in its row" in p for p in problems)
 
     archived = Path("results/raw") / payload["cells"]["vit/local/last"]["source"]
     blob = json.loads(archived.read_text()); blob["linear"]["top1"] = 58.2

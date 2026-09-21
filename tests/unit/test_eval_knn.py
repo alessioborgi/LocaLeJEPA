@@ -3,7 +3,7 @@
 The decisive test here is the **label-shuffle control**: separable features scoring 100% proves
 little on its own, because a probe that accidentally indexed the bank by position rather than by
 similarity could also score well on sorted data. Destroying the label-feature correspondence must
-destroy the accuracy. That control already exists in ``scripts/verify_plainvit_result.py``; this
+destroy the accuracy. That control already exists in ``scripts/verify_indomain_result.py``; this
 promotes it into the suite.
 """
 

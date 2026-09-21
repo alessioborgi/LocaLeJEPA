@@ -36,8 +36,23 @@ def rederive(raw_root: Path, cell: dict, report_k: int) -> dict:
     if not path.is_file():
         raise FileNotFoundError(f"archived input {path} missing")
     entry = json.loads(path.read_text(encoding="utf-8"))
+    if cell.get("kind") == "torus":
+        # results_multiseed.json is keyed by run name; the cell names its run and its angle
+        angle = entry[cell["run"]]["angles"][cell_angle(cell)]
+        return {"r2_mean": angle["r2_mean"], "mae_mean": angle["mae_mean"]}
     knn = entry.get("knn", {}).get(str(report_k))
     return {"knn20": knn["top1"] if knn else None, "linear": entry["linear"]["top1"], "epoch": entry.get("epoch")}
+
+
+def cell_angle(cell: dict) -> str:
+    return cell.get("angle") or cell["key"].rsplit("/", 1)[-1]
+
+
+def rendered_text(cell: dict, fresh: dict, key: str) -> str:
+    if cell.get("kind") == "torus":
+        return f"{fresh['r2_mean']:.4f}" if key.endswith("angle0") or key.endswith("angle1") else ""
+    knn_text = f"{fresh['knn20']:.1f}" if fresh["knn20"] is not None else "—"
+    return f"{knn_text} / {fresh['linear']:.1f}" if "lejepa_protocol" not in key else f"linear {fresh['linear']:.1f}"
 
 
 def audit(table_text: str, cells_payload: dict, raw_root: Path) -> list[str]:
@@ -45,24 +60,31 @@ def audit(table_text: str, cells_payload: dict, raw_root: Path) -> list[str]:
     report_k = int(cells_payload.get("report_k", 20))
     rows = [line for line in table_text.splitlines() if line.startswith("|")]
     for key, cell in cells_payload["cells"].items():
+        cell = {**cell, "key": key}
         try:
             fresh = rederive(raw_root, cell, report_k)
         except (FileNotFoundError, KeyError, ValueError) as error:
             problems.append(f"{key}: cannot re-derive ({error})")
             continue
-        for field in ("knn20", "linear"):
+        fields = ("r2_mean", "mae_mean") if cell.get("kind") == "torus" else ("knn20", "linear")
+        for field in fields:
             claimed, actual = cell.get(field), fresh.get(field)
             if claimed is None and actual is None:
                 continue
             if claimed is None or actual is None or not math.isclose(claimed, actual, rel_tol=0, abs_tol=1e-9):
                 problems.append(f"{key}.{field}: cells.json says {claimed!r}, the archive says {actual!r}")
-        if cell.get("epoch") != fresh.get("epoch"):
+        if cell.get("kind") != "torus" and cell.get("epoch") != fresh.get("epoch"):
             problems.append(f"{key}.epoch: cells.json says {cell.get('epoch')!r}, the archive says {fresh.get('epoch')!r}")
-        # the rendered string must appear in the table -- the grep direction
-        knn_text = f"{fresh['knn20']:.1f}" if fresh["knn20"] is not None else "—"
-        rendered = f"{knn_text} / {fresh['linear']:.1f}" if "lejepa_protocol" not in key else f"linear {fresh['linear']:.1f}"
-        if not any(rendered in row for row in rows):
-            problems.append(f"{key}: rendered value {rendered!r} is not in the table")
+        # the rendered string must appear in the table -- the grep direction -- and in the
+        # cell's OWN row when the generator recorded one: a value that happens to appear in
+        # another row (eleven identical torus rows in a test; two backbones tied in real life)
+        # must not vouch for this cell.
+        rendered = rendered_text(cell, fresh, key)
+        candidates = [row for row in rows if cell.get("row", "") in row] if cell.get("row") else rows
+        if not candidates:
+            problems.append(f"{key}: no table row carries the label {cell.get('row')!r}")
+        elif not any(rendered in row for row in candidates):
+            problems.append(f"{key}: rendered value {rendered!r} is not in its row")
     return problems
 
 
