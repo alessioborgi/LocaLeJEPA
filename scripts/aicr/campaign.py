@@ -26,6 +26,9 @@ postflight  grid.json --index I --run-dir R --ckpt-dir D [--lock L]   verdict + 
 successor   --requeue-left N --script S ...   the sbatch argv that re-inherits THIS job's resources
 realised-k  metrics.csv                       the realised-K column of the ablation tables
 submit      grid.json --partition P --time T  the sbatch command line to paste
+eval-preflight  --config C --only NAME --root R   the checkpoint exists and carries .verified
+eval-postflight --config C --only NAME --root R   the per-backbone result JSON exists and parses
+calibrate-verdict --run-dir R --interrupt-step S --max-steps M   the rehearsed interruption resumed
 env-hash    [freeze.txt]                      sha256 of a normalised ``pip freeze``
 
 Exit codes: 0 ok / decided, 1 a check failed (the reason is printed), 3 resumable (postflight only).
@@ -572,6 +575,121 @@ def write_marker(ckpt_dir: Path, verdict: Verdict, spec: RunSpec, extra: Mapping
     return path
 
 
+def checkpoint_digest(path: Path) -> str:
+    """blake2b of realpath:size:mtime_ns -- the same identity ``src/eval/io.py`` keys feature
+    caches on, computed here without importing ``src`` (this helper runs before PYTHONPATH is set)."""
+    resolved = Path(path).resolve()
+    stat = resolved.stat()
+    return hashlib.blake2b(f"{resolved}:{stat.st_size}:{stat.st_mtime_ns}".encode(), digest_size=8).hexdigest()
+
+
+# ======================================================================================
+# evaluations -- never on a checkpoint the launcher did not verify
+# ======================================================================================
+
+def eval_backbone_entry(config_path: Path, only: str) -> dict[str, Any]:
+    import yaml
+
+    with open(config_path, encoding="utf-8") as handle:
+        cfg = yaml.safe_load(handle)
+    for entry in cfg.get("backbones", []):
+        if entry.get("name") == only:
+            return entry
+    names = [e.get("name") for e in cfg.get("backbones", [])]
+    raise ValueError(f"{config_path} has no backbone named {only!r}; it has {names}")
+
+
+def eval_preflight(config_path: Path, only: str, root: Path) -> Verdict:
+    """The checkpoint the eval config names must exist, be readable, and sit beside a
+    ``.verified`` marker written by the launcher's postflight (G5 -> V4). ``best.ckpt`` is
+    accepted only when the same directory's ``last.ckpt`` was verified: the marker is per run."""
+    checks: dict[str, tuple[bool, str]] = {}
+    entry = eval_backbone_entry(config_path, only)
+    ckpt = Path(entry["checkpoint"])
+    if not ckpt.is_absolute():
+        ckpt = root / ckpt
+    checks["checkpoint"] = (ckpt.is_file(), str(ckpt))
+    if ckpt.is_file():
+        candidate = read_checkpoint_progress(ckpt)
+        checks["readable"] = (candidate.valid, f"epoch {candidate.epoch}, global_step {candidate.global_step}"
+                              if candidate.valid else str(candidate.error))
+        marker = ckpt.parent / ".verified"
+        if marker.is_file():
+            try:
+                payload = json.loads(marker.read_text(encoding="utf-8"))
+                checks["verified"] = (bool(payload.get("ok")), f"{marker} ok={payload.get('ok')} epoch={payload.get('epoch')}")
+            except (OSError, ValueError) as error:
+                checks["verified"] = (False, f"{marker} unreadable: {error}")
+        else:
+            checks["verified"] = (False, f"{marker} missing -- the pretrain's postflight did not pass")
+    return Verdict(checks)
+
+
+def eval_postflight(config_path: Path, only: str, root: Path) -> Verdict:
+    """The evaluation's own artifact: the per-backbone JSON exists, parses, and names the backbone."""
+    import yaml
+
+    with open(config_path, encoding="utf-8") as handle:
+        cfg = yaml.safe_load(handle)
+    out_dir = Path(cfg.get("output_folder", "."))
+    if not out_dir.is_absolute():
+        out_dir = root / out_dir
+    result = out_dir / "per_backbone" / f"{only}.json"
+    checks: dict[str, tuple[bool, str]] = {"result": (result.is_file(), str(result))}
+    if result.is_file():
+        try:
+            payload = json.loads(result.read_text(encoding="utf-8"))
+            checks["parses"] = (isinstance(payload, dict) and bool(payload), f"{len(payload)} top-level keys")
+        except ValueError as error:
+            checks["parses"] = (False, str(error))
+    return Verdict(checks)
+
+
+# ======================================================================================
+# calibration -- the rehearsed interruption actually resumed
+# ======================================================================================
+
+def _step_rows(metrics_csv: Path) -> list[int]:
+    steps: list[int] = []
+    with open(metrics_csv, newline="", encoding="utf-8") as handle:
+        for row in csv.DictReader(handle):
+            if row.get("train/loss_step", "") != "":
+                steps.append(int(float(row["step"])))
+    return steps
+
+
+def calibrate_verdict(run_dir: Path, *, interrupt_step: int, max_steps: int) -> Verdict:
+    """Two launches wrote two CSV versions under one run dir. The first must stop at the
+    interruption, the second must continue from the very next step and reach ``max_steps``;
+    the learning rate, if logged, must not jump at the seam (a restart from scratch would)."""
+    checks: dict[str, tuple[bool, str]] = {}
+    versions = sorted((run_dir / "csv").glob("version_*/metrics.csv")) if (run_dir / "csv").is_dir() else []
+    checks["launches"] = (len(versions) == 2, f"{len(versions)} metrics.csv under {run_dir}/csv (expected 2)")
+    if len(versions) != 2:
+        return Verdict(checks)
+    first, second = (_step_rows(v) for v in versions)
+    if not first or not second:
+        checks["steps"] = (False, f"empty step series: first {len(first)} rows, second {len(second)} rows")
+        return Verdict(checks)
+    checks["interrupted"] = (abs(first[-1] - interrupt_step) <= 1,
+                             f"first launch stopped at step {first[-1]} (interrupt at {interrupt_step})")
+    checks["resumed"] = (second[0] == first[-1] + 1, f"second launch began at step {second[0]} after {first[-1]}")
+    checks["completed"] = (second[-1] >= max_steps - 1, f"second launch ended at step {second[-1]} (max_steps {max_steps})")
+    lr_col = None
+    with open(versions[0], newline="", encoding="utf-8") as handle:
+        lr_col = next((c for c in (csv.DictReader(handle).fieldnames or []) if c.startswith("lr-")), None)
+    if lr_col:
+        def series(path):
+            with open(path, newline="", encoding="utf-8") as handle:
+                return [(int(float(r["step"])), float(r[lr_col])) for r in csv.DictReader(handle) if r.get(lr_col, "") != ""]
+        a, b = series(versions[0]), series(versions[1])
+        if len(a) >= 2 and b:
+            slope = abs(a[-1][1] - a[-2][1])
+            jump = abs(b[0][1] - a[-1][1])
+            checks["lr_continuous"] = (jump <= max(3 * slope, 1e-12), f"lr jump at the seam {jump:.3e} vs local slope {slope:.3e}")
+    return Verdict(checks)
+
+
 # ======================================================================================
 # successor -- inherits what THIS job actually got, and counts down
 # ======================================================================================
@@ -746,6 +864,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--gpu-type"); p.add_argument("--cpus-per-gpu", type=int, default=16)
     p.add_argument("--mem-per-gpu-gb", type=int, default=60); p.add_argument("--indices", help="e.g. 0-9,20")
     p = sub.add_parser("env-hash"); p.add_argument("freeze", type=Path, nargs="?")
+    for name in ("eval-preflight", "eval-postflight"):
+        p = sub.add_parser(name); p.add_argument("--config", type=Path, required=True)
+        p.add_argument("--only", required=True); p.add_argument("--root", type=Path, required=True)
+    p = sub.add_parser("calibrate-verdict"); p.add_argument("--run-dir", type=Path, required=True)
+    p.add_argument("--interrupt-step", type=int, required=True); p.add_argument("--max-steps", type=int, required=True)
     args = parser.parse_args(argv)
 
     if args.command == "expand":
@@ -818,7 +941,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"postflight {spec.run_name} (train.py exit code {args.train_rc} -- informational, not the verdict):")
         print("\n".join(verdict.lines()))
         if verdict.ok:
-            write_marker(args.ckpt_dir, verdict, spec, {"train_rc": args.train_rc})
+            progress = read_checkpoint_progress(args.ckpt_dir / "last.ckpt")
+            write_marker(args.ckpt_dir, verdict, spec, {
+                "train_rc": args.train_rc, "epoch": progress.epoch, "global_step": progress.global_step,
+                "digest": checkpoint_digest(args.ckpt_dir / "last.ckpt"), "commit": payload.get("commit")})
             print("VERIFIED")
             return 0
         decision = resume_decision(args.ckpt_dir, spec.max_epochs)
@@ -862,6 +988,20 @@ def main(argv: list[str] | None = None) -> int:
         import shlex
         print(" ".join(shlex.quote(a) for a in argv_out))
         return 0
+
+    if args.command in ("eval-preflight", "eval-postflight"):
+        fn = eval_preflight if args.command == "eval-preflight" else eval_postflight
+        verdict = fn(args.config, args.only, args.root)
+        print(f"{args.command} {args.only}:")
+        print("\n".join(verdict.lines()))
+        return 0 if verdict.ok else 1
+
+    if args.command == "calibrate-verdict":
+        verdict = calibrate_verdict(args.run_dir, interrupt_step=args.interrupt_step, max_steps=args.max_steps)
+        print(f"calibrate-verdict {args.run_dir}:")
+        print("\n".join(verdict.lines()))
+        print("CALIBRATION VERIFIED" if verdict.ok else "CALIBRATION FAILED")
+        return 0 if verdict.ok else 1
 
     if args.command == "env-hash":
         text = args.freeze.read_text(encoding="utf-8") if args.freeze else sys.stdin.read()

@@ -101,14 +101,41 @@ else
 fi
 RESUME_OVERRIDE=""
 [ -n "${RESUME:-}" ] && RESUME_OVERRIDE="ckpt_path=$RESUME"
+COMMON=("$PY" src/train.py $OVERRIDES $TRAINER logger=csv "hydra.run.dir=$RUN_DIR"
+        "callbacks.model_checkpoint.dirpath=$CKPT_DIR" "callbacks.on_exception.dirpath=$CKPT_DIR" "$DATA_OVERRIDE")
+SRUN=(srun --ntasks-per-node="$GPUS" --cpus-per-task="${SLURM_CPUS_PER_TASK:-16}" --kill-on-bad-exit=1)
+
+if [ "${MODE:-train}" = "calibrate" ]; then
+    # Plan Phase 2 / V2: two launches under one run dir. The first prints the geometry (above),
+    # measures throughput and the data-wait fraction, and SIGTERMs itself at CALIB_INTERRUPT --
+    # the real path: Lightning's handler, SIGTERMException, OnExceptionCheckpoint. The second
+    # must resume from that checkpoint at the very next step and reach CALIB_STEPS. No artifact
+    # postflight: no epoch boundary is reached, so there is no last.ckpt to verify.
+    CALIB_STEPS="${CALIB_STEPS:-200}"; CALIB_INTERRUPT="${CALIB_INTERRUPT:-150}"
+    CALIB=(callbacks=calibrate "+trainer.max_steps=$CALIB_STEPS" "+trainer.limit_val_batches=0" "+trainer.num_sanity_val_steps=0")
+    echo "=== calibrating $RUN_NAME: $CALIB_STEPS steps, interruption at $CALIB_INTERRUPT ==="
+    set +e
+    "${SRUN[@]}" "${COMMON[@]}" "${CALIB[@]}" "callbacks.self_interrupt.at_step=$CALIB_INTERRUPT"
+    RC1=$?
+    set -e
+    eval "$($CAMPAIGN resume --ckpt-dir "$CKPT_DIR" --max-epochs "$MAX_EPOCHS" --shell)"
+    if [ "$DECISION" != "resume" ]; then
+        echo "CALIBRATION FAILED: no resumable checkpoint after the interruption (first launch exit $RC1, decision $DECISION)" >&2
+        exit 1
+    fi
+    set +e
+    "${SRUN[@]}" "${COMMON[@]}" "${CALIB[@]}" "ckpt_path=$RESUME"
+    RC2=$?
+    set -e
+    echo "launch exit codes: $RC1 (interrupted), $RC2 (resumed) -- informational"
+    $CAMPAIGN calibrate-verdict --run-dir "$RUN_DIR" --interrupt-step "$CALIB_INTERRUPT" --max-steps "$CALIB_STEPS"
+    exit $?
+fi
 
 echo "=== training $RUN_NAME ($DECISION${RESUME:+ from $RESUME}) ==="
 set +e
 # shellcheck disable=SC2086
-srun --ntasks-per-node="$GPUS" --cpus-per-task="${SLURM_CPUS_PER_TASK:-16}" --kill-on-bad-exit=1 \
-    "$PY" src/train.py $OVERRIDES $TRAINER logger=csv \
-    "hydra.run.dir=$RUN_DIR" "callbacks.model_checkpoint.dirpath=$CKPT_DIR" \
-    "callbacks.on_exception.dirpath=$CKPT_DIR" "$DATA_OVERRIDE" $RESUME_OVERRIDE
+"${SRUN[@]}" "${COMMON[@]}" $RESUME_OVERRIDE
 RC=$?
 set -e
 echo "train.py exit code $RC (informational: the artifact decides -- research_rules/01)"

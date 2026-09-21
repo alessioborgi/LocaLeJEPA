@@ -428,3 +428,94 @@ def test_the_on_exception_checkpoint_is_part_of_the_default_callbacks(tmp_path):
     assert node["_target_"].endswith("OnExceptionCheckpoint") and node["filename"] == "on_exception"
     callback = instantiate(cfg.callbacks.on_exception, dirpath=str(tmp_path))
     assert isinstance(callback, OnExceptionCheckpoint)
+
+
+# --------------------------------------------------------------------------------------
+# evaluations never run on an unverified checkpoint; calibration must really resume
+# --------------------------------------------------------------------------------------
+
+def eval_config(tmp_path: Path, checkpoint: str = "checkpoints/run_a/last.ckpt") -> Path:
+    cfg = tmp_path / "eval.yaml"
+    cfg.write_text(yaml.safe_dump({"output_folder": "logs/eval_x",
+                                   "backbones": [{"name": "run_a", "experiment": "lejepa/x", "checkpoint": checkpoint}]}))
+    return cfg
+
+
+def test_eval_preflight_wants_an_existing_readable_verified_checkpoint(tmp_path):
+    root = tmp_path / "root"
+    ckpt_dir = root / "checkpoints" / "run_a"; ckpt_dir.mkdir(parents=True)
+    cfg = eval_config(tmp_path)
+
+    missing = C.eval_preflight(cfg, "run_a", root)
+    assert not missing.ok and not missing.checks["checkpoint"][0]
+
+    ckpt(ckpt_dir / "last.ckpt", epoch=99, step=14800)
+    unverified = C.eval_preflight(cfg, "run_a", root)
+    assert not unverified.ok and "missing" in unverified.checks["verified"][1]
+
+    (ckpt_dir / ".verified").write_text(json.dumps({"ok": True, "epoch": 99}))
+    assert C.eval_preflight(cfg, "run_a", root).ok
+
+    (ckpt_dir / ".verified").write_text(json.dumps({"ok": False}))
+    assert not C.eval_preflight(cfg, "run_a", root).ok, "a .failed-style marker must not pass"
+
+
+def test_eval_preflight_names_an_unknown_backbone(tmp_path):
+    with pytest.raises(ValueError, match="no backbone named 'other'"):
+        C.eval_backbone_entry(eval_config(tmp_path), "other")
+
+
+def test_eval_postflight_wants_the_per_backbone_json(tmp_path):
+    root = tmp_path / "root"
+    cfg = eval_config(tmp_path)
+    assert not C.eval_postflight(cfg, "run_a", root).ok
+    out = root / "logs" / "eval_x" / "per_backbone"; out.mkdir(parents=True)
+    (out / "run_a.json").write_text("{not json")
+    assert not C.eval_postflight(cfg, "run_a", root).checks["parses"][0]
+    (out / "run_a.json").write_text(json.dumps({"knn": {"20": {"top1": 50.0}}}))
+    assert C.eval_postflight(cfg, "run_a", root).ok
+
+
+def calibration_run(tmp_path: Path, *, first: range, second: range, lr_jump: float = 0.0) -> Path:
+    root = tmp_path / "calib"
+    for version, steps in (("version_0", first), ("version_1", second)):
+        d = root / "csv" / version; d.mkdir(parents=True)
+        rows = ["epoch,step,train/loss_step,lr-AdamW"]
+        for step in steps:
+            lr = 1e-3 * (1 - step / 400) + (lr_jump if version == "version_1" else 0.0)
+            rows.append(f"0,{step},0.5,{lr}")
+        (d / "metrics.csv").write_text("\n".join(rows) + "\n")
+    return root
+
+
+def test_calibrate_verdict_passes_a_true_resume(tmp_path):
+    root = calibration_run(tmp_path, first=range(0, 151), second=range(151, 200))
+    verdict = C.calibrate_verdict(root, interrupt_step=150, max_steps=200)
+    assert verdict.ok, verdict.lines()
+
+
+def test_calibrate_verdict_catches_a_restart_from_scratch(tmp_path):
+    root = calibration_run(tmp_path, first=range(0, 151), second=range(0, 200))
+    verdict = C.calibrate_verdict(root, interrupt_step=150, max_steps=200)
+    assert not verdict.checks["resumed"][0]
+
+
+def test_calibrate_verdict_catches_a_learning_rate_jump_at_the_seam(tmp_path):
+    root = calibration_run(tmp_path, first=range(0, 151), second=range(151, 200), lr_jump=5e-4)
+    verdict = C.calibrate_verdict(root, interrupt_step=150, max_steps=200)
+    assert not verdict.checks["lr_continuous"][0]
+
+
+def test_calibrate_verdict_needs_exactly_two_launches(tmp_path):
+    root = tmp_path / "one"; (root / "csv" / "version_0").mkdir(parents=True)
+    (root / "csv" / "version_0" / "metrics.csv").write_text("epoch,step,train/loss_step\n0,1,0.5\n")
+    assert not C.calibrate_verdict(root, interrupt_step=150, max_steps=200).ok
+
+
+def test_checkpoint_digest_changes_with_the_file(tmp_path):
+    path = ckpt(tmp_path / "last.ckpt", epoch=1, step=2)
+    before = C.checkpoint_digest(path)
+    assert before == C.checkpoint_digest(path)
+    ckpt(path, epoch=1, step=3)
+    os.utime(path, (2_000_000_000, 2_000_000_000))
+    assert C.checkpoint_digest(path) != before
