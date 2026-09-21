@@ -182,3 +182,6 @@ results/figures/
 # Local Slurm submission scripts and job logs
 /slurm/
 .mutation-in-progress
+
+# site roots for the AICR launcher (template: roots.env.example)
+scripts/aicr/roots.env

@@ -7,9 +7,11 @@ defaults:
 model_checkpoint:
   dirpath: ${paths.output_dir}/checkpoints
   # Keep the BEST checkpoint (by validation online-probe accuracy) at a stable
-  # path best.ckpt, plus last.ckpt for the final-epoch weights. Downstream evals
-  # should load best.ckpt. Runs without an online probe override monitor: null
-  # in their experiment config (they fall back to keeping the last checkpoint).
+  # path best.ckpt, plus last.ckpt for the final-epoch weights. The campaign's
+  # headline numbers come from last.ckpt (no selection on the reported split --
+  # state/10-PAPER-STATE.md PD-4); best.ckpt feeds a labelled secondary column.
+  # Runs without an online probe override monitor: null in their experiment
+  # config (they fall back to keeping the last checkpoint).
   filename: "best"
   monitor: "val/probe_acc"
   mode: "max"
@@ -19,3 +21,13 @@ model_checkpoint:
 
 model_summary:
   max_depth: -1
+
+# A checkpoint written when training is interrupted by an exception -- which is what
+# Lightning turns a SIGTERM into (Slurm's --signal before the wall, or a preemption). A
+# wall or preemption then costs the partial epoch, not the run: the launcher's resume
+# decision (scripts/aicr/campaign.py) picks whichever of last.ckpt / on_exception.ckpt
+# holds the larger global_step, read from inside the file.
+on_exception:
+  _target_: lightning.pytorch.callbacks.OnExceptionCheckpoint
+  dirpath: ${paths.output_dir}/checkpoints
+  filename: "on_exception"
