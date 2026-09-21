@@ -61,15 +61,27 @@ def scan_split(split_dir: Path) -> tuple[dict[str, int], list[str]]:
     return counts, empty
 
 
+def _files_in_order(class_dir: Path) -> list[str]:
+    """The class's files in NAME order, so a seeded draw picks the same file on every machine.
+
+    F44: `rng.choice` over a bare `os.scandir` picked a different file on the cluster's NFS than
+    on the workstation's APFS with the same seed -- readdir order is a filesystem property, not a
+    stable one -- and the suite's planted-garbage test was green on one machine and red on the
+    other. Same defect class as the probe's unseeded head (`b97840f`): a seed that reaches a
+    draw over an unstable order is not a seed.
+    """
+    return sorted(f.path for f in os.scandir(class_dir) if f.is_file())
+
+
 def check_magic(split_dir: Path, counts: dict[str, int], sample: int, rng) -> list[str]:
     """Read the first three bytes of `sample` files spread across classes."""
     bad = []
     classes = [c for c, n in counts.items() if n]
     for name in rng.sample(classes, min(sample, len(classes))):
-        files = [f for f in os.scandir(split_dir / name) if f.is_file()]
+        files = _files_in_order(split_dir / name)
         if not files:
             continue
-        path = rng.choice(files).path
+        path = rng.choice(files)
         with open(path, "rb") as handle:
             if handle.read(3) != JPEG_MAGIC:
                 bad.append(path)
@@ -136,10 +148,10 @@ def verify(root: Path, decode: int = 0, sample: int = 200, seed: int = 0) -> lis
             failed = []
             classes = [c for c, n in counts.items() if n]
             for name in rng.sample(classes, min(decode, len(classes))):
-                files = [f for f in os.scandir(split_dir / name) if f.is_file()]
+                files = _files_in_order(split_dir / name)
                 if not files:
                     continue
-                path = rng.choice(files).path
+                path = rng.choice(files)
                 try:
                     with Image.open(path) as im:
                         im.convert("RGB").load()

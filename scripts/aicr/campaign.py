@@ -455,17 +455,47 @@ def metrics_complete(metrics_csv: Path, max_epochs: int, *, local_run: bool) -> 
     return problems
 
 
+def env_lines(text: str) -> set[str]:
+    """The pip pins in a lock or a freeze, normalised: ``name==version`` lines only, lower-case,
+    ``_`` as ``-``. The cluster's lock holds TWO halves (F24/F38) -- ``pip list --format=freeze``
+    and ``conda list --explicit`` -- so a hash of the whole file can never equal a hash of a
+    freeze; F44 found the preflight refusing every job for exactly that. Conda's lines are URLs
+    and ``@EXPLICIT``/``# …`` headers, none of which contain ``==``."""
+    out = set()
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "==" not in line or line.startswith(("http://", "https://", "-e ")):
+            continue
+        out.add(line.lower().replace("_", "-"))
+    return out
+
+
 def env_hash(freeze_text: str) -> str:
-    """sha256 of a ``pip freeze``, normalised so that ordering and ``_``/``-`` spelling do not
-    count (F38: freeze writes underscores where the spec had hyphens)."""
-    lines = sorted({line.strip().lower().replace("_", "-") for line in freeze_text.splitlines()
-                    if line.strip() and not line.startswith("#")})
-    return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
+    """sha256 of the normalised pip pins (see ``env_lines``)."""
+    return hashlib.sha256("\n".join(sorted(env_lines(freeze_text))).encode("utf-8")).hexdigest()
+
+
+def current_env_text(python: str) -> str:
+    """``pip list --format=freeze`` -- the same tool the lock was captured with. Plain ``pip freeze``
+    writes ``name @ url`` for URL-installed wheels where ``pip list`` writes ``name==version``."""
+    out = subprocess.run([python, "-m", "pip", "list", "--format=freeze"], capture_output=True, text=True, check=True)
+    return out.stdout
 
 
 def current_env_hash(python: str) -> str:
-    out = subprocess.run([python, "-m", "pip", "freeze"], capture_output=True, text=True, check=True)
-    return env_hash(out.stdout)
+    return env_hash(current_env_text(python))
+
+
+def env_diff(lock_text: str, live_text: str, limit: int = 5) -> str:
+    """What differs, for the log: pins only in the lock, pins only in the environment."""
+    lock, live = env_lines(lock_text), env_lines(live_text)
+    only_lock, only_live = sorted(lock - live), sorted(live - lock)
+    parts = []
+    if only_lock:
+        parts.append("only in lock: " + ", ".join(only_lock[:limit]) + (" …" if len(only_lock) > limit else ""))
+    if only_live:
+        parts.append("only in env: " + ", ".join(only_live[:limit]) + (" …" if len(only_live) > limit else ""))
+    return "; ".join(parts) or "no pin differs"
 
 
 def tree_state(repo: Path) -> tuple[str | None, bool]:
@@ -494,7 +524,7 @@ class Verdict:
 
 
 def postflight(spec: RunSpec, run_dir: Path, ckpt_dir: Path, *, grid_commit: str | None,
-               lock_hash: str | None, python: str | None, repo: Path = REPO) -> Verdict:
+               lock_hash: str | None, python: str | None, repo: Path = REPO, lock_text: str | None = None) -> Verdict:
     """Everything G5 asks of a finished pretrain, as one verdict. Writes nothing itself."""
     checks: dict[str, tuple[bool, str]] = {}
     ckpt = ckpt_dir / "last.ckpt"
@@ -528,14 +558,15 @@ def postflight(spec: RunSpec, run_dir: Path, ckpt_dir: Path, *, grid_commit: str
         checks["tree"] = (True, commit[:9])
 
     if lock_hash and python:
-        actual = current_env_hash(python)
+        live = current_env_text(python)
+        actual = env_hash(live)
         checks["environment"] = (actual == lock_hash, "matches the lock" if actual == lock_hash
-                                 else f"pip freeze hash {actual[:12]} != lock {lock_hash[:12]}")
+                                 else f"pins differ from the lock: {env_diff(lock_text or '', live)}")
     return Verdict(checks)
 
 
 def preflight(spec: RunSpec, *, grid_commit: str | None, lock_hash: str | None, python: str | None,
-              repo: Path = REPO) -> Verdict:
+              repo: Path = REPO, lock_text: str | None = None) -> Verdict:
     """What a job checks before it stages a byte: the tree and the environment it will train
     with are the ones the grid was expanded from. Refusing here costs seconds; discovering it in
     postflight costs the run."""
@@ -552,9 +583,10 @@ def preflight(spec: RunSpec, *, grid_commit: str | None, lock_hash: str | None, 
     else:
         checks["tree"] = (True, commit[:9])
     if lock_hash and python:
-        actual = current_env_hash(python)
+        live = current_env_text(python)
+        actual = env_hash(live)
         checks["environment"] = (actual == lock_hash, "matches the lock" if actual == lock_hash
-                                 else f"pip freeze hash {actual[:12]} != lock {lock_hash[:12]} (F38: env drift)")
+                                 else f"pins differ from the lock (F38: env drift): {env_diff(lock_text or '', live)}")
     checks["run"] = (True, f"{spec.run_name}: {spec.experiment} + {len(spec.overrides)} overrides, seed {spec.seed}")
     return Verdict(checks)
 
@@ -898,9 +930,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "preflight":
         payload, runs = read_grid(args.grid)
         spec = runs[args.index]
-        lock_hash = env_hash(args.lock.read_text(encoding="utf-8")) if args.lock else None
+        lock_text = args.lock.read_text(encoding="utf-8") if args.lock else None
+        lock_hash = env_hash(lock_text) if lock_text is not None else None
         verdict = preflight(spec, grid_commit=payload.get("commit"), lock_hash=lock_hash,
-                            python=args.python if args.lock else None)
+                            python=args.python if args.lock else None, lock_text=lock_text)
         print(f"preflight {spec.run_name}:")
         print("\n".join(verdict.lines()))
         return 0 if verdict.ok else 1
@@ -935,9 +968,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "postflight":
         payload, runs = read_grid(args.grid)
         spec = runs[args.index]
-        lock_hash = env_hash(args.lock.read_text(encoding="utf-8")) if args.lock else None
+        lock_text = args.lock.read_text(encoding="utf-8") if args.lock else None
+        lock_hash = env_hash(lock_text) if lock_text is not None else None
         verdict = postflight(spec, args.run_dir, args.ckpt_dir, grid_commit=payload.get("commit"),
-                             lock_hash=lock_hash, python=args.python if args.lock else None)
+                             lock_hash=lock_hash, python=args.python if args.lock else None, lock_text=lock_text)
         print(f"postflight {spec.run_name} (train.py exit code {args.train_rc} -- informational, not the verdict):")
         print("\n".join(verdict.lines()))
         if verdict.ok:

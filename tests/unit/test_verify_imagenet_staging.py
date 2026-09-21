@@ -92,9 +92,28 @@ def test_zero_byte_files_are_caught(mini):
 
 def test_a_file_that_is_not_a_jpeg_is_caught(mini):
     """Magic-number check on a sample: catches truncation and garbage without decoding 1.28M
-    files. `sample` is large here so the seeded draw is certain to hit the corrupted class."""
-    (mini / "val" / "0000" / "val_0.JPEG").write_bytes(b"NOT A JPEG AT ALL")
+    files. `sample` is large so every class is drawn; EVERY file of the class is corrupted so the
+    assertion does not depend on which file the draw picks (F44: it used to depend on readdir
+    order, and was green on APFS and red on the cluster's NFS with the same seed)."""
+    for f in (mini / "val" / "0000").iterdir():
+        f.write_bytes(b"NOT A JPEG AT ALL")
     assert any("not JPEG" in p for p in V.verify(mini, sample=100))
+
+
+def test_the_sampled_file_does_not_depend_on_readdir_order(mini, monkeypatch):
+    """F44 pinned: the file a seeded draw picks must be the same whatever order the filesystem
+    lists the directory in. `os.scandir` is reversed here and the pick must not move."""
+    import os as _os
+
+    real_scandir = _os.scandir
+
+    def reversed_scandir(path):
+        return iter(sorted(real_scandir(path), key=lambda e: e.name, reverse=True))
+
+    ordered = V._files_in_order(mini / "val" / "0000")
+    monkeypatch.setattr(V.os, "scandir", reversed_scandir)
+    assert V._files_in_order(mini / "val" / "0000") == ordered
+    assert ordered == sorted(ordered) and len(ordered) == 2
 
 
 def test_decode_catches_a_file_that_is_jpeg_headed_but_truncated(mini):
