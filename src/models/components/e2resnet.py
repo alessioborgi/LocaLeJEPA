@@ -23,6 +23,14 @@ from typing import Callable, List, Optional, Type, Union
 import torch
 from escnn import gspaces, nn
 from escnn.nn import FieldType, GeometricTensor
+import escnn.group._numerical as _escnn_numerical
+
+# escnn 1.0.11 hands an np.matrix to scikit-learn's randomized_svd, which scikit-learn >= 1.4
+# refuses (TypeError: np.matrix is not supported) -- every D4 cell died at instantiation on the
+# cluster (F46). The randomized path is also unseeded, so two processes can expand their filters
+# in two different null-space bases: under DDP each rank would own a different parameterisation.
+# escnn's own fallback, selected by making the import "fail", is scipy's deterministic full SVD.
+_escnn_numerical.randomized_svd = None
 from torch import Tensor
 
 

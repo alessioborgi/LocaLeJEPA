@@ -106,3 +106,47 @@ def test_the_control_differs_from_the_local_arm_only_in_the_regularizer_and_lamb
 def test_the_reverse_ramp_counts_down():
     cfg = C.compose_config(["experiment=ablations/dynk_rev"])
     assert cfg.callbacks.dynamic_num_clusters.start == 16 and cfg.callbacks.dynamic_num_clusters.end == 2
+
+
+# --------------------------------------------------------------------------- targets import (F46)
+
+def _targets(node, found: set[str]) -> None:
+    if isinstance(node, dict):
+        target = node.get("_target_")
+        if isinstance(target, str):
+            found.add(target)
+        for value in node.values():
+            _targets(value, found)
+    elif isinstance(node, (list, tuple)):
+        for value in node:
+            _targets(value, found)
+
+
+def campaign_targets() -> list[str]:
+    """Every ``_target_`` of every distinct cell, as composed -- the strings Hydra would resolve."""
+    from omegaconf import OmegaConf
+
+    found: set[str] = set()
+    for _, run in CELLS:
+        _targets(OmegaConf.to_container(C.compose_config(run.hydra_overrides()), resolve=False), found)
+    return sorted(found)
+
+
+TARGETS = campaign_targets()
+
+
+def test_the_campaign_has_targets_to_check():
+    assert len(TARGETS) > 5, TARGETS
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_every_campaign_target_imports_in_this_environment(target):
+    """F46: the D4-RN50 cells died on the GPU node with ``Error locating target
+    'src.models.components.e2resnet.build_e2resnet'`` -- ``escnn`` was in no environment file, and
+    composition never resolves a ``_target_``, so the suite was green with the package absent.
+    ``get_method`` is what ``hydra.utils.instantiate`` calls: the launch-time error, without a job
+    behind it. An environment that cannot run a campaign cell fails here, on the workstation."""
+    from hydra.utils import get_method
+
+    get_method(target)
+
