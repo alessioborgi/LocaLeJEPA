@@ -94,6 +94,13 @@ REQUIRED_PER_SCRIPT = {
         "--verify": "the structural check replaces the existence-only .ready marker",
         "/tmp/*)": "a node-local root is refused (F39)",
     },
+    "install_escnn.sh": {
+        "--no-deps escnn==1.0.11": "escnn declares py3nj (a Fortran sdist that does not build on Python 3.12): never resolved",
+        "LIE_LEARN_SHA=": "lie_learn is built from source at a pinned commit: the PyPI wheel is compiled against NumPy 1.x",
+        "--no-build-isolation --no-deps --force-reinstall": "built against THIS numpy, pulling nothing (the wheel pulled numpy<2 and downgraded the env, F46)",
+        "PINS UNCHANGED": "the pins are diffed before and after, state/03 discipline",
+        "*.npy": "the two data files lie_learn needs at import are kept across the source build",
+    },
     "slurm_eval.sh": {
         "eval-preflight": "the checkpoint must exist and carry .verified before extraction",
         "eval-postflight": "the per-backbone JSON is checked, not the exit code",
