@@ -22,6 +22,14 @@ set -euo pipefail
 case "$TAR" in /tmp/*) echo "REFUSING: TAR under /tmp is node-local and vanishes with the job (F39)" >&2; exit 2 ;; esac
 [ -d "$SRC/imagenet_full_size/061417/train" ] || { echo "no $SRC/imagenet_full_size/061417/train -- is the tree verified?" >&2; exit 2; }
 
+# One writer. F44: the same block was submitted twice and two `tar -cf` streams wrote into
+# ONE `$TAR.tmp` (O_TRUNC, then interleaved) -- research_rules/05's live-duplicate trap. `mkdir`
+# is atomic on NFS where `flock` is not (research_rules/01).
+LOCK="$TAR.lock"
+mkdir "$LOCK" 2>/dev/null || { echo "REFUSING: another tar job holds $LOCK ($(cat "$LOCK/owner" 2>/dev/null))" >&2; exit 2; }
+echo "job=${SLURM_JOB_ID:-none} host=$(hostname) $(date -Is)" > "$LOCK/owner"
+trap 'rm -rf "$LOCK"' EXIT
+[ -e "$TAR.tmp" ] && { echo "REFUSING: $TAR.tmp exists -- a writer is running or died; remove it by hand if the latter" >&2; exit 2; }
 echo "=== $(date -Is) | tar $SRC/imagenet_full_size -> $TAR | host $(hostname) ==="
 df -h "$(dirname "$TAR")" | tail -1
 cd "$SRC"

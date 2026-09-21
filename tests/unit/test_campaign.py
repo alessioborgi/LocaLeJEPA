@@ -519,3 +519,58 @@ def test_checkpoint_digest_changes_with_the_file(tmp_path):
     ckpt(path, epoch=1, step=3)
     os.utime(path, (2_000_000_000, 2_000_000_000))
     assert C.checkpoint_digest(path) != before
+
+
+# --------------------------------------------------------------------------------------
+# the environment check reads the lock's pip half (F44)
+# --------------------------------------------------------------------------------------
+
+CONDA_HALF = """# This file may be used to create an environment using:
+# $ conda create --name <env> --file <this file>
+# platform: linux-64
+@EXPLICIT
+https://conda.anaconda.org/conda-forge/linux-64/python-3.12.14-h1234.conda#abc
+https://conda.anaconda.org/conda-forge/noarch/pip-25.0-pyh.conda#def
+"""
+PIP_HALF = "torch==2.14.0+cu130\nfast_pytorch_kmeans==0.2.2\nlightning==2.6.6\n"
+
+
+def test_env_hash_ignores_the_conda_half_of_the_lock():
+    """The cluster's lock is two halves (F24/F38); the job hashes a freeze. F44: hashing the whole
+    file refused every job at preflight. Only ``name==version`` lines count, on both sides."""
+    assert C.env_hash(CONDA_HALF + PIP_HALF) == C.env_hash(PIP_HALF)
+    assert C.env_lines(CONDA_HALF + PIP_HALF) == {"torch==2.14.0+cu130", "fast-pytorch-kmeans==0.2.2", "lightning==2.6.6"}
+    assert C.env_hash(PIP_HALF) != C.env_hash(PIP_HALF.replace("2.6.6", "2.6.5"))
+
+
+def test_env_diff_names_the_pins_that_differ():
+    live = PIP_HALF.replace("lightning==2.6.6", "lightning==2.6.5") + "pytest==9.1.1\n"
+    text = C.env_diff(CONDA_HALF + PIP_HALF, live)
+    assert "only in lock: lightning==2.6.6" in text and "only in env: lightning==2.6.5, pytest==9.1.1" in text
+    assert C.env_diff(PIP_HALF, PIP_HALF) == "no pin differs"
+
+
+def test_preflight_reports_the_differing_pins_not_just_a_hash(tmp_path, monkeypatch):
+    repo, commit = git_repo(tmp_path)
+    monkeypatch.setattr(C, "current_env_text", lambda python: PIP_HALF.replace("2.6.6", "2.6.5"))
+    verdict = C.preflight(spec(), grid_commit=commit, lock_hash=C.env_hash(CONDA_HALF + PIP_HALF),
+                          python="python", repo=repo, lock_text=CONDA_HALF + PIP_HALF)
+    ok, detail = verdict.checks["environment"]
+    assert not ok and "only in lock: lightning==2.6.6" in detail and "only in env: lightning==2.6.5" in detail
+    monkeypatch.setattr(C, "current_env_text", lambda python: PIP_HALF)
+    assert C.preflight(spec(), grid_commit=commit, lock_hash=C.env_hash(CONDA_HALF + PIP_HALF),
+                       python="python", repo=repo, lock_text=CONDA_HALF + PIP_HALF).checks["environment"][0]
+
+
+def test_the_live_environment_is_read_with_pip_list_freeze_format(monkeypatch):
+    """The lock was captured with ``pip list --format=freeze``; plain ``pip freeze`` writes
+    ``name @ url`` for URL-installed wheels, which would never match."""
+    seen = {}
+
+    def fake_run(argv, **kwargs):
+        seen["argv"] = argv
+        class R: stdout = PIP_HALF
+        return R()
+    monkeypatch.setattr(C.subprocess, "run", fake_run)
+    assert C.current_env_hash("python") == C.env_hash(PIP_HALF)
+    assert seen["argv"][1:] == ["-m", "pip", "list", "--format=freeze"]

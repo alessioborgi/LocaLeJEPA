@@ -76,6 +76,8 @@ REQUIRED_PER_SCRIPT = {
         "sha256sum": "the digest the refresh job re-checks is written beside the tar",
         "MISMATCH": "a short tar is refused loudly",
         "/tmp/*)": "a tar under /tmp is refused (F39)",
+        'mkdir "$LOCK"': "one writer at a time: two submissions wrote into one .tmp (F44)",
+        "$TAR.tmp\" ] && { echo \"REFUSING": "a leftover .tmp is a running or dead writer, never overwritten",
     },
     "slurm_refresh_tar.sh": {
         "cp \"$TAR\" \"$TAR.refresh\"": "a copy to a NEW inode, fresh under any purge clock",
