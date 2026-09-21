@@ -1,152 +1,89 @@
+#!/usr/bin/env python
 # Copyright (c) 2026 Alessio Borgi, Pavel Snopov, Kartik Tendon, Ines Garcia Redondo, Randall Balestriero, Claudio Battiloro
 # All rights reserved.
 #
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-"""Compose Imagenet1K_results.md (SPHERE-JEPA Table 3 with our backbones).
+"""The paper's main ImageNet-1K table, from the campaign's in-domain evaluations.
 
-Reads the per-backbone JSONs written by src/eval_indomain.py for the final
-(epoch-99) checkpoints and, where available, the online-probe-selected
-checkpoints, and renders one Markdown table per backbone.
+Rows are backbones, columns are methods (campaign design, state/05-DECISIONS.md):
 
-    python scripts/make_imagenet1k_results.py
+    | backbone | LeJEPA published | LeJEPA reproduced | RDMReg | LocaLeJEPA | control |
+
+Every cell is "k-NN (k=20) / Linear" top-1 on the 50k validation split from the run's
+``last.ckpt`` -- no selection on the reported split (PD-4). The online probe's ``best.ckpt`` is
+a second, labelled table, and the ViT-L/14 pair under LeJeJEPA's probe protocol (cls2 features,
+LayerNorm -> Linear, AdamW) a third. Which run fills which cell comes from the campaign
+manifests (``scripts/aicr/campaign.py``), so a renamed run cannot be silently dropped (F35);
+the published LeJEPA number is a constant with its citation, never in a comparison column.
+
+Alongside the markdown this writes ``results/Imagenet1K_results.cells.json`` -- every rendered
+number with the archived file it came from -- which ``scripts/audit_tables.py`` re-derives
+independently (research_rules/06: the gate checks both directions).
+
+    python scripts/make_imagenet1k_results.py [--root <eval run root>]
 """
 
-import glob
+from __future__ import annotations
+
+import argparse
 import json
 import os
 import sys
+from pathlib import Path
 
 import torch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from src.eval.io import (  # noqa: E402
-    atomic_write, provenance_block, refuse_to_replace_with_placeholders,
-)
+from src.eval.io import _eval_name, atomic_write, provenance_block, refuse_to_replace_with_placeholders  # noqa: E402
+import scripts.aicr.campaign as C  # noqa: E402
 
-FINAL_DIR = "logs/eval_indomain_in1k_ep100/per_backbone"
-BEST_DIR_OLD = "logs/eval_indomain_in1k/per_backbone"      # earlier best.ckpt evals
+REPO = Path(__file__).resolve().parents[1]
 OUT = "results/Imagenet1K_results.md"
+CELLS_OUT = "results/Imagenet1K_results.cells.json"
+TEX_OUT = "paper/imagenet1k_results.tex"
 MAX_EPOCHS = 100
+REPORT_K = 20
 
-# (name, method label, ckpt dir, backbone key)
-ROWS = [
-    ("d4rn50_sigreg", "LeJEPA (SIGReg)", "checkpoints/lejepa_d4rn50_in1k_sigreg", "d4rn50"),
-    ("d4rn50_rdmreg", "Rectified LpJEPA (RDMReg)", "checkpoints/rectifiedlpjepa_d4rn50_in1k_rdmreg", "d4rn50"),
-    ("d4rn50_localballreg_l01_k2", "LeJEPA + local BallReg (λ0.1, k2)", "checkpoints/lejepa_d4rn50_in1k_localballreg_l01_k2", "d4rn50"),
-    ("d4rn50_localballreg_l01_k4", "LeJEPA + local BallReg (λ0.1, k4)", "checkpoints/lejepa_d4rn50_in1k_localballreg_l01_k4", "d4rn50"),
-    ("d4rn50_localballreg_l03_k2", "LeJEPA + local BallReg (λ0.3, k2)", "checkpoints/lejepa_d4rn50_in1k_localballreg_l03_k2", "d4rn50"),
-    ("d4rn50_localsigreg_l01_k4", "LeJEPA + local SIGReg (λ0.1, k4)", "checkpoints/lejepa_d4rn50_in1k_localsigreg_l01_k4", "d4rn50"),
-    ("d4rn50_localballreg_l01_dynk", "LeJEPA + local BallReg (λ0.1, k1→10 dyn)", "checkpoints/lejepa_d4rn50_in1k_localballreg_l01_dynk", "d4rn50"),
-    ("hvit_sigreg", "LeJEPA (SIGReg)", "checkpoints/lejepa_hvit_in1k_sigreg", "hvit"),
-    ("hvit_rdmreg", "Rectified LpJEPA (RDMReg)", "checkpoints/rectifiedlpjepa_hvit_in1k_rdmreg", "hvit"),
-    ("hvit_localballreg_l01_k2", "LeJEPA + local BallReg (λ0.1, k2)", "checkpoints/lejepa_hvit_in1k_localballreg_l01_k2", "hvit"),
-    ("hvit_localballreg_l01_k4", "LeJEPA + local BallReg (λ0.1, k4)", "checkpoints/lejepa_hvit_in1k_localballreg_l01_k4", "hvit"),
-    ("hvit_localballreg_l03_k2", "LeJEPA + local BallReg (λ0.3, k2)", "checkpoints/lejepa_hvit_in1k_localballreg_l03_k2", "hvit"),
-    ("hvit_localsigreg_l01_k4", "LeJEPA + local SIGReg (λ0.1, k4)", "checkpoints/lejepa_hvit_in1k_localsigreg_l01_k4", "hvit"),
-    ("hvit_localballreg_l01_dynk", "LeJEPA + local BallReg (λ0.1, k1→10 dyn)", "checkpoints/lejepa_hvit_in1k_localballreg_l01_dynk", "hvit"),
+# eval output folders (relative to the eval run root), from the rendered campaign configs
+OURS_128 = "logs/eval_indomain_in1k_campaign/per_backbone"
+OURS_VITL = "logs/eval_indomain_in1k_vitl14_campaign/per_backbone"
+LEJEPA_PROTOCOL_VITL = "logs/eval_indomain_in1k_vitl14_lejepaprobe/per_backbone"
+INPUT_DIRS = [OURS_128, OURS_VITL, LEJEPA_PROTOCOL_VITL]
+
+FAMILIES = [
+    ("vit", "ViT-S/8 (128 px, 4 views)"),
+    ("vitl14", "ViT-L/14 (238 px, 2+6 views, LeJEPA's settings, our protocol)"),
+    ("d4rn50", "D4-equivariant ResNet-50 (128 px)"),
+    ("hvit", "Hyperbolic ViT-S/8 (128 px)"),
 ]
-BACKBONE_TITLES = {
-    "d4rn50": "D4-equivariant ResNet-50 (equivision / escnn, `pool=equivariant`, 24.4M params)",
-    "hvit": "Hyperbolic ViT-S/8 (Poincaré ball, hyp_c=0.1, clip_r=2.3, 21.7M params)",
-}
+ARMS = [("lejepa", "LeJEPA (SIGReg)"), ("rdmreg", "Rectified LpJEPA (RDMReg)"),
+        ("local", "LocaLeJEPA (declared config)"), ("control", "control: SIGReg, local recipe")]
+ARM_TAG = {"lejepa": "sigreg", "rdmreg": "rdmreg", "local": "local", "control": "control"}
+
+# LeJEPA (Balestriero & LeCun, 2025) Table 1, ViT-L/14, 100 epochs ImageNet-1K, linear probe --
+# THEIR training setup (EMA teacher, patch masking, 2x238 + 6x98 views, batch 512). Cited, not
+# compared (campaign decision 13). k-NN is not reported in the paper.
+PUBLISHED = {"vitl14": {"linear": 74.24, "knn": None, "note": "LeJEPA Table 1, their setup (EMA + masking)"}}
+
+MANIFESTS = ["in1k_baselines.yaml", "in1k_vitl14.yaml", "in1k_local.yaml"]
 
 
-HEADER = """# ImageNet-1K in-domain evaluation (k-NN + linear) of the 100-epoch pretrains
-
-Reproduction of **SPHERE-JEPA (Nicollier et al., 2026), Table 3** — "ImageNet-1K
-(ViT-B/14, 100 ep.) evaluation" — with our two backbones instead of the ViT-B/14:
-a **D4-equivariant ResNet-50** and a **Hyperbolic ViT-S/8**. Auto-generated by
-`scripts/make_imagenet1k_results.py` from `logs/eval_indomain_in1k_ep100/per_backbone/`
-({n_done}/{n_rows} final-checkpoint rows filled).
-
-## Protocol
-
-Same protocol as the paper's Table 3, implemented in `src/eval_indomain.py`
-(`configs/eval/indomain_in1k_ep100.yaml`):
-
-* **Pretraining**: 100 epochs on ImageNet-1K train (1.28M images), crop 128,
-  4 views/image (LeJEPA multi-view augmentation), global batch 256 (64 x 4 grad-accum),
-  AdamW (lr 1e-3 D4-RN50 / 2e-3 HViT, wd 5e-2), cosine schedule, embedding dim 512,
-  3-layer projector [2048, 2048, 16]. No EMA teacher (paper's "Without EMA" block).
-* **Frozen backbone features**: the 512-d encoder output *before* the projector
-  (equivariant D4 regular-representation embedding for the ResNet-50; Poincaré-ball
-  embedding for the HViT), deterministic eval transform (resize + centre crop 128).
-* **k-NN (%)**: full 1.28M train split as the feature bank, cosine similarity,
-  similarity-weighted vote `exp(sim/T)`, T = 0.07 (the DINO / LeJEPA k-NN evaluation);
-  **k = 20 nearest neighbours** is the reported number (the paper only writes "k-NN (%)"
-  and does not state k; k = 20, T = 0.07 is the LeJEPA/DINO convention). k = 10/100/200
-  are in `results.csv`; k = 20 is best or within 0.5 pt of best for every backbone and
-  the row ranking is identical at every k. Top-1 on the 50k IN1K val split.
-* **Linear (%)**: one linear layer on the standardized frozen features, SGD (momentum 0.9,
-  50 epochs, batch 4096), learning rate chosen on a 2% held-out slice of train from
-  {{0.01, 0.03, 0.1, 0.3, 1, 3, 10}}, refit on the full train split; top-1 on IN1K val.
-* **Checkpoint**: the headline columns use the **final checkpoint (epoch 99 = 100
-  epochs)**, i.e. the paper's "100 ep." reading. The last column re-evaluates the
-  checkpoint selected by the online probe (best `val/probe_acc`, `best.ckpt`) where it
-  differs from the final one.
-
-## Reference: SPHERE-JEPA Table 3 (ViT-B/14, 224 px, 100 ep., paper numbers)
-
-| Method | k-NN (%) | Linear (%) |
-|---|---|---|
-| LeJEPA (SIGReg) | 50.4 | 59.2 |
-| SPHERE-JEPA (SUSReg) | 50.4 | 61.0 |
-| LeJEPA + EMA (τ = 0.996) | 61.7 | 68.2 |
-| SPHERE-JEPA + EMA (τ = 0.996) | 62.6 | 69.3 |
-
-## Our backbones (ImageNet-1K, 100 ep., crop 128, no EMA) — top-1 on IN1K val
-
-"""
-
-FOOTER = """
-`*pretraining, epoch N/100*` rows are runs that have not reached 100 epochs yet (their
-current `last.ckpt` epoch + 1); re-run
-`src/eval_indomain.py --config configs/eval/indomain_in1k_ep100.yaml --only <name>` (via `scripts/slurm_submit.sh`) after adding them to
-the eval config once they finish. There is **no SUSReg / SPHERE-JEPA ImageNet-1K
-checkpoint** for either backbone, so the paper's SPHERE-JEPA row cannot be filled without
-a new pretrain (`configs/experiment/lejepa/nvit_in1k_susreg.yaml` is the only IN1K SUSReg
-config and uses the nGPT ViT).
-
-## Observations
-
-* **Absolute numbers are far below the paper's** (50/59 for ViT-B/14): our backbones are
-  ~4x smaller (21.7M / 24.4M params vs 86M), pretrained and evaluated at 128 px instead
-  of 224 px, with global batch 256 instead of 512 and a 16-d projector output. The
-  comparison that is protocol-matched is *between rows within a backbone*.
-* **Local BallReg (λ0.1) is the strongest regulariser on both backbones.** On the
-  D4-ResNet-50 it lifts LeJEPA/SIGReg from 23.3 / 35.7 to 33.0 / 42.3 (k4), i.e. +9.7 k-NN
-  and +6.6 linear; on the HViT-S/8 the λ0.1 k2 variant reaches 33.7 / 49.6, +8.6 k-NN and
-  +8.5 linear over SIGReg. On the D4 backbone the k-NN gain is larger than the linear gain,
-  in line with the paper's argument that a more homogeneous embedding geometry helps
-  non-parametric probes most; on the HViT both probes gain about equally.
-* **λ0.1 beats λ0.3** on both backbones (D4 k2: 32.4 / 41.9 vs 30.0 / 38.2; HViT k2:
-  33.7 / 49.6 vs 29.4 / 43.8). At λ0.1 on the D4-ResNet-50, k4 (33.0 / 42.3), the dynamic
-  k = 1→10 schedule (32.6 / 42.2) and k2 (32.4 / 41.9) are within 0.6 points of each other.
-* **Local SIGReg is clearly weaker than local BallReg** at the same λ0.1 / k4 (D4:
-  27.0 / 35.8; HViT: 26.0 / 40.6) — it still improves k-NN over global SIGReg (+3.7 / +0.9)
-  but leaves the linear probe unchanged.
-* **RDMReg (Rectified LpJEPA) underperforms SIGReg on both backbones** in this in-domain
-  probe (D4: 19.7 / 27.9 vs 23.3 / 35.7; HViT: 15.1 / 29.2 vs 25.1 / 41.1), despite its
-  competitive Yoda rotation-angle probe in `report_equivariance.md`.
-* **Final vs. online-probe-selected checkpoint**: differences are within 0.7 points in
-  every case evaluated, so the online probe's checkpoint choice is not driving any of
-  the comparisons above, and the 100-epoch runs did not degrade late in training.
-* Top-5 and the k = 10/100/200 votes are in `logs/eval_indomain_in1k_ep100/results.csv`;
-  the LaTeX version of the table (all k) is `paper/imagenet1k_results.tex`.
-
-## Reproduce
-
-```bash
-for b in <backbones>; do sbatch --export=ALL,CMD="python src/eval_indomain.py --config configs/eval/indomain_in1k_ep100.yaml --only $b" scripts/slurm_submit.sh; done
-python src/eval_indomain.py --config configs/eval/indomain_in1k_ep100.yaml --merge-only
-python scripts/make_imagenet1k_results.py                                 # rewrites this file
-```
-
-Earlier best.ckpt-only evaluation of the four main runs (before the pretrains finished):
-`logs/eval_indomain_in1k/results.csv`.
-"""
+def campaign_runs() -> dict[tuple[str, str], C.RunSpec]:
+    """(family, arm) -> the manifest run that fills that cell; exactly one or none."""
+    cells: dict[tuple[str, str], C.RunSpec] = {}
+    for manifest in MANIFESTS:
+        for run in C.expand(C.load_manifest(REPO / "configs" / "campaign" / manifest)):
+            family = next((f for f, _ in FAMILIES if run.tag == f or run.tag.startswith(f + "_")), None)
+            arm = next((a for a, t in ARM_TAG.items() if run.tag.endswith("_" + t) or run.tag == t), None)
+            if family is None or arm is None:
+                continue
+            key = (family, arm)
+            if key in cells:
+                raise SystemExit(f"two manifest runs fill the same cell {key}: {cells[key].run_name}, {run.run_name}")
+            cells[key] = run
+    return cells
 
 
 def _load(path):
@@ -165,7 +102,7 @@ def _ckpt_epoch(path):
         return None
 
 
-def _cell(entry, k=20):
+def _cell(entry, k=REPORT_K):
     # A missing k renders as an em dash. It must NEVER fall back to another k: the previous
     # `.get(k) or next(iter(...))` reported the SMALLEST available k (the dict is built in
     # ascending order) under the requested k's heading, with no marker. Ledger T.suite-P2-7.
@@ -175,152 +112,175 @@ def _cell(entry, k=20):
     return knn_top1, f'{entry["linear"]["top1"]:.1f}', knn_top5, f'{entry["linear"]["top5"]:.1f}'
 
 
-def main():
-    lines = []
+def _progress(run: C.RunSpec, root: Path) -> str:
+    last_ep = _ckpt_epoch(root / "checkpoints" / run.run_name / "last.ckpt")
+    if last_ep is not None and last_ep >= MAX_EPOCHS - 1:
+        return "*finished, eval pending*"
+    return f"*pretraining, epoch {last_ep + 1 if last_ep is not None else '?'}/{MAX_EPOCHS}*"
+
+
+def render(root: Path) -> tuple[str, dict[str, dict], str]:
+    """(markdown body, cells.json payload, latex) from the eval outputs under ``root``."""
+    runs = campaign_runs()
+    cells: dict[str, dict] = {}
     n_done = 0
-    for bb in ("d4rn50", "hvit"):
-        lines += [f"### {BACKBONE_TITLES[bb]}", "",
-                  "| Method | Ckpt (epoch) | k-NN (k=20), % | Linear, % | k-NN top-5 | Linear top-5 | best-probe ckpt (epoch): k-NN / Linear |",
-                  "|---|---|---|---|---|---|---|"]
-        for name, label, ckdir, key in ROWS:
-            if key != bb:
-                continue
-            final = _load(f"{FINAL_DIR}/{name}.json")
-            best = _load(f"{FINAL_DIR}/{name}_best.json") or _load(f"{BEST_DIR_OLD}/{name}.json")
-            best_cell = "—"
-            if best is not None:
-                bk, bl, _, _ = _cell(best)
-                best_cell = f'ep {best["epoch"]}: {bk} / {bl}'
-                if final is not None and best["epoch"] == final["epoch"]:
-                    best_cell = f'same as final (ep {best["epoch"]})'
-            if final is None:
-                last_ep = _ckpt_epoch(f"{ckdir}/last.ckpt")
-                if last_ep is not None and last_ep >= MAX_EPOCHS - 1:
-                    prog = f"*finished (ep {last_ep}), eval pending*"
-                else:
-                    prog = f"*pretraining, epoch {last_ep + 1 if last_ep is not None else '?'}/{MAX_EPOCHS}*"
-                lines.append(f"| {label} | {prog} | — | — | — | — | {best_cell} |")
-                continue
-            n_done += 1
-            k1, l1, k5, l5 = _cell(final)
-            lines.append(f'| {label} | final (ep {final["epoch"]}) | **{k1}** | **{l1}** | {k5} | {l5} | {best_cell} |')
-        lines.append("")
-    body = "\n".join(lines)
-    doc = HEADER.format(n_done=n_done, n_rows=len(ROWS)) + body + FOOTER
-    refuse_to_replace_with_placeholders(OUT, [FINAL_DIR, BEST_DIR_OLD])
-    # research_rules/05: a generated table must say where its numbers came from, and its
-    # inputs must travel with it. Archived under results/raw/ so the table is regenerable from
-    # a clone -- which none of the pre-2026-09-20 tables are (ledger X.fix-P2-2).
-    doc += provenance_block(os.path.relpath(__file__, os.path.join(os.path.dirname(__file__), "..")),
-                            [FINAL_DIR, BEST_DIR_OLD], archive_to="results/raw")
+
+    def table(kind: str, suffix: str, eval_dir_of) -> list[str]:
+        nonlocal n_done
+        cols = [label for _, label in ARMS]
+        lines = ["| Backbone | LeJEPA published | " + " | ".join(cols) + " |",
+                 "|---|---|" + "---|" * len(cols)]
+        for family, title in FAMILIES:
+            row = [title]
+            pub = PUBLISHED.get(family)
+            row.append(f'— / {pub["linear"]:.2f}†' if pub and kind == "last" else "—")
+            for arm, _ in ARMS:
+                run = runs.get((family, arm))
+                if run is None:
+                    row.append("n/a")
+                    continue
+                eval_dir = eval_dir_of(family)
+                path = root / eval_dir / f"{run.run_name}{suffix}.json"
+                entry = _load(path)
+                if entry is None:
+                    row.append(_progress(run, root) if kind == "last" else "—")
+                    continue
+                k1, l1, _, _ = _cell(entry)
+                if kind == "last":
+                    n_done += 1
+                row.append(f"{k1} / {l1}")
+                cells[f"{family}/{arm}/{kind}"] = {
+                    "run": run.run_name, "knn20": entry["knn"].get(str(REPORT_K), {}).get("top1"),
+                    "linear": entry["linear"]["top1"], "epoch": entry.get("epoch"),
+                    # where provenance_block archives it: results/raw/<eval name>/<file>
+                    "source": f"{_eval_name(eval_dir)}/{path.name}",
+                }
+            lines.append("| " + " | ".join(row) + " |")
+        return lines
+
+    def ours(family):
+        return OURS_VITL if family == "vitl14" else OURS_128
+
+    body = ["## Headline: `last.ckpt`, our protocol (k-NN k=20 / Linear, top-1 %)", ""]
+    body += table("last", "", ours)
+    body += ["", "† LeJEPA's published ViT-L/14 linear result under *their* training setup (EMA teacher,",
+             "patch masking); cited for reference, not a comparison (decision 13).", "",
+             "## Secondary: the online probe's `best.ckpt` (same protocol)", ""]
+    body += table("best", "_best", ours)
+
+    # the LeJEPA-protocol probe on the ViT-L pair
+    body += ["", "## ViT-L/14 under LeJEPA's probe protocol (cls2 features, LayerNorm → Linear, AdamW)", "",
+             "| Backbone | LeJEPA reproduced | LocaLeJEPA |", "|---|---|---|"]
+    row = ["ViT-L/14"]
+    for arm in ("lejepa", "local"):
+        run = runs.get(("vitl14", arm))
+        entry = _load(root / LEJEPA_PROTOCOL_VITL / f"{run.run_name}.json") if run else None
+        if entry is None:
+            row.append("—")
+            continue
+        assert entry.get("probe") == "lejepa" and entry.get("feature") == "cls2", (
+            f"{run.run_name}: the LeJEPA-protocol folder holds a {entry.get('feature')}/{entry.get('probe')} result")
+        _, l1, _, _ = _cell(entry)
+        row.append(f"linear {l1}")
+        cells[f"vitl14/{arm}/lejepa_protocol"] = {
+            "run": run.run_name, "knn20": entry["knn"].get(str(REPORT_K), {}).get("top1"),
+            "linear": entry["linear"]["top1"], "epoch": entry.get("epoch"),
+            "source": f"{_eval_name(LEJEPA_PROTOCOL_VITL)}/{run.run_name}.json",
+        }
+    body.append("| " + " | ".join(row) + " |")
+
+    # data-driven gaps, nothing typed by hand
+    body += ["", "## Gaps (LocaLeJEPA − LeJEPA reproduced, `last.ckpt`)", ""]
+    for family, title in FAMILIES:
+        a, b = cells.get(f"{family}/local/last"), cells.get(f"{family}/lejepa/last")
+        if a and b and a["knn20"] is not None and b["knn20"] is not None:
+            body.append(f"* {title}: k-NN {a['knn20'] - b['knn20']:+.1f}, linear {a['linear'] - b['linear']:+.1f}")
+    c, b = cells.get("vit/control/last"), cells.get("vit/lejepa/last")
+    if c and b and c["knn20"] is not None and b["knn20"] is not None:
+        body.append(f"* recipe alone (control − LeJEPA, ViT-S/8): k-NN {c['knn20'] - b['knn20']:+.1f}, "
+                    f"linear {c['linear'] - b['linear']:+.1f}")
+
+    tex = make_tex(cells, runs)
+    return "\n".join(body), {"report_k": REPORT_K, "max_epochs": MAX_EPOCHS, "cells": cells,
+                             "n_done": n_done, "n_cells": len(runs)}, tex
+
+
+def make_tex(cells: dict[str, dict], runs) -> str:
+    rows_out = []
+    for family, title in FAMILIES:
+        parts = [title.split(" (")[0]]
+        pub = PUBLISHED.get(family)
+        parts.append(f"-- / {pub['linear']:.2f}$^\\dagger$" if pub else "--")
+        for arm, _ in ARMS:
+            cell = cells.get(f"{family}/{arm}/last")
+            if cell is None:
+                parts.append("--" if (family, arm) in runs else "n/a")
+            else:
+                knn = f"{cell['knn20']:.1f}" if cell["knn20"] is not None else "--"
+                parts.append(f"{knn} / {cell['linear']:.1f}")
+        rows_out.append(" & ".join(parts) + r" \\")
+    return "\n".join([
+        r"%% Auto-generated by scripts/make_imagenet1k_results.py -- do not edit by hand.",
+        r"\begin{table}[t]\centering",
+        r"\caption{ImageNet-1K, 100 epochs: $k$-NN ($k{=}20$) / linear top-1 (\%) on the validation split,",
+        r"frozen features of the final checkpoint. $^\dagger$LeJEPA's published ViT-L/14 result under their",
+        r"training setup (EMA teacher, patch masking), cited for reference only.}",
+        r"\label{tab:imagenet-classification}",
+        r"\small\begin{tabular}{l c c c c c}\toprule",
+        r"Backbone & LeJEPA (published) & LeJEPA & RDMReg & LocaLeJEPA & control \\ \midrule",
+        *rows_out,
+        r"\bottomrule\end{tabular}\end{table}",
+    ]) + "\n"
+
+
+HEADER = """# ImageNet-1K in-domain evaluation of the campaign's 100-epoch pretrains
+
+Auto-generated by `scripts/make_imagenet1k_results.py` from the campaign's in-domain
+evaluations ({n_done}/{n_cells} headline cells filled). Rows are backbones, columns are methods;
+each cell is **k-NN (k=20) / Linear** top-1 (%) on the 50k validation split.
+
+## Protocol
+
+* **Pretraining**: 100 epochs on ImageNet-1K. The 128 px rows: 4 views, effective batch 256
+  (64 per GPU), embedding 512, projector [2048, 2048, 16]. Baselines at LeJEPA's `MINIMAL.md`
+  recipe (lr 2e-3, cosine 2e-3 → 1e-3); LocaLeJEPA at its recipe (lr 1e-3, 10 warm-up epochs,
+  grad-clip 1.0, cosine to peak/1000, λ and K declared by the Imagenette ablation before the run);
+  the **control** is SIGReg under the LocaLeJEPA recipe (ViT-S/8 only). The ViT-L/14 pair uses
+  LeJEPA's ImageNet-1K optimizer and loss settings in our protocol (no EMA, no masking) and is
+  identical across arms except the regularizer.
+* **Frozen features**: the encoder output before the projector; deterministic resize + centre
+  crop at the pretraining resolution.
+* **k-NN**: full train split as the bank, cosine similarity, weighted vote `exp(sim/0.07)`, k=20.
+* **Linear**: one linear layer on standardized features, SGD, 50 epochs, learning rate selected
+  on a 2% held-out slice of *train*, refit on the full train split.
+* **Checkpoint**: `last.ckpt` (epoch 99) is the headline; the online probe's `best.ckpt` is
+  the secondary table; no selection on the reported split.
+
+"""
+
+
+def main(argv=None) -> str:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--root", default=".", help="the eval run root the logs/ and checkpoints/ paths resolve against")
+    args = parser.parse_args(argv)
+    root = Path(args.root)
+
+    body, payload, tex = render(root)
+    doc = HEADER.format(n_done=payload["n_done"], n_cells=payload["n_cells"]) + body + "\n"
+    input_dirs = [str(root / d) for d in INPUT_DIRS]
+    refuse_to_replace_with_placeholders(OUT, input_dirs)
+    doc += provenance_block(os.path.relpath(__file__, REPO), input_dirs, archive_to="results/raw")
     with atomic_write(OUT, "w", encoding="utf-8") as f:
         f.write(doc)
+    with atomic_write(CELLS_OUT, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=1)
+    os.makedirs(os.path.dirname(TEX_OUT), exist_ok=True)
+    with atomic_write(TEX_OUT, "w", encoding="utf-8") as f:
+        f.write(tex)
     print(body)
-    print(f"\n{n_done}/{len(ROWS)} final-checkpoint rows filled -> {OUT}", file=sys.stderr)
+    print(f"\n{payload['n_done']}/{payload['n_cells']} headline cells filled -> {OUT}, {CELLS_OUT}, {TEX_OUT}", file=sys.stderr)
     return body
 
 
 if __name__ == "__main__":
     main()
-
-
-# ---------------------------------------------------------------------------
-# LaTeX version (paper/imagenet1k_results.tex)
-# ---------------------------------------------------------------------------
-TEX_OUT = "paper/imagenet1k_results.tex"
-TEX_BACKBONE = {
-    "d4rn50": r"D4-equivariant ResNet-50 (24.4M)",
-    "hvit": r"Hyperbolic ViT-S/8 (21.7M)",
-}
-K_COLS = ("10", "20", "100", "200")
-
-
-def _tex(label):
-    return label.replace("λ", r"$\lambda{=}$").replace("→", r"$\to$").replace("k2", "$k{=}2$") \
-        .replace("k4", "$k{=}4$").replace("k1$\\to$10", "$k{=}1\\to10$").replace("$k{=}1$$\\to$10", "$k{=}1\\to10$")
-
-
-def make_tex():
-    rows_out = []
-    best_by_bb = {}
-    # find the best value per backbone/column to bold
-    for bb in ("d4rn50", "hvit"):
-        vals = {c: [] for c in (*K_COLS, "lin")}
-        for name, _, _, key in ROWS:
-            if key != bb:
-                continue
-            e = _load(f"{FINAL_DIR}/{name}.json")
-            if e is None:
-                continue
-            for c in K_COLS:
-                vals[c].append(e["knn"][c]["top1"])
-            vals["lin"].append(e["linear"]["top1"])
-        best_by_bb[bb] = {c: (max(v) if v else None) for c, v in vals.items()}
-
-    for bb in ("d4rn50", "hvit"):
-        rows_out.append(r"\midrule")
-        rows_out.append(r"\multicolumn{7}{l}{\textit{" + TEX_BACKBONE[bb] + "}} \\\\")
-        for name, label, ckdir, key in ROWS:
-            if key != bb:
-                continue
-            e = _load(f"{FINAL_DIR}/{name}.json")
-            lab = _tex(label)
-            if e is None:
-                last_ep = _ckpt_epoch(f"{ckdir}/last.ckpt")
-                if last_ep is not None and last_ep >= MAX_EPOCHS - 1:
-                    cell = r"\multicolumn{6}{c}{\textit{Evaluation pending}}"
-                else:
-                    ep = last_ep + 1 if last_ep is not None else "?"
-                    cell = r"\multicolumn{6}{c}{\textit{Training (epoch " + f"{ep}/{MAX_EPOCHS}" + ")}}"
-                rows_out.append(f"{lab} & {cell} \\\\")
-                continue
-            cells = []
-            for c in K_COLS:
-                v = e["knn"][c]["top1"]
-                s = f"{v:.1f}"
-                cells.append(r"\textbf{" + s + "}" if v == best_by_bb[bb][c] else s)
-            v = e["linear"]["top1"]
-            s = f"{v:.1f}"
-            cells.append(r"\textbf{" + s + "}" if v == best_by_bb[bb]["lin"] else s)
-            cells.append(f'{e["linear"]["top5"]:.1f}')
-            rows_out.append(f"{lab} & " + " & ".join(cells) + " \\\\")
-
-    tex = "\n".join([
-        r"%% Auto-generated by scripts/make_imagenet1k_results.py -- do not edit by hand.",
-        r"%% Requires: \usepackage{booktabs,amsmath}",
-        r"\begin{table}[t]",
-        r"\centering",
-        r"\caption{ImageNet-1K in-domain evaluation (100 epochs, crop 128, no EMA) of frozen",
-        r"D4-equivariant ResNet-50 and Hyperbolic ViT-S/8 backbones, following the protocol of",
-        r"SPHERE-JEPA Table~3: the full 1.28M-image train split is the $k$-NN feature bank /",
-        r"linear-probe training set; top-1 accuracy (\%) on the 50k validation split.",
-        r"$k$-NN: cosine similarity, vote weighted by $\exp(\mathrm{sim}/0.07)$, for",
-        r"$k\in\{10,20,100,200\}$ neighbours ($k{=}20$ is the LeJEPA/DINO convention).",
-        r"Linear: one linear layer on standardized frozen features (SGD, 50 epochs, learning",
-        r"rate selected on a 2\% held-out slice of train); top-5 also shown. All rows use the",
-        r"final epoch-99 checkpoint. \emph{Training} rows have not reached 100 epochs yet.",
-        r"For reference, the paper reports $50.4$ / $59.2$ ($k$-NN / linear) for LeJEPA and",
-        r"$50.4$ / $61.0$ for SPHERE-JEPA with a ViT-B/14 at 224\,px; no SUSReg ImageNet-1K",
-        r"checkpoint exists for our backbones.}",
-        r"\label{tab:in1k-indomain}",
-        r"\small",
-        r"\setlength{\tabcolsep}{5pt}",
-        r"\begin{tabular}{l cccc c c}",
-        r"\toprule",
-        r"& \multicolumn{4}{c}{$k$-NN top-1 (\%)} & \multicolumn{2}{c}{Linear (\%)} \\",
-        r"\cmidrule(lr){2-5} \cmidrule(lr){6-7}",
-        r"Method & $k{=}10$ & $k{=}20$ & $k{=}100$ & $k{=}200$ & top-1 & top-5 \\",
-        *rows_out,
-        r"\bottomrule",
-        r"\end{tabular}",
-        r"\end{table}",
-    ]) + "\n"
-    os.makedirs(os.path.dirname(TEX_OUT), exist_ok=True)
-    with open(TEX_OUT, "w", encoding="utf-8") as f:
-        f.write(tex)
-    print(f"LaTeX table -> {TEX_OUT}", file=sys.stderr)
-    return tex
-
-
-if __name__ == "__main__":
-    make_tex()
