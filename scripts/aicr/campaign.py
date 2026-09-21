@@ -775,6 +775,33 @@ def successor_argv(env: Mapping[str, str], *, script: str, requeue_left: int, ti
 # realised K -- the column
 # ======================================================================================
 
+def launch_overrides(gpus: int, cpus_per_task: int) -> list[str]:
+    """The Hydra overrides every campaign launch adds to the grid's own: the trainer for this GPU
+    count, the CSV logger the tables read, one loader worker per allocated core (F46).
+
+    F47: an override the shell composed on its own (``trainer.log_every_n_steps=1`` without the
+    ``+`` a missing key needs) killed all nine calibration tasks at launch, and no test could
+    have caught it because nothing composed the shell's override set. Every override the launcher
+    adds now comes from here, and ``tests/integration/test_campaign_manifests.py`` composes this
+    set against every campaign cell.
+    """
+    trainer = ["trainer=ddp", f"trainer.devices={gpus}", "trainer.num_nodes=1"] if gpus > 1 else ["trainer=gpu"]
+    return [*trainer, "logger=csv", f"data.num_workers={cpus_per_task}"]
+
+
+def calibrate_overrides(max_steps: int, interrupt_step: int | None = None) -> list[str]:
+    """Calibrate mode (plan Phase 2 / V2): a short run that measures throughput, SIGTERMs itself
+    at ``interrupt_step`` when given (the first launch), and logs every step so the resume seam
+    and the LR continuity can be read from ``metrics.csv`` (F46: Lightning's default of 50 hid the
+    seam)."""
+    out = ["callbacks=calibrate", f"+trainer.max_steps={max_steps}", "+trainer.limit_val_batches=0",
+           "+trainer.num_sanity_val_steps=0", "callbacks.learning_rate_monitor.logging_interval=step",
+           "trainer.log_every_n_steps=1"]
+    if interrupt_step is not None:
+        out.append(f"callbacks.self_interrupt.at_step={interrupt_step}")
+    return out
+
+
 def online_probe_curve(metrics_csv: Path) -> dict[str, float | int | None]:
     """The online probe's validation curve from a run's ``metrics.csv``: final epoch and maximum.
 
@@ -927,6 +954,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--export", action="append", default=[], help="KEY=VALUE to carry to the successor")
     p = sub.add_parser("realised-k"); p.add_argument("metrics", type=Path)
     p = sub.add_parser("online-curve"); p.add_argument("metrics", type=Path)
+    p = sub.add_parser("launch-overrides"); p.add_argument("--gpus", type=int, required=True); p.add_argument("--cpus", type=int, required=True)
+    p = sub.add_parser("calibrate-overrides"); p.add_argument("--max-steps", type=int, required=True); p.add_argument("--interrupt", type=int)
     p = sub.add_parser("submit"); p.add_argument("grid", type=Path); p.add_argument("--partition", required=True)
     p.add_argument("--account", default="dominici_lab_hu"); p.add_argument("--time", required=True)
     p.add_argument("--script", default="scripts/aicr/slurm_train.sh"); p.add_argument("--log-dir", required=True)
@@ -1040,8 +1069,15 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "realised-k":
         print(json.dumps(realised_k(args.metrics)))
+        return 0
     if args.command == "online-curve":
         print(json.dumps(online_probe_curve(args.metrics)))
+        return 0
+    if args.command == "launch-overrides":
+        print(" ".join(launch_overrides(args.gpus, args.cpus)))
+        return 0
+    if args.command == "calibrate-overrides":
+        print(" ".join(calibrate_overrides(args.max_steps, args.interrupt)))
         return 0
 
     if args.command == "submit":

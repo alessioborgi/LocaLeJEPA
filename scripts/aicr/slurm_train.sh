@@ -107,18 +107,15 @@ else
 fi
 
 # ----------------------------------------------------------------------------- training
-if [ "$GPUS" -gt 1 ]; then
-    TRAINER="trainer=ddp trainer.devices=$GPUS trainer.num_nodes=1"
-else
-    TRAINER="trainer=gpu"
-fi
+# The trainer, the CSV logger and the loader workers come from campaign.py (launch-overrides), the
+# calibrate set below from calibrate-overrides: every override this launcher adds is composed by a
+# test against every campaign cell (F47: a shell-composed override without its `+` killed nine
+# calibration tasks at launch and no test could see it).
+LAUNCH=($($CAMPAIGN launch-overrides --gpus "$GPUS" --cpus "${SLURM_CPUS_PER_TASK:-16}"))
 RESUME_OVERRIDE=""
 [ -n "${RESUME:-}" ] && RESUME_OVERRIDE="ckpt_path=$RESUME"
-# one loader worker per allocated core: the configs say 8 (IN1K) or 4 (Imagenette) and the job gives
-# every rank 16, which left half the CPUs idle while the GPUs waited for JPEGs half the time (F46)
-COMMON=("$PY" src/train.py $OVERRIDES $TRAINER logger=csv "hydra.run.dir=$RUN_DIR"
-        "callbacks.model_checkpoint.dirpath=$CKPT_DIR" "callbacks.on_exception.dirpath=$CKPT_DIR" "$DATA_OVERRIDE"
-        "data.num_workers=${SLURM_CPUS_PER_TASK:-16}")
+COMMON=("$PY" src/train.py $OVERRIDES "${LAUNCH[@]}" "hydra.run.dir=$RUN_DIR"
+        "callbacks.model_checkpoint.dirpath=$CKPT_DIR" "callbacks.on_exception.dirpath=$CKPT_DIR" "$DATA_OVERRIDE")
 SRUN=(srun --ntasks-per-node="$GPUS" --cpus-per-task="${SLURM_CPUS_PER_TASK:-16}" --kill-on-bad-exit=1)
 
 if [ "${MODE:-train}" = "calibrate" ]; then
@@ -128,15 +125,13 @@ if [ "${MODE:-train}" = "calibrate" ]; then
     # must resume from that checkpoint at the very next step and reach CALIB_STEPS. No artifact
     # postflight: no epoch boundary is reached, so there is no last.ckpt to verify.
     CALIB_STEPS="${CALIB_STEPS:-200}"; CALIB_INTERRUPT="${CALIB_INTERRUPT:-150}"
-    # per-step LR rows: ablations/base sets the monitor to `epoch`, which would merge over the
-    # calibrate group's `step` and leave calibrate-verdict nothing to check at the resume seam
-    # per-step CSV rows too: Lightning's default log_every_n_steps=50 wrote rows at 149 and 199 and the
-    # seam check called a working resume a failure (F46)
-    CALIB=(callbacks=calibrate "+trainer.max_steps=$CALIB_STEPS" "+trainer.limit_val_batches=0" "+trainer.num_sanity_val_steps=0"
-           "callbacks.learning_rate_monitor.logging_interval=step" "trainer.log_every_n_steps=1")
+    # the calibrate set (per-step LR rows and CSV rows, max_steps, the rehearsed SIGTERM) is
+    # campaign.py's, composed by the manifests test against every cell (F46, F47)
+    FIRST=($($CAMPAIGN calibrate-overrides --max-steps "$CALIB_STEPS" --interrupt "$CALIB_INTERRUPT"))
+    CALIB=($($CAMPAIGN calibrate-overrides --max-steps "$CALIB_STEPS"))
     echo "=== calibrating $RUN_NAME: $CALIB_STEPS steps, interruption at $CALIB_INTERRUPT ==="
     set +e
-    "${SRUN[@]}" "${COMMON[@]}" "${CALIB[@]}" "callbacks.self_interrupt.at_step=$CALIB_INTERRUPT"
+    "${SRUN[@]}" "${COMMON[@]}" "${FIRST[@]}"
     RC1=$?
     set -e
     eval "$($CAMPAIGN resume --ckpt-dir "$CKPT_DIR" --max-epochs "$MAX_EPOCHS" --shell)"

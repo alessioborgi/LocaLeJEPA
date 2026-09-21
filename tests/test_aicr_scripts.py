@@ -68,13 +68,12 @@ REQUIRED_PER_SCRIPT = {
     "slurm_train.sh": {
         "MODE:-train": "calibrate mode is opt-in",
         "calibrate-verdict": "a calibration ends with the resumed-run verdict, not an exit code",
-        "callbacks.self_interrupt.at_step": "the rehearsed SIGTERM is real, not simulated",
-        "callbacks.learning_rate_monitor.logging_interval=step": "per-step LR rows, or the seam check has nothing to read",
+        '--interrupt "$CALIB_INTERRUPT"': "the rehearsed SIGTERM is real, not simulated (calibrate-overrides carries it)",
+        "calibrate-overrides --max-steps": "the calibrate override set is campaign.py's, composed by a test against every cell (F47)",
+        "launch-overrides --gpus": "trainer, logger and loader workers come from campaign.py, never composed by the shell (F47)",
         "-calib-${SLURM_JOB_PARTITION": "calibration dirs are keyed by partition and job: two partitions calibrate one geometry at once",
         'CKPT_ROOT="${CKPT_ROOT_OVERRIDE:-$CKPT_ROOT}"': "an ablation wave's checkpoint root comes from --export, never from editing roots.env between submissions: tasks read the file when they START",
         '${CKPT_ROOT_OVERRIDE:+--export "CKPT_ROOT_OVERRIDE=$CKPT_ROOT_OVERRIDE"}': "the successor keeps the checkpoint root of the job it continues, and adds nothing when there is none",
-        "trainer.log_every_n_steps=1": "per-step CSV rows in calibrate mode: the default 50 made a working resume look like a failure (F46)",
-        "data.num_workers=${SLURM_CPUS_PER_TASK": "one loader worker per allocated core: 8 workers on 16 cores left the GPUs waiting half the time (F46)",
     },
     "slurm_tar_in1k.sh": {
         "tar -tf": "the entry count is compared to the tree, not trusted",

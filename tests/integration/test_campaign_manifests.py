@@ -150,3 +150,26 @@ def test_every_campaign_target_imports_in_this_environment(target):
 
     get_method(target)
 
+
+# --------------------------------------------------------------------------- the launcher's override sets (F47)
+
+@pytest.mark.parametrize("stem, run", CELLS, ids=[f"{s}:{r.run_name}" for s, r in CELLS])
+def test_the_launchers_override_sets_compose_for_every_cell(stem, run):
+    """F47: the third calibration died at launch on ``trainer.log_every_n_steps=1``, an override
+    the shell composed on its own for a key the trainer config did not have (Hydra wants ``+``).
+    No test could see it: the shell's overrides were never composed. Now the launcher takes both
+    sets from ``campaign.py`` and this test composes them -- plain launch and calibrate mode --
+    against every campaign cell at its GPU count, exactly as ``slurm_train.sh`` would."""
+    launch = C.launch_overrides(run.gpus, 16)
+    cfg = C.compose_config(run.hydra_overrides() + launch)
+    assert cfg.data.num_workers == 16 and cfg.trainer.log_every_n_steps == 50
+    assert cfg.trainer.devices == run.gpus and (run.gpus == 1 or cfg.trainer.strategy == "ddp")
+    assert cfg.logger.csv is not None
+
+    cfg = C.compose_config(run.hydra_overrides() + launch + C.calibrate_overrides(200, 150))
+    assert cfg.trainer.log_every_n_steps == 1, "per-step rows, or the seam check reads 149/199 again (F46)"
+    assert cfg.trainer.max_steps == 200 and cfg.trainer.limit_val_batches == 0 and cfg.trainer.num_sanity_val_steps == 0
+    assert cfg.callbacks.self_interrupt.at_step == 150
+    assert cfg.callbacks.learning_rate_monitor.logging_interval == "step"
+    assert cfg.callbacks.throughput is not None and cfg.callbacks.on_exception is not None
+
