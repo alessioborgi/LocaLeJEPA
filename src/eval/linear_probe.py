@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import logging
 import math
+from typing import Callable
 
 import torch
 import torch.nn.functional as F
@@ -88,8 +89,13 @@ def _train_head(
     device: torch.device,
     seed: int,
     probe: str = "sgd",
+    epoch_callback: Callable[[int, torch.Tensor, torch.Tensor], None] | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """SGD + cosine schedule on a single linear layer; returns (weight, bias).
+
+    ``epoch_callback(epoch, weight, bias)`` -- 1-based epoch, detached tensors -- is called after
+    every epoch when given (the eval-selected protocol reads the reported split at each epoch);
+    with ``None`` the training loop is byte-for-byte the strict one.
 
     ``probe="lejepa"``: a parameter-free LayerNorm precedes the layer and AdamW replaces SGD
     (``momentum`` is then unused). Everything else -- the seeded init, the seeded shuffle, the
@@ -126,7 +132,7 @@ def _train_head(
     steps_per_epoch = max(1, math.ceil(num_samples / batch_size))
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs * steps_per_epoch)
 
-    for _ in range(epochs):
+    for epoch in range(epochs):
         perm = torch.randperm(num_samples, generator=generator)
         for start in range(0, num_samples, batch_size):
             idx = perm[start : start + batch_size]
@@ -141,6 +147,8 @@ def _train_head(
             loss.backward()
             optimizer.step()
             scheduler.step()
+        if epoch_callback is not None:
+            epoch_callback(epoch + 1, head.weight.detach(), head.bias.detach())
 
     return head.weight.detach(), head.bias.detach()
 
@@ -161,8 +169,20 @@ def run_linear_probe(
     device: torch.device | str = "cuda",
     seed: int = 0,
     probe: str = "sgd",
+    select_on: str = "train_slice",
+    wd_grid: tuple[float, ...] | list[float] | None = None,
 ) -> dict:
     """Train a linear probe on frozen features; select the LR on held-out train.
+
+    ``select_on="eval"`` is the OTHER protocol, campaign decision 16 (state/05-DECISIONS.md): the
+    probe is trained once per (learning rate, weight decay) on the full train split, the reported
+    split is scored after EVERY epoch, and the maximum over learning rate x weight decay x epoch
+    is what comes back -- Balestriero's account of how LeJEPA's published numbers were produced
+    ("sweep learning rate and weight decay and epoch and report best"). It selects on the
+    reported split at every level, which is the point: it is an upper bound of the published
+    protocol under either meaning of "epoch", and it must never fill a headline cell. Every result
+    carries ``select_on`` so a table generator can tell the two apart from the data, not from a
+    filename.
 
     Args:
         train_features / train_labels: pretraining train split, ``(N, D)`` / ``(N,)``.
@@ -186,6 +206,11 @@ def run_linear_probe(
     device = torch.device(device)
     if probe not in ("sgd", "lejepa"):
         raise ValueError(f"probe must be 'sgd' or 'lejepa', got {probe!r}")
+    if select_on not in ("train_slice", "eval"):
+        raise ValueError(f"select_on must be 'train_slice' or 'eval', got {select_on!r}")
+    wd_grid = [float(weight_decay)] if wd_grid is None else [float(w) for w in wd_grid]
+    if select_on == "train_slice" and wd_grid != [float(weight_decay)]:
+        raise ValueError("the strict protocol searches the learning rate only; wd_grid belongs to select_on='eval'")
     layer_norm = probe == "lejepa"
     generator = torch.Generator(device="cpu").manual_seed(seed)
     num_samples = train_features.shape[0]
@@ -194,6 +219,14 @@ def run_linear_probe(
     if standardize:
         mean_cpu, std_cpu = _standardize_stats(train_features)
         mean, std = mean_cpu.to(device), std_cpu.to(device)
+
+    if select_on == "eval":
+        return _eval_selected(
+            train_features, train_labels, test_features, test_labels, num_classes,
+            lr_grid=list(lr_grid), wd_grid=wd_grid, epochs=epochs, batch_size=batch_size,
+            momentum=momentum, standardize=standardize, mean=mean, std=std, device=device,
+            seed=seed, probe=probe, layer_norm=layer_norm,
+        )
 
     # ── learning-rate search on a held-out slice of the train split ──────────
     search = []
@@ -236,6 +269,56 @@ def run_linear_probe(
         "epochs": epochs,
         "batch_size": batch_size,
         "weight_decay": weight_decay,
+        "best_weight_decay": weight_decay,
+        "best_epoch": epochs,
         "standardize": standardize,
         "probe": probe,
+        "select_on": "train_slice",
+    }
+
+
+def _eval_selected(
+    train_features, train_labels, test_features, test_labels, num_classes, *,
+    lr_grid, wd_grid, epochs, batch_size, momentum, standardize, mean, std, device, seed, probe, layer_norm,
+) -> dict:
+    """The eval-selected protocol (decision 16): max over lr x wd x epoch of the REPORTED split."""
+    search: list[dict] = []
+    best: tuple | None = None            # (top1, top5, lr, wd, epoch, weight, bias)
+    for lr in lr_grid:
+        for wd in wd_grid:
+            curve: list[tuple[int, float, float]] = []
+            snapshot: list = []
+
+            def record(epoch: int, weight: torch.Tensor, bias: torch.Tensor, _curve=curve, _snap=snapshot) -> None:
+                top1, top5 = _evaluate(weight, bias, test_features, test_labels, mean, std, device, layer_norm=layer_norm)
+                if not _curve or top1 > max(c[1] for c in _curve):
+                    _snap[:] = [weight.clone(), bias.clone()]
+                _curve.append((epoch, top1, top5))
+
+            _train_head(train_features, train_labels, num_classes, lr, epochs, batch_size,
+                        wd, momentum, mean, std, device, seed, probe=probe, epoch_callback=record)
+            epoch, top1, top5 = max(curve, key=lambda c: c[1])     # earliest epoch on a tie
+            search.append({"lr": lr, "weight_decay": wd, "best_epoch": epoch, "eval_top1": top1,
+                           "eval_top1_by_epoch": [c[1] for c in curve]})
+            logger.info("  linear probe (eval-selected) | lr=%-6g wd=%-6g best epoch %d eval top-1 = %.2f%%", lr, wd, epoch, top1)
+            if best is None or top1 > best[0]:
+                best = (top1, top5, lr, wd, epoch, snapshot[0], snapshot[1])
+
+    top1, top5, best_lr, best_wd, best_epoch, weight, bias = best
+    train_top1, _ = _evaluate(weight, bias, train_features, train_labels, mean, std, device, layer_norm=layer_norm)
+    return {
+        "top1": top1,
+        "top5": top5,
+        "train_top1": train_top1,
+        "best_lr": best_lr,
+        "best_weight_decay": best_wd,
+        "best_epoch": best_epoch,
+        "search": search,
+        "epochs": epochs,
+        "batch_size": batch_size,
+        "weight_decay": best_wd,
+        "wd_grid": list(wd_grid),
+        "standardize": standardize,
+        "probe": probe,
+        "select_on": "eval",
     }

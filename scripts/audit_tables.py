@@ -41,7 +41,37 @@ def rederive(raw_root: Path, cell: dict, report_k: int) -> dict:
         angle = entry[cell["run"]]["angles"][cell_angle(cell)]
         return {"r2_mean": angle["r2_mean"], "mae_mean": angle["mae_mean"]}
     knn = entry.get("knn", {}).get(str(report_k))
+    # decision 16: the archive must say what the column claims -- an eval-selected result under a
+    # strict key, or a strict one under an eval-selected key, is a mislabelled table
+    selected = entry.get("probe_select", "train_slice")
+    expected = "eval" if "evalsel" in cell["key"] else "train_slice"
+    if selected != expected:
+        raise ValueError(f"archive says probe_select={selected!r}, the cell is {expected!r}")
     return {"knn20": knn["top1"] if knn else None, "linear": entry["linear"]["top1"], "epoch": entry.get("epoch")}
+
+
+def rederive_online(raw_root: Path, cell: dict) -> dict:
+    """Appendix B, read again from the archived CSVs with a parser of its own: the per-epoch
+    ``val/probe_acc`` rows across launches, final = the last, max = the first epoch reaching it."""
+    import csv
+
+    folder = raw_root / cell["source"]
+    files = sorted(folder.glob("version_*.csv"), key=lambda f: int(f.stem.split("_")[-1]))
+    if not files:
+        raise FileNotFoundError(f"archived online curve {folder} missing")
+    points: list[tuple[int, float]] = []
+    for file in files:
+        with open(file, newline="", encoding="utf-8") as handle:
+            for row in csv.DictReader(handle):
+                value = row.get("val/probe_acc") or row.get("val/probe_acc_epoch") or ""
+                if value == "":
+                    continue
+                points.append((int(float(row.get("epoch") or len(points))), round(100.0 * float(value), 6)))
+    if not points:
+        raise ValueError(f"no online-probe rows in {folder}")
+    best = max(v for _, v in points)
+    argmax = min(e for e, v in points if v == best)
+    return {"final": points[-1][1], "max": best, "argmax_epoch": argmax}
 
 
 def cell_angle(cell: dict) -> str:
@@ -51,8 +81,14 @@ def cell_angle(cell: dict) -> str:
 def rendered_text(cell: dict, fresh: dict, key: str) -> str:
     if cell.get("kind") == "torus":
         return f"{fresh['r2_mean']:.4f}" if key.endswith("angle0") or key.endswith("angle1") else ""
+    if cell.get("kind") == "online":
+        return f"{fresh['final']:.1f} / {fresh['max']:.1f} (ep {fresh['argmax_epoch']})"
+    if "lejepa_protocol" in key:
+        return f"linear {fresh['linear']:.1f}"
+    if "evalsel" in key:
+        return f"{fresh['linear']:.1f}"
     knn_text = f"{fresh['knn20']:.1f}" if fresh["knn20"] is not None else "—"
-    return f"{knn_text} / {fresh['linear']:.1f}" if "lejepa_protocol" not in key else f"linear {fresh['linear']:.1f}"
+    return f"{knn_text} / {fresh['linear']:.1f}"
 
 
 def audit(table_text: str, cells_payload: dict, raw_root: Path) -> list[str]:
@@ -62,18 +98,18 @@ def audit(table_text: str, cells_payload: dict, raw_root: Path) -> list[str]:
     for key, cell in cells_payload["cells"].items():
         cell = {**cell, "key": key}
         try:
-            fresh = rederive(raw_root, cell, report_k)
+            fresh = rederive_online(raw_root, cell) if cell.get("kind") == "online" else rederive(raw_root, cell, report_k)
         except (FileNotFoundError, KeyError, ValueError) as error:
             problems.append(f"{key}: cannot re-derive ({error})")
             continue
-        fields = ("r2_mean", "mae_mean") if cell.get("kind") == "torus" else ("knn20", "linear")
+        fields = {"torus": ("r2_mean", "mae_mean"), "online": ("final", "max", "argmax_epoch")}.get(cell.get("kind"), ("knn20", "linear"))
         for field in fields:
             claimed, actual = cell.get(field), fresh.get(field)
             if claimed is None and actual is None:
                 continue
             if claimed is None or actual is None or not math.isclose(claimed, actual, rel_tol=0, abs_tol=1e-9):
                 problems.append(f"{key}.{field}: cells.json says {claimed!r}, the archive says {actual!r}")
-        if cell.get("kind") != "torus" and cell.get("epoch") != fresh.get("epoch"):
+        if cell.get("kind") not in ("torus", "online") and cell.get("epoch") != fresh.get("epoch"):
             problems.append(f"{key}.epoch: cells.json says {cell.get('epoch')!r}, the archive says {fresh.get('epoch')!r}")
         # the rendered string must appear in the table -- the grep direction -- and in the
         # cell's OWN row when the generator recorded one: a value that happens to appear in

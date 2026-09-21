@@ -193,6 +193,9 @@ Training resumes from a Lightning checkpoint with `ckpt_path=<path>/last.ckpt`.
 `src/eval_indomain.py` freezes a pretrained encoder, extracts features with the deterministic
 eval transform, and reports **weighted k-NN** (cosine, `exp(sim/T)` votes, T = 0.07, k = 20)
 and a **linear probe** on standardized features (SGD, learning rate picked on a held-out slice),
+plus, in its own labelled column, the same probe *eval-selected* (learning rate, weight decay and
+epoch chosen on the validation split, best reported; `linear.select_on: eval`) — an upper bound of
+the published LeJEPA protocol, never a headline number,
 following the SPHERE-JEPA Table 3 protocol:
 
 ```bash
@@ -270,7 +273,9 @@ there. In short:
   at 128 px, bf16). The ViT-L/14 paper-setting configs use 4 GPUs (`trainer=ddp`, 64 samples per
   GPU); their checkpoints are ~3.7 GB each.
 * **Checkpoint selection.** Reported "final" numbers use `last.ckpt` (epoch 99 of 100);
-  `best.ckpt` is the online-probe-selected checkpoint and is reported alongside.
+  `best.ckpt` is the online-probe-selected checkpoint and is reported alongside. The eval-selected
+  column (see above) reads `best.ckpt` and is labelled from the data: every per-backbone JSON
+  records `probe_select` and `checkpoint_kind`.
 
 ## Citation and acknowledgements
 

@@ -74,7 +74,85 @@ def eval_root(tmp_path: Path, in1k) -> tuple[Path, dict]:
     write(root / in1k.OURS_VITL / f"{runs[('vitl14', 'lejepa')].run_name}.json", entry(60.0, 70.5))
     write(root / in1k.LEJEPA_PROTOCOL_VITL / f"{runs[('vitl14', 'lejepa')].run_name}.json",
           entry(60.5, 72.9, feature="cls2", probe="lejepa"))
+    # decision 16: the eval-selected twins, labelled from the data
+    sel = dict(probe_select="eval")
+    write(root / in1k.EVALSEL_128 / f"{runs[('vit', 'lejepa')].run_name}_best.json", entry(41.0, 57.9, epoch=87, checkpoint_kind="best", **sel))
+    write(root / in1k.EVALSEL_128 / f"{runs[('vit', 'lejepa')].run_name}.json", entry(41.2, 56.4, checkpoint_kind="last", **sel))
+    write(root / in1k.EVALSEL_128 / f"{runs[('vit', 'local')].run_name}_best.json", entry(45.5, 60.2, epoch=91, checkpoint_kind="best", **sel))
+    write(root / in1k.LEJEPA_PROTOCOL_VITL_EVALSEL / f"{runs[('vitl14', 'lejepa')].run_name}_best.json",
+          entry(60.5, 74.0, epoch=95, feature="cls2", probe="lejepa", checkpoint_kind="best", **sel))
+    # the online probe's curve of the ViT-S LeJEPA run: two launches, max at epoch 2, final lower
+    csv_dir = root / "logs" / "train" / "runs" / runs[("vit", "lejepa")].run_name / "csv"
+    for version, rows in (("version_0", ["epoch,step,val/probe_acc", "0,9,0.30", "1,19,0.55", "2,29,0.60"]),
+                          ("version_1", ["epoch,step,val/probe_acc", "3,39,0.58"])):
+        (csv_dir / version).mkdir(parents=True)
+        (csv_dir / version / "metrics.csv").write_text("\n".join(rows) + "\n")
     return root, runs
+
+
+def test_the_eval_selected_column_and_the_appendices_render_from_the_data(in1k, tmp_path):
+    """Decision 16: each arm's headline cell is followed by the eval-selected column (best.ckpt);
+    Appendix A shows it on last.ckpt, Appendix B the online curve; every cell names its protocol."""
+    root, runs = eval_root(tmp_path, in1k)
+    body, payload, tex = in1k.render(root)
+    head = body.split("## Secondary")[0]
+    vit_row = next(l for l in head.splitlines() if l.startswith("| ViT-S/8"))
+    cols = [c.strip() for c in vit_row.split("|")]
+    assert cols[3] == "41.2 / 55.3" and cols[4] == "57.9", cols          # LeJEPA: strict, then eval-selected
+    assert cols[7] == "45.7 / 58.1" and cols[8] == "60.2", cols          # LocaLeJEPA
+    assert cols[5] == "*pretraining, epoch ?/100*" and cols[6] == "—", "an unrun arm: progress, and no eval-selected number"
+    header = head.splitlines()[2]
+    assert "LeJEPA (SIGReg): strict | LeJEPA (SIGReg): eval-sel.‡" in header
+    cell = payload["cells"]["vit/lejepa/evalsel_best"]
+    assert (cell["linear"], cell["epoch"], cell["probe_select"]) == (57.9, 87, "eval")
+    assert payload["cells"]["vit/lejepa/evalsel_last"]["linear"] == 56.4
+    online = payload["cells"]["vit/lejepa/online"]
+    assert (online["final"], online["max"], online["argmax_epoch"], online["epochs"]) == (58.0, 60.0, 2, 4)
+    assert "58.0 / 60.0 (ep 2)" in body.split("## Appendix B")[1]
+    assert "| 56.4 |" in body.split("## Appendix A")[1]
+    assert "linear 74.0" in body.split("## ViT-L/14 under")[1].split("## Gaps")[0]
+    assert payload["cells"]["vitl14/lejepa/lejepa_protocol_evalsel_best"]["linear"] == 74.0
+    assert "eval-selected‡: linear +2.3" in body, "the eval-selected gap is computed too"
+    assert r"\multicolumn{2}{c}{LeJEPA}" in tex and "41.2 / 55.3 & 57.9" in tex and r"Lin$^\ddagger$" in tex
+
+
+def test_a_strict_result_can_never_fill_an_eval_selected_cell_and_vice_versa(in1k, tmp_path):
+    root, runs = eval_root(tmp_path, in1k)
+    write(root / in1k.EVALSEL_128 / f"{runs[('vit', 'lejepa')].run_name}_best.json", entry(41.0, 57.9, epoch=87))   # no probe_select: strict
+    with pytest.raises(AssertionError, match="'train_slice'-selected result cannot fill a 'eval' cell"):
+        in1k.render(root)
+    root, runs = eval_root(tmp_path / "b", in1k)
+    write(root / in1k.OURS_128 / f"{runs[('vit', 'local')].run_name}.json", entry(45.7, 58.1, probe_select="eval"))
+    with pytest.raises(AssertionError, match="'eval'-selected result cannot fill a 'train_slice' cell"):
+        in1k.render(root)
+    root, runs = eval_root(tmp_path / "c", in1k)
+    write(root / in1k.EVALSEL_128 / f"{runs[('vit', 'lejepa')].run_name}_best.json",
+          entry(41.0, 57.9, epoch=87, probe_select="eval", checkpoint_kind="last"))
+    with pytest.raises(AssertionError, match="checkpoint_kind 'last' in a 'best' column"):
+        in1k.render(root)
+
+
+def test_the_audit_re_derives_the_eval_selected_and_online_cells_and_catches_edits(in1k, audit, tmp_path, monkeypatch):
+    root, runs = eval_root(tmp_path, in1k)
+    monkeypatch.chdir(tmp_path)
+    in1k.main(["--root", str(root)])
+    table = Path(in1k.OUT).read_text()
+    payload = json.loads(Path(in1k.CELLS_OUT).read_text())
+    assert audit.audit(table, payload, Path("results/raw")) == []
+    assert (Path("results/raw") / "online" / runs[("vit", "lejepa")].run_name / "version_1.csv").is_file()
+
+    problems = audit.audit(table.replace("| 57.9 |", "| 58.9 |"), payload, Path("results/raw"))
+    assert any("vit/lejepa/evalsel_best" in p and "not in its row" in p for p in problems)
+
+    csv_path = Path("results/raw") / "online" / runs[("vit", "lejepa")].run_name / "version_0.csv"
+    csv_path.write_text(csv_path.read_text().replace("2,29,0.60", "2,29,0.61"))
+    problems = audit.audit(table, payload, Path("results/raw"))
+    assert any("vit/lejepa/online.max" in p for p in problems)
+
+    archived = Path("results/raw") / payload["cells"]["vit/lejepa/evalsel_best"]["source"]
+    blob = json.loads(archived.read_text()); blob["probe_select"] = "train_slice"; archived.write_text(json.dumps(blob))
+    problems = audit.audit(table, payload, Path("results/raw"))
+    assert any("vit/lejepa/evalsel_best" in p and "probe_select" in p for p in problems), "a relabelled archive is caught"
 
 
 def test_render_places_each_run_in_its_row_and_column(in1k, tmp_path):

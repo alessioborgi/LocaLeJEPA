@@ -488,6 +488,40 @@ def calibration_run(tmp_path: Path, *, first: range, second: range, lr_jump: flo
     return root
 
 
+def online_csv(path: Path, values: list[float], *, epoch0: int = 0) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rows = ["epoch,step,train/loss_step,val/probe_acc"]
+    for i, v in enumerate(values):
+        rows.append(f"{epoch0 + i},{(epoch0 + i) * 10 + 3},0.7,")          # a per-step row: no probe value
+        rows.append(f"{epoch0 + i},{(epoch0 + i) * 10 + 9},,{v}")
+    path.write_text("\n".join(rows) + "\n")
+
+
+def test_online_probe_curve_reports_final_and_the_first_epoch_reaching_the_maximum(tmp_path):
+    """Decision 16 / gate G4a: LeJEPA reads the best epoch, we read both. Per-step rows (no
+    value) are skipped; values are fractions in the CSV and percent out; a tie goes to the
+    EARLIER epoch."""
+    csv_path = tmp_path / "csv" / "version_0" / "metrics.csv"
+    online_csv(csv_path, [0.30, 0.55, 0.60, 0.58, 0.60])
+    curve = C.online_probe_curve(csv_path)
+    assert curve == {"epochs": 5, "final": 60.0, "max": 60.0, "argmax_epoch": 2}
+    assert C.online_probe_curve(tmp_path / "csv") == curve, "a csv directory reads the same single file"
+
+
+def test_online_probe_curve_spans_the_launches_of_a_resumed_run(tmp_path):
+    online_csv(tmp_path / "csv" / "version_0" / "metrics.csv", [0.30, 0.55])
+    online_csv(tmp_path / "csv" / "version_1" / "metrics.csv", [0.65, 0.62], epoch0=2)
+    online_csv(tmp_path / "csv" / "version_10" / "metrics.csv", [0.61], epoch0=4)     # numeric order, not lexical
+    curve = C.online_probe_curve(tmp_path / "csv")
+    assert curve == {"epochs": 5, "final": 61.0, "max": 65.0, "argmax_epoch": 2}
+
+
+def test_online_probe_curve_without_the_column_is_empty_not_wrong(tmp_path):
+    path = tmp_path / "metrics.csv"
+    path.write_text("epoch,step,train/loss_step\n0,1,0.5\n")
+    assert C.online_probe_curve(path) == {"epochs": 0, "final": None, "max": None, "argmax_epoch": None}
+
+
 def test_calibrate_verdict_passes_a_true_resume(tmp_path):
     root = calibration_run(tmp_path, first=range(0, 151), second=range(151, 200))
     verdict = C.calibrate_verdict(root, interrupt_step=150, max_steps=200)

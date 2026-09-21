@@ -775,6 +775,40 @@ def successor_argv(env: Mapping[str, str], *, script: str, requeue_left: int, ti
 # realised K -- the column
 # ======================================================================================
 
+def online_probe_curve(metrics_csv: Path) -> dict[str, float | int | None]:
+    """The online probe's validation curve from a run's ``metrics.csv``: final epoch and maximum.
+
+    Decision 16: LeJEPA reports the online probe with the epoch chosen on the reported split, so
+    gate G4a compares our curve's MAXIMUM to MINIMAL.md's 90.7 and the results tables show
+    ``final / max (epoch)`` in the appendix. Reads the per-epoch column only (``val/probe_acc``,
+    logged ``on_epoch``); rows without it (the per-step training rows) are skipped. The maximum is
+    the FIRST epoch that reaches it. Values are fractions in the CSV and returned in percent.
+    """
+    candidates = ("val/probe_acc", "val/probe_acc_epoch")
+    points: list[tuple[int, float]] = []
+    metrics_csv = Path(metrics_csv)
+    # a resumed run writes one metrics.csv per launch (version_0, version_1, ...): a csv directory
+    # is read version by version, in order, so the curve spans the whole run
+    files = sorted(metrics_csv.glob("version_*/metrics.csv"), key=lambda f: int(f.parent.name.split("_")[-1])) \
+        if metrics_csv.is_dir() else [metrics_csv]
+    for file in files:
+        with open(file, newline="", encoding="utf-8") as handle:
+            reader = csv.DictReader(handle)
+            fields = reader.fieldnames or []
+            column = next((c for c in candidates if c in fields), None)
+            if column is None:
+                continue
+            for row in reader:
+                if row.get(column, "") == "":
+                    continue
+                epoch = int(float(row["epoch"])) if row.get("epoch", "") != "" else len(points)
+                points.append((epoch, round(100.0 * float(row[column]), 6)))     # percent; 6 dp kills float noise
+    if not points:
+        return {"epochs": 0, "final": None, "max": None, "argmax_epoch": None}
+    best_epoch, best = max(points, key=lambda pt: (pt[1], -pt[0]))
+    return {"epochs": len(points), "final": points[-1][1], "max": best, "argmax_epoch": best_epoch}
+
+
 def realised_k(metrics_csv: Path, last_n: int = 10) -> dict[str, float | int | None]:
     """Epoch means of the local diagnostics from a run's ``metrics.csv``.
 
@@ -892,6 +926,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--time", required=True); p.add_argument("--script", required=True)
     p.add_argument("--export", action="append", default=[], help="KEY=VALUE to carry to the successor")
     p = sub.add_parser("realised-k"); p.add_argument("metrics", type=Path)
+    p = sub.add_parser("online-curve"); p.add_argument("metrics", type=Path)
     p = sub.add_parser("submit"); p.add_argument("grid", type=Path); p.add_argument("--partition", required=True)
     p.add_argument("--account", default="dominici_lab_hu"); p.add_argument("--time", required=True)
     p.add_argument("--script", default="scripts/aicr/slurm_train.sh"); p.add_argument("--log-dir", required=True)
@@ -1005,6 +1040,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "realised-k":
         print(json.dumps(realised_k(args.metrics)))
+    if args.command == "online-curve":
+        print(json.dumps(online_probe_curve(args.metrics)))
         return 0
 
     if args.command == "submit":
