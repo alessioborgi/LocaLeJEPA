@@ -114,8 +114,11 @@ else
 fi
 RESUME_OVERRIDE=""
 [ -n "${RESUME:-}" ] && RESUME_OVERRIDE="ckpt_path=$RESUME"
+# one loader worker per allocated core: the configs say 8 (IN1K) or 4 (Imagenette) and the job gives
+# every rank 16, which left half the CPUs idle while the GPUs waited for JPEGs half the time (F46)
 COMMON=("$PY" src/train.py $OVERRIDES $TRAINER logger=csv "hydra.run.dir=$RUN_DIR"
-        "callbacks.model_checkpoint.dirpath=$CKPT_DIR" "callbacks.on_exception.dirpath=$CKPT_DIR" "$DATA_OVERRIDE")
+        "callbacks.model_checkpoint.dirpath=$CKPT_DIR" "callbacks.on_exception.dirpath=$CKPT_DIR" "$DATA_OVERRIDE"
+        "data.num_workers=${SLURM_CPUS_PER_TASK:-16}")
 SRUN=(srun --ntasks-per-node="$GPUS" --cpus-per-task="${SLURM_CPUS_PER_TASK:-16}" --kill-on-bad-exit=1)
 
 if [ "${MODE:-train}" = "calibrate" ]; then
@@ -127,8 +130,10 @@ if [ "${MODE:-train}" = "calibrate" ]; then
     CALIB_STEPS="${CALIB_STEPS:-200}"; CALIB_INTERRUPT="${CALIB_INTERRUPT:-150}"
     # per-step LR rows: ablations/base sets the monitor to `epoch`, which would merge over the
     # calibrate group's `step` and leave calibrate-verdict nothing to check at the resume seam
+    # per-step CSV rows too: Lightning's default log_every_n_steps=50 wrote rows at 149 and 199 and the
+    # seam check called a working resume a failure (F46)
     CALIB=(callbacks=calibrate "+trainer.max_steps=$CALIB_STEPS" "+trainer.limit_val_batches=0" "+trainer.num_sanity_val_steps=0"
-           "callbacks.learning_rate_monitor.logging_interval=step")
+           "callbacks.learning_rate_monitor.logging_interval=step" "trainer.log_every_n_steps=1")
     echo "=== calibrating $RUN_NAME: $CALIB_STEPS steps, interruption at $CALIB_INTERRUPT ==="
     set +e
     "${SRUN[@]}" "${COMMON[@]}" "${CALIB[@]}" "callbacks.self_interrupt.at_step=$CALIB_INTERRUPT"

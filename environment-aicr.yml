@@ -58,6 +58,13 @@ dependencies:
       - hydra-colorlog==1.2.0
       - omegaconf==2.3.1
       - rootutils==1.0.7
+      # --- D4-RN50 (src/models/components/e2resnet.py) needs escnn -- F46: it was in no environment file and the
+      # cells died at instantiation on the GPU node. NOT listed as pip requirements because escnn declares `py3nj`,
+      # an sdist-only Fortran package that fails to build on Python 3.12 and is imported lazily (SO(3) only).
+      # Post-create step, identical on both machines (the lock pins the result; tests/integration checks every _target_):
+      #   pip install --no-deps escnn==1.0.11
+      #   pip install lie-learn==0.0.2 pymanopt==2.2.1 autograd==1.9.1 joblib==1.6.0   # Linux: prebuilt cp312 wheel
+      # macOS has no lie-learn wheel: build from git with Cython and copy its *.npy data files (state/03, env section).
       - rich==15.0.0
       - wandb==0.28.0
       # pinned to stop pip backtracking: an unpinned `datasets>=3.0` walked 5.0.1 -> 4.x -> 3.x

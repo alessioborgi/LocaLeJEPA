@@ -506,6 +506,20 @@ def test_calibrate_verdict_catches_a_learning_rate_jump_at_the_seam(tmp_path):
     assert not verdict.checks["lr_continuous"][0]
 
 
+def test_calibrate_verdict_names_the_row_spacing_when_rows_are_not_per_step(tmp_path):
+    """F46: Lightning's default log_every_n_steps=50 wrote rows at 49/99/149 and 199; the seam
+    check must fail AND say why, or a working resume looks like a broken one again."""
+    root = calibration_run(tmp_path, first=range(49, 150, 50), second=range(199, 200, 50))
+    verdict = C.calibrate_verdict(root, interrupt_step=150, max_steps=200)
+    assert not verdict.ok
+    ok, message = verdict.checks["resumed"]
+    assert not ok and "log_every_n_steps=1" in message and "50 steps apart" in message
+    # per-step rows carry no hint: the message stays exactly the seam statement
+    root2 = calibration_run(tmp_path / "b", first=range(0, 151), second=range(160, 200))
+    _, message2 = C.calibrate_verdict(root2, interrupt_step=150, max_steps=200).checks["resumed"]
+    assert "log_every_n_steps" not in message2
+
+
 def test_calibrate_verdict_needs_exactly_two_launches(tmp_path):
     root = tmp_path / "one"; (root / "csv" / "version_0").mkdir(parents=True)
     (root / "csv" / "version_0" / "metrics.csv").write_text("epoch,step,train/loss_step\n0,1,0.5\n")

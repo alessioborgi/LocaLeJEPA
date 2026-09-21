@@ -705,7 +705,10 @@ def calibrate_verdict(run_dir: Path, *, interrupt_step: int, max_steps: int) -> 
         return Verdict(checks)
     checks["interrupted"] = (abs(first[-1] - interrupt_step) <= 1,
                              f"first launch stopped at step {first[-1]} (interrupt at {interrupt_step})")
-    checks["resumed"] = (second[0] == first[-1] + 1, f"second launch began at step {second[0]} after {first[-1]}")
+    spacing = min((b - a for a, b in zip(first, first[1:])), default=1)
+    hint = (f"; rows are {spacing} steps apart -- the seam check needs trainer.log_every_n_steps=1 (F46)"
+            if spacing > 1 else "")
+    checks["resumed"] = (second[0] == first[-1] + 1, f"second launch began at step {second[0]} after {first[-1]}{hint}")
     checks["completed"] = (second[-1] >= max_steps - 1, f"second launch ended at step {second[-1]} (max_steps {max_steps})")
     lr_col = None
     with open(versions[0], newline="", encoding="utf-8") as handle:

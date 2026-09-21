@@ -73,6 +73,8 @@ REQUIRED_PER_SCRIPT = {
         "-calib-${SLURM_JOB_PARTITION": "calibration dirs are keyed by partition and job: two partitions calibrate one geometry at once",
         'CKPT_ROOT="${CKPT_ROOT_OVERRIDE:-$CKPT_ROOT}"': "an ablation wave's checkpoint root comes from --export, never from editing roots.env between submissions: tasks read the file when they START",
         '${CKPT_ROOT_OVERRIDE:+--export "CKPT_ROOT_OVERRIDE=$CKPT_ROOT_OVERRIDE"}': "the successor keeps the checkpoint root of the job it continues, and adds nothing when there is none",
+        "trainer.log_every_n_steps=1": "per-step CSV rows in calibrate mode: the default 50 made a working resume look like a failure (F46)",
+        "data.num_workers=${SLURM_CPUS_PER_TASK": "one loader worker per allocated core: 8 workers on 16 cores left the GPUs waiting half the time (F46)",
     },
     "slurm_tar_in1k.sh": {
         "tar -tf": "the entry count is compared to the tree, not trusted",
