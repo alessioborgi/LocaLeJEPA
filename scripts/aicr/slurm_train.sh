@@ -60,6 +60,13 @@ $CAMPAIGN show "$GRID" --index "$INDEX"
 
 # ----------------------------------------------------------------------------- preflight
 eval "$($CAMPAIGN args "$GRID" --index "$INDEX")"           # RUN_NAME, MAX_EPOCHS, OVERRIDES
+if [ "${MODE:-train}" = "calibrate" ]; then
+    # Calibration artefacts are disposable, and one geometry is calibrated more than once at a
+    # time (two partitions; later the loader lever): key their run and checkpoint dirs by
+    # partition and job id, or two jobs share one run dir and calibrate-verdict sees four
+    # launches -- research_rules/05's live-duplicate trap, the same one as the double tar (F44).
+    RUN_NAME="${RUN_NAME}-calib-${SLURM_JOB_PARTITION:-local}-${SLURM_JOB_ID:-$$}"
+fi
 RUN_DIR="$LOG_ROOT/train/runs/$RUN_NAME"
 CKPT_DIR="$CKPT_ROOT/$RUN_NAME"
 mkdir -p "$RUN_DIR" "$CKPT_DIR"
