@@ -1,0 +1,24 @@
+# Calibration: the default callbacks plus throughput measurement and, optionally, a rehearsed
+# interruption. Used by the launcher's MODE=calibrate (plan Phase 2): 200 steps at the campaign
+# geometry, the geometry printed first, then steps/s, samples/s and the data-wait fraction --
+# the number that says whether a 128 px run is decode-bound (plan §"Schedule", lever 7).
+defaults:
+  - default
+  - _self_
+
+throughput:
+  _target_: src.callbacks.throughput.Throughput
+  warmup_steps: 20
+  print_every: 50
+
+# at_step: null leaves it off; the calibration job sets callbacks.self_interrupt.at_step=150
+# on its first launch and resumes on its second, proving the preemption path end to end.
+self_interrupt:
+  _target_: src.callbacks.throughput.SelfInterrupt
+  at_step: null
+
+# Per-step learning rate, so calibrate-verdict can check the schedule has no jump at the resume
+# seam (a restart from scratch would begin the warm-up again).
+learning_rate_monitor:
+  _target_: lightning.pytorch.callbacks.LearningRateMonitor
+  logging_interval: step

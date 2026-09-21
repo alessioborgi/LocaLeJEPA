@@ -182,3 +182,25 @@ def test_seed_zero_actually_seeds(tiny_imagenette, tmp_path, monkeypatch, seed, 
                  extra=[f"seed={'null' if seed is None else seed}"])
 
     assert seen == ([seed] if should_seed else [])
+
+
+def test_a_rehearsed_sigterm_writes_the_exception_checkpoint(tiny_imagenette, tmp_path):
+    """The calibration's interruption is a REAL SIGTERM to this process, handled by Lightning's own
+    signal connector: ``SelfInterrupt`` fires at global_step 2, the epoch loop raises
+    ``SIGTERMException`` (a ``SystemExit``), and ``OnExceptionCheckpoint`` writes
+    ``on_exception.ckpt`` holding exactly that step -- the file the launcher's resume decision
+    reads. Simulating the signal would prove nothing about the path a preemption takes."""
+    import torch
+
+    ckpt_dir = tmp_path / "ckpt"
+    with pytest.raises(SystemExit):
+        run_training("lejepa/vit_imagenette_sigreg", tiny_imagenette, tmp_path / "out", extra=[
+            "callbacks=calibrate",          # the harness already drops rich_progress_bar
+            "callbacks.self_interrupt.at_step=2", "callbacks.throughput.warmup_steps=0",
+            "+trainer.max_steps=6", f"callbacks.on_exception.dirpath={ckpt_dir}",
+            f"callbacks.model_checkpoint.dirpath={ckpt_dir}",
+        ])
+    blob = torch.load(ckpt_dir / "on_exception.ckpt", map_location="cpu", weights_only=False)
+    assert blob["global_step"] == 2
+    # (the tiny fixture has two batches per epoch, so an epoch boundary is also reached and
+    # last.ckpt exists too -- irrelevant here; the on-exception file is what the launcher reads)
