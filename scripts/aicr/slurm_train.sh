@@ -112,7 +112,10 @@ if [ "${MODE:-train}" = "calibrate" ]; then
     # must resume from that checkpoint at the very next step and reach CALIB_STEPS. No artifact
     # postflight: no epoch boundary is reached, so there is no last.ckpt to verify.
     CALIB_STEPS="${CALIB_STEPS:-200}"; CALIB_INTERRUPT="${CALIB_INTERRUPT:-150}"
-    CALIB=(callbacks=calibrate "+trainer.max_steps=$CALIB_STEPS" "+trainer.limit_val_batches=0" "+trainer.num_sanity_val_steps=0")
+    # per-step LR rows: ablations/base sets the monitor to `epoch`, which would merge over the
+    # calibrate group's `step` and leave calibrate-verdict nothing to check at the resume seam
+    CALIB=(callbacks=calibrate "+trainer.max_steps=$CALIB_STEPS" "+trainer.limit_val_batches=0" "+trainer.num_sanity_val_steps=0"
+           "callbacks.learning_rate_monitor.logging_interval=step")
     echo "=== calibrating $RUN_NAME: $CALIB_STEPS steps, interruption at $CALIB_INTERRUPT ==="
     set +e
     "${SRUN[@]}" "${COMMON[@]}" "${CALIB[@]}" "callbacks.self_interrupt.at_step=$CALIB_INTERRUPT"

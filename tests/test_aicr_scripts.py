@@ -69,6 +69,7 @@ REQUIRED_PER_SCRIPT = {
         "MODE:-train": "calibrate mode is opt-in",
         "calibrate-verdict": "a calibration ends with the resumed-run verdict, not an exit code",
         "callbacks.self_interrupt.at_step": "the rehearsed SIGTERM is real, not simulated",
+        "callbacks.learning_rate_monitor.logging_interval=step": "per-step LR rows, or the seam check has nothing to read",
     },
     "slurm_tar_in1k.sh": {
         "tar -tf": "the entry count is compared to the tree, not trusted",
