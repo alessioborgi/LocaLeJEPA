@@ -29,7 +29,7 @@ def load_script(name: str):
 
     ``scripts/`` has no ``__init__.py`` and is not on the path, so a plain import will not find
     it. These modules are import-safe -- their module level is constants only -- with the single
-    exception of ``verify_plainvit_result.py``, which does ``json.load(open(...))`` at import and
+    exception of ``verify_indomain_result.py``, which does ``json.load(open(...))`` at import and
     is therefore not loaded anywhere in this suite.
     """
     path = REPO / "scripts" / f"{name}.py"

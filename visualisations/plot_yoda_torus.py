@@ -39,20 +39,26 @@ FIG_DIR = os.path.join(_HERE, "figures")  # all rendered figures land here
 from src.eval.angle_probe import _circular_metrics
 
 # Reuse the same feature caches the low-data probe reads (repo-root relative).
-BACKBONES = {
-    "svit_susreg":          "logs/eval_angle_probe_full/cache/svit_susreg_features.pt",
-    "nvit_sigreg":          "logs/eval_angle_probe_full/cache/nvit_sigreg_features.pt",
-    "nvit_subreg":          "logs/eval_angle_probe_full/cache/nvit_subreg_features.pt",
-    "vit_sigreg":           "logs/eval_angle_probe_yoda_vit/cache/vit_sigreg_features.pt",
-    "vit_subreg":           "logs/eval_angle_probe_yoda_vit/cache/vit_subreg_features.pt",
-    "vit_rdmreg":           "logs/eval_angle_probe_yoda_rectifiedlpjepa/cache/vit_rdmreg_features.pt",
-    "localballreg_l0.1_k2": "logs/eval_angle_probe_yoda_local_healthy/cache/localballreg_l0.1_k2_features.pt",
-    "localballreg_l0.1_dynk": "logs/eval_angle_probe_yoda_localballreg_dynk/cache/localballreg_l0.1_dynk_features.pt",
-    "localballreg_l0.1_k4": "logs/eval_angle_probe_yoda_local_healthy/cache/localballreg_l0.1_k4_features.pt",
-    "localballreg_l0.3_k2": "logs/eval_angle_probe_yoda_local_healthy/cache/localballreg_l0.3_k2_features.pt",
-    "localsigreg_l0.1_k4":  "logs/eval_angle_probe_yoda_local_healthy/cache/localsigreg_l0.1_k4_features.pt",
-}
-BACKBONES = {k: os.path.join(_ROOT, v) for k, v in BACKBONES.items()}
+# Where the features are: the index `src/eval_angle_probe.py` writes beside its results, keyed
+# by run name. Point YODA_EVAL_DIR at another eval folder to draw from it. The previous version
+# hardcoded eleven pre-migration cache filenames that no longer exist (campaign plan C5c).
+YODA_EVAL_DIR = os.environ.get("YODA_EVAL_DIR", os.path.join(_ROOT, "logs", "eval_angle_probe_torus_campaign"))
+
+
+def load_index(eval_dir: str = YODA_EVAL_DIR) -> dict[str, str]:
+    """run name -> absolute cache path, from ``features_index.json``; empty if the eval has not run."""
+    import json
+
+    path = os.path.join(eval_dir, "features_index.json")
+    if not os.path.isfile(path):
+        return {}
+    with open(path, encoding="utf-8") as handle:
+        index = json.load(handle)
+    return {name: (entry["cache"] if os.path.isabs(entry["cache"]) else os.path.join(_ROOT, entry["cache"]))
+            for name, entry in index.items()}
+
+
+BACKBONES = load_index()
 
 R_MAJOR, R_MINOR = 3.0, 1.0  # ring radius (angle1) and tube radius (angle0)
 TEST_FRAC, VAL_FRAC = 0.2, 0.2
@@ -129,10 +135,11 @@ def style_axes(ax, title):
 
 
 def main():
-    name = sys.argv[1] if len(sys.argv) > 1 else "localballreg_l0.1_k2"
+    name = sys.argv[1] if len(sys.argv) > 1 else "vit_local_l01_k2_s0"
     out = sys.argv[2] if len(sys.argv) > 2 else os.path.join(FIG_DIR, "yoda_torus.png")
     if name not in BACKBONES:
-        raise SystemExit(f"unknown backbone {name!r}; choose from {list(BACKBONES)}")
+        raise SystemExit(f"unknown backbone {name!r}; choose from {list(BACKBONES)} "
+                         f"(index: {os.path.join(YODA_EVAL_DIR, 'features_index.json')})")
 
     blob = torch.load(BACKBONES[name], map_location="cpu")
     X, y = blob["X"].numpy().astype(np.float64), blob["y"].numpy().astype(np.float64)

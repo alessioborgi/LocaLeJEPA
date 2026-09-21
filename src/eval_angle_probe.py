@@ -147,6 +147,9 @@ def main(cfg: dict) -> None:
 
     probe_kwargs = cfg.get("probe", {})
     per_backbone = {}
+    # name -> where its features are cached. The figure scripts under visualisations/ used to
+    # hardcode pre-migration cache filenames (`<name>_features.pt`); they now read this index.
+    features_index: dict[str, dict] = {}
 
     for entry in cfg["backbones"]:
         name = entry["name"]
@@ -161,6 +164,8 @@ def main(cfg: dict) -> None:
         # Written here and READ by eval_angle_probe_multiseed.py, so both must use this builder.
         cache_path = feature_cache_path(cfg.get("cache_dir"), name, "bobblehead", "all",
                                         crop_size, None, entry["checkpoint"])
+        features_index[name] = {"cache": cache_path, "checkpoint": entry["checkpoint"],
+                                "experiment": entry["experiment"], "crop_size": crop_size}
         X, y = extract_features(
             extract_fn, dataset, batch_size=cfg.get("batch_size", 256),
             num_workers=cfg.get("num_workers", 8), device=device, cache_path=cache_path,
@@ -213,6 +218,8 @@ def main(cfg: dict) -> None:
     }
     with atomic_write(os.path.join(out_dir, "results.json"), "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
+    with atomic_write(os.path.join(out_dir, "features_index.json"), "w", encoding="utf-8") as f:
+        json.dump(features_index, f, indent=2)
     with atomic_write(os.path.join(out_dir, "results.csv"), "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         head = ["backbone"]
