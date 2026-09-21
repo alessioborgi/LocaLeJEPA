@@ -47,10 +47,11 @@ The inner test inherits `uniform_reg.yaml`: `num_slices: 256`, `t_max: 3.0`, `sc
 Note `scale_grid` is a parameter of the uniform-ball test only — `sigreg_loss` does not take it,
 so it does not apply to `locale_sigreg`.
 
-**One pair does not share a statistic resolution.** `vitl14_in1k_sigreg_paper` sets
-`num_slices: 1024` over `t_max: 5.0`, while its local counterpart uses the inherited 256 / 3.0.
-It is the only config in the repo that sets 1024, and it is the *baseline* arm. The 100-epoch
-ImageNet-1K comparison is unaffected — both arms use 256 / 3.0 there.
+**The ViT-L/14 pair shares its statistic resolution.** Both `vitl14_in1k_sigreg_paper` and
+`vitl14_in1k_localballreg_paper` use 1024 slices over `t_max: 5.0` — on the SIGReg arm as
+`reg_loss.num_slices`, on the local arm as `reg_loss.loss.num_slices` (the inner test is nested
+under `loss`). Until 2026-09-20 the local arm inherited 256 / 3.0, so the pair differed in
+something other than the regularizer. The 128 px ImageNet-1K comparison uses 256 / 3.0 on both arms.
 
 Everything else — multi-view augmentation, projector, online linear probe used for checkpoint
 selection, AdamW + linear warm-up + cosine schedule — is shared by all variants, so a
@@ -182,7 +183,7 @@ uv run python src/train.py experiment=lejepa/vit_in1k_localballreg_l01_k4    # o
 Multi-GPU (the ViT-L/14 "paper setting" configs use 4 GPUs, one process per GPU):
 
 ```bash
-uv run python src/train.py experiment=lejepa/vitl14_in1k_localballreg_l01_k4_paper trainer=ddp trainer.devices=4
+uv run python src/train.py experiment=lejepa/vitl14_in1k_localballreg_paper trainer=ddp trainer.devices=8
 ```
 
 Training resumes from a Lightning checkpoint with `ckpt_path=<path>/last.ckpt`.
@@ -249,8 +250,8 @@ there. In short:
 |---|---|---|
 | LeJEPA (SIGReg), ViT-S/8, IN1K 100 ep. | `lejepa/vit_in1k_sigreg` | `uv run python src/train.py experiment=lejepa/vit_in1k_sigreg` |
 | **Ours**, LocaLe-Reg λ0.1 k4, ViT-S/8, IN1K 100 ep. | `lejepa/vit_in1k_localballreg_l01_k4` | `uv run python src/train.py experiment=lejepa/vit_in1k_localballreg_l01_k4` |
-| LeJEPA paper setting, ViT-L/14, 2×224 + 8×98 views | `lejepa/vitl14_in1k_sigreg_paper` | `... experiment=lejepa/vitl14_in1k_sigreg_paper trainer=ddp trainer.devices=4` |
-| Ours, paper setting | `lejepa/vitl14_in1k_localballreg_l01_k4_paper` | `... experiment=lejepa/vitl14_in1k_localballreg_l01_k4_paper trainer=ddp trainer.devices=4` |
+| LeJEPA's IN1K settings in our protocol, ViT-L/14, 2×238 + 6×98 views | `lejepa/vitl14_in1k_sigreg_paper` | `... experiment=lejepa/vitl14_in1k_sigreg_paper trainer=ddp trainer.devices=8` |
+| Ours, same settings | `lejepa/vitl14_in1k_localballreg_paper` | `... experiment=lejepa/vitl14_in1k_localballreg_paper trainer=ddp trainer.devices=8` |
 
 ## Reproducibility notes
 

@@ -81,23 +81,31 @@ def test_the_local_configs_bind_a_cluster_count():
 
 
 def test_batch_size_is_never_raised_above_64_for_local_regularizers():
-    """For every ``local_*`` config the k-means sees the **per-step** batch, so batch size is a
-    method parameter, not a memory knob. Pinned so a well-meaning speed-up on a larger GPU shows
-    up as a failing test rather than as a silently different method.
+    """For every ``local_*`` config the k-means sees the **per-GPU, per-step** batch, so batch
+    size is a method parameter, not a memory knob. Both datamodules divide ``data.batch_size`` by
+    the world size and every loss is computed on its shard (no all_gather in ``src/losses.py``),
+    so under DDP the statement is about ``batch_size / devices`` -- the ViT-L/14 pair asks for
+    512 on 8 GPUs, i.e. 64 per GPU. Pinned so a well-meaning speed-up on a larger GPU shows up as
+    a failing test rather than as a silently different method.
     """
     for name in EXPERIMENTS:
         if "local" not in name:
             continue
         cfg = compose_experiment(name)
-        assert cfg.data.batch_size <= 256, (
-            f"{name} uses batch_size={cfg.data.batch_size}; raising it changes what the k-means "
-            "clusters and therefore changes the method"
+        devices = int(cfg.trainer.get("devices", 1)) if cfg.trainer.get("strategy") == "ddp" else 1
+        per_gpu = cfg.data.batch_size / devices
+        assert per_gpu <= 256, (
+            f"{name} puts {per_gpu} samples per GPU (batch_size {cfg.data.batch_size} / {devices}); "
+            "raising it changes what the k-means clusters and therefore changes the method"
         )
 
 
 def test_headline_pair_differs_only_where_documented():
     """The baseline/ours pair for the plain ViT on ImageNet-1K. Pins the seven differences that
-    `state/02-METHOD-AND-CLAIMS.md` records, so that a change to any of them is visible."""
+    `state/02-METHOD-AND-CLAIMS.md` records, so that a change to any of them is visible.
+    2026-09-20 (campaign decision 6): the local arm's ``lr_eta_min_ratio`` went 1.0 -> 0.001,
+    a flat 1e-3 replaced by a cosine to peak/1000; the control config
+    ``vit_in1k_sigreg_localrecipe`` carries the whole local recipe onto SIGReg."""
     base = compose_experiment("lejepa/vit_in1k_sigreg")
     ours = compose_experiment("lejepa/vit_in1k_localballreg_l01_k4")
 
@@ -106,15 +114,18 @@ def test_headline_pair_differs_only_where_documented():
     assert ours.trainer.get("gradient_clip_val") == 1.0
     assert base.trainer.get("gradient_clip_val") is None
     assert base.model.lamb == 0.02 and ours.model.lamb == 0.1
-    assert base.model.lr_eta_min_ratio == 0.5 and ours.model.lr_eta_min_ratio == 1.0
+    assert base.model.lr_eta_min_ratio == 0.5 and ours.model.lr_eta_min_ratio == 0.001
     assert base.data.batch_size == ours.data.batch_size, "the batch is the same"
     assert base.model.embedding_dim == ours.model.embedding_dim
 
 
-def test_both_arms_resolve_to_the_same_absolute_learning_rate_floor():
-    """0.5 x 2e-3 and 1.0 x 1e-3 are both 1e-3 -- the historical value the ratios were pinned to
-    reproduce. Stated here because it explains why the ratios differ at all."""
+def test_the_two_arms_now_decay_to_different_floors_by_decision():
+    """INVERTED 2026-09-20 (campaign C3). This test pinned that 0.5 x 2e-3 and 1.0 x 1e-3 were
+    both 1e-3 -- the historical floor the ratios reproduced, which hid that the local arm was
+    FLAT after warm-up. Decision 6 gives the local arm a real cosine to peak/1000 (1e-6) while
+    the baseline keeps LeJEPA's published 2e-3 -> 1e-3. The floors differ on purpose; what that
+    recipe difference is worth is measured once, by ``vit_in1k_sigreg_localrecipe``."""
     base = compose_experiment("lejepa/vit_in1k_sigreg")
     ours = compose_experiment("lejepa/vit_in1k_localballreg_l01_k4")
     assert base.model.lr_eta_min_ratio * base.optimizer.lr == pytest.approx(1e-3)
-    assert ours.model.lr_eta_min_ratio * ours.optimizer.lr == pytest.approx(1e-3)
+    assert ours.model.lr_eta_min_ratio * ours.optimizer.lr == pytest.approx(1e-6)

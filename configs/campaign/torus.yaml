@@ -1,0 +1,19 @@
+# Phase 3c: the torus lineup (decision 12) -- the draft's eleven rows, 800 epochs, 1 GPU each.
+# The twelfth row, the declared (lambda, K), is added at Phase 4 if it is not already here.
+name: torus
+seeds: [0]
+gpus: 1
+micro_batch: 64
+max_epochs: 800
+blocks:
+  - {tag: svit_susreg,          experiment: lejepa/svit_imagenette_susreg,               overrides: {logger: csv}}
+  - {tag: nvit_sigreg,          experiment: lejepa/nvit_imagenette_sigreg,               overrides: {logger: csv}}
+  - {tag: nvit_subreg,          experiment: lejepa/nvit_imagenette_subreg,               overrides: {logger: csv}}
+  - {tag: vit_sigreg,           experiment: lejepa/vit_imagenette_sigreg,                overrides: {logger: csv}}
+  - {tag: vit_subreg,           experiment: lejepa/vit_imagenette_subreg,                overrides: {logger: csv}}
+  - {tag: vit_rdmreg,           experiment: rectifiedlpjepa/vit_imagenette_rdmreg,        overrides: {logger: csv}}
+  - {tag: vit_local_l01_k2,     experiment: lejepa/vit_imagenette_localballreg_l01_k2,   overrides: {logger: csv}}
+  - {tag: vit_local_l01_dynk,   experiment: lejepa/vit_imagenette_local_ballreg_dynk,    overrides: {logger: csv}}
+  - {tag: vit_local_l01_k4,     experiment: lejepa/vit_imagenette_localballreg_l01_k4,   overrides: {logger: csv}}
+  - {tag: vit_local_l03_k2,     experiment: lejepa/vit_imagenette_localballreg_l03_k2,   overrides: {logger: csv}}
+  - {tag: vit_localsigreg_l01_k4, experiment: lejepa/vit_imagenette_localsigreg_l01_k4, overrides: {logger: csv}}

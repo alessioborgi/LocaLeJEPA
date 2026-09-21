@@ -1,0 +1,29 @@
+# Phase 4: the middle batch cell, at the DECLARED lambda. PROVISIONAL lambda 0.1 until the grid is read.
+name: ablation_batch128
+seeds: [0, 1, 2]
+gpus: 1
+max_epochs: 100
+short: {model.lamb: lam, model.reg_loss.num_clusters: k, data.batch_size: b, trainer.accumulate_grad_batches: x}
+blocks:
+  - tag: fixk
+    experiment: ablations/base
+    axes:
+      model.lamb: [0.1]                 # PROVISIONAL
+      model.reg_loss.num_clusters: [1, 2, 4, 8, 16, 32]
+      batch:
+        - {data.batch_size: 128, trainer.accumulate_grad_batches: 2, micro_batch: 128}
+    overrides: {logger: csv}
+  - tag: fwd
+    experiment: ablations/dynk
+    axes:
+      model.lamb: [0.1]                 # PROVISIONAL
+      batch:
+        - {data.batch_size: 128, trainer.accumulate_grad_batches: 2, micro_batch: 128}
+    overrides: {logger: csv}
+  - tag: rev
+    experiment: ablations/dynk_rev
+    axes:
+      model.lamb: [0.1]                 # PROVISIONAL
+      batch:
+        - {data.batch_size: 128, trainer.accumulate_grad_batches: 2, micro_batch: 128}
+    overrides: {logger: csv}

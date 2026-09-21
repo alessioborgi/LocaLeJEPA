@@ -113,21 +113,22 @@ def test_every_reg_loss_override_in_the_readme_is_a_real_parameter(key):
     )
 
 
-def test_the_readme_does_not_claim_a_num_slices_no_config_sets():
-    """1024 appears in exactly one config -- `vitl14_in1k_sigreg_paper.yaml`, the *baseline* arm.
-    The README used to present it as what the local configs use."""
+def test_the_vitl_pair_shares_its_statistic_resolution():
+    """INVERTED 2026-09-20 (campaign C3). This test pinned a mismatch: 1024 slices appeared in
+    exactly one config, the *baseline* arm of the ViT-L/14 pair, while the local arm inherited
+    256 / 3.0 -- so the pair differed in more than the regularizer. Decision 13 matched them.
+    Exactly the two arms set 1024 now, and the README says so instead of flagging it."""
     readme = (REPO / "README.md").read_text()
-    assert "num_slices=1024" not in readme
+    assert "num_slices=1024" not in readme, "still no README override claims it for the 128 px configs"
+    assert "shares its statistic resolution" in readme
 
-    setters = [
+    setters = sorted(
         str(path.relative_to(REPO))
         for path in (REPO / "configs").rglob("*.yaml")
         if "num_slices: 1024" in path.read_text()
-    ]
-    assert setters == ["configs/experiment/lejepa/vitl14_in1k_sigreg_paper.yaml"], (
-        f"the set of configs using 1024 slices changed: {setters}. If a local arm now sets it, "
-        "the README's note about the ViT-L/14 pair needs revisiting."
     )
+    assert setters == ["configs/experiment/lejepa/vitl14_in1k_localballreg_paper.yaml",
+                       "configs/experiment/lejepa/vitl14_in1k_sigreg_paper.yaml"], setters
 
 
 # --------------------------------------------------------------------------------------

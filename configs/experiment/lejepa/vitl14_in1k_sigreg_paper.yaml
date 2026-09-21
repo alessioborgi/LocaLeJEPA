@@ -1,12 +1,15 @@
 # @package _global_
-# LeJEPA (SIGReg) baseline reproduced with the *paper's* ImageNet-1K setting
-# (Balestriero & LeCun, arXiv:2511.08544, Sec. 6.1 / Table 1): ViT-L/14 (304M params),
-# 224 px global views x2 + 98 px local views x8 (paper: 96; 98 = 7 x 14), 100 epochs,
-# global batch 256, AdamW lr 5e-4 / wd 0.1 (paper grid {5e-3, 5e-4} x {1e-1, 1e-2, 1e-5}),
-# linear warm-up + cosine, lambda 0.05, SIGReg with 1024 slices, 17 knots on [-5, 5],
-# 3-layer projector -> 64-d (Table 1d best), no predictor / registers / EMA.
-# Run with trainer=ddp (4 GPUs, 64 samples per GPU): scripts/slurm_submit.sh with GPUS=4.
-
+# LeJEPA (SIGReg), ViT-L/14, at LeJEPA's ImageNet-1K optimizer and loss settings, in OUR protocol.
+#
+# Decision 13 (state/05-DECISIONS.md): every ViT-L Table-1 run in LeJEPA's own launchers used an
+# EMA teacher and patch masking (`teacher_student=true patch_mask_ratio=0.3`), which this
+# codebase does not have, so their 74.24 is CITED, never compared. What is theirs here: 238 px
+# global x2 + 98 px local x6 views, 512 per step, AdamW lr 5e-4 / wd 5e-2, linear warm-up +
+# cosine to peak/1000, lambda 0.05, 1024 slices on [-5, 5], projector -> 512, embedding 512,
+# drop-path 0.1. What is ours: no EMA, no masking, no predictor. One node, 8 GPUs, 64 per GPU
+# -- the datamodule divides the global batch, and scripts/aicr/campaign.py asserts it.
+# The two arms of the pair are IDENTICAL except `model/reg_loss` (tests/integration/
+# test_campaign_manifests.py pins that), including the statistic resolution 1024 / 5.0.
 defaults:
   - override /data: imagenet1k
   - override /data/transform/image@data.train_transform: lejepa_multicrop_paper
@@ -15,26 +18,22 @@ defaults:
   - override /optimizer: adamw
   - override /trainer: ddp
   - _self_
-
 tags: ["lejepa", "imagenet1k", "vit-large-p14", "sigreg", "paper-setting"]
-
 trainer:
   max_epochs: 100
-  devices: 4
-
+  devices: 8
 data:
-  batch_size: 256          # global batch; the datamodule divides by world_size
-  num_workers: 8
-  crop_size: 224
+  batch_size: 512          # global; the datamodule divides by world_size -> 64 per GPU on 8 GPUs
+  num_workers: 16          # per rank: 8 ranks x 16 = the node's 128 cores
+  crop_size: 238           # their `resolution=238` (17 x 14 patches)
   copy_data: false
   train_transform:
     num_global_crops: 2
-    num_local_crops: 8
-
+    num_local_crops: 6     # their `n_views=8 n_global_views=2`
 model:
-  lr_eta_min_ratio: 2.0
-  embedding_dim: 1024      # native ViT-L width (timm head 1024 -> 1024)
-  projection_dim: 64
+  lr_eta_min_ratio: 0.001  # cosine to peak/1000 (their README); was 2.0, a RISING schedule
+  embedding_dim: 512       # their `embedding_dim=512` (timm head 1024 -> 512)
+  projection_dim: 512      # their `projector_dim=512` (not Table 1(d)'s best 64: the point is their run)
   num_classes: 1000
   lamb: 0.05
   reg_loss:
@@ -52,9 +51,8 @@ model:
       - ${model.projection_dim}
   encoder:
     model_name: vit_large_patch14_224
-    dynamic_img_size: true   # lets the 98 px local crops through the 224 px pos-embed
+    dynamic_img_size: true   # 238 px global and 98 px local crops through the 224 px pos-embed
     drop_path_rate: 0.1
-
 optimizer:
   lr: 5e-4
-  weight_decay: 1e-1
+  weight_decay: 5e-2         # theirs (was 1e-1)

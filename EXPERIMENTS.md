@@ -96,7 +96,7 @@ them on the `sbatch` line. The job runs through `uv run` and is selected with en
 sbatch --export=ALL,EXPERIMENT=lejepa/vit_in1k_sigreg scripts/slurm_submit.sh
 sbatch --export=ALL,EXPERIMENT=lejepa/vit_in1k_localballreg_l01_k4,REQUEUE=1 scripts/slurm_submit.sh
 sbatch --gres=gpu:4 --ntasks-per-node=4 --mem=256G \
-       --export=ALL,EXPERIMENT=lejepa/vitl14_in1k_localballreg_l01_k4_paper,GPUS=4,REQUEUE=1 scripts/slurm_submit.sh
+       --export=ALL,EXPERIMENT=lejepa/vitl14_in1k_localballreg_paper,GPUS=8,REQUEUE=1 scripts/slurm_submit.sh
 
 # evaluation / reports: any command
 sbatch --time=6:00:00 --mem=128G --cpus-per-task=16 \

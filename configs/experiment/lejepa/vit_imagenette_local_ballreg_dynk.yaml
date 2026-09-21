@@ -28,7 +28,7 @@ data:
   crop_size: 128
 
 model:
-  lr_eta_min_ratio: 1.0
+  lr_eta_min_ratio: 0.001  # cosine to peak/1000 (campaign decision 6; was 1.0: a FLAT 1e-3 after warm-up, not a cosine)
   embedding_dim: 512
   projection_dim: 16
   num_classes: 10

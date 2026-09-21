@@ -1,0 +1,15 @@
+# The ViT-L/14 pair at LeJEPA's settings in our protocol (decision 13): 8 GPUs, 64 per GPU.
+# Submit the SIGReg arm on day 1 (`--indices 0`); the local arm after the declaration sets K.
+name: in1k_vitl14
+seeds: [0]
+gpus: 8
+micro_batch: 64
+max_epochs: 100
+short: {model.reg_loss.num_clusters: k}
+blocks:
+  - {tag: vitl14_sigreg, experiment: lejepa/vitl14_in1k_sigreg_paper, overrides: {logger: csv}}
+  - tag: vitl14_local
+    experiment: lejepa/vitl14_in1k_localballreg_paper
+    axes:
+      model.reg_loss.num_clusters: [4]   # PROVISIONAL -- the declared K
+    overrides: {logger: csv}
