@@ -8,7 +8,15 @@
 
 A single ``nn.Linear`` is trained by SGD on features extracted once with the
 deterministic eval transform (resize + centre crop), exactly the view the online
-probe sees during ``validation_step``.  The learning rate is chosen on a
+probe sees during ``validation_step``.
+
+``probe="lejepa"`` is the LeJEPA-protocol variant (campaign decision 3, reported
+beside ours and labelled): LayerNorm -> Linear trained by AdamW with weight decay
+1e-6, on ``feature="cls2"`` features. LeJEPA's LayerNorm carries an affine
+(gamma, beta) that the following Linear absorbs exactly
+(``W(g*z+b)+c = (W diag g) z + (W b + c)``), so the normalisation here is
+parameter-free and the head stays the one seeded ``nn.Linear`` -- same function
+class, same reproducibility guarantees.  The learning rate is chosen on a
 held-out slice of the train split, then the probe is refit on the full train
 split and reported on the pretraining dataset's validation split.
 
@@ -45,6 +53,7 @@ def _evaluate(
     std: torch.Tensor | None,
     device: torch.device,
     batch_size: int = 8192,
+    layer_norm: bool = False,
 ) -> tuple[float, float]:
     """Top-1 / top-5 accuracy (percent) of a linear head on ``features``."""
     top1 = top5 = total = 0
@@ -54,6 +63,8 @@ def _evaluate(
         y = labels[start : start + batch_size].to(device=device, dtype=torch.long)
         if mean is not None:
             x = (x - mean) / std
+        if layer_norm:
+            x = F.layer_norm(x, (x.shape[1],))
         logits = F.linear(x, weight, bias)
         pred = logits.topk(min(5, num_classes), dim=1).indices
         hits = pred.eq(y.unsqueeze(1))
@@ -76,8 +87,13 @@ def _train_head(
     std: torch.Tensor | None,
     device: torch.device,
     seed: int,
+    probe: str = "sgd",
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """SGD + cosine schedule on a single linear layer; returns (weight, bias).
+
+    ``probe="lejepa"``: a parameter-free LayerNorm precedes the layer and AdamW replaces SGD
+    (``momentum`` is then unused). Everything else -- the seeded init, the seeded shuffle, the
+    cosine schedule -- is shared, so the two protocols differ only where LeJEPA's does.
 
     Everything random here is driven by ``seed``: the initialisation and the shuffle. The head is
     built and initialised on **CPU** and only then moved, which is what makes that true -- the
@@ -99,7 +115,13 @@ def _train_head(
     torch.nn.init.zeros_(head.bias)
     head = head.to(device)
 
-    optimizer = torch.optim.SGD(head.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay)
+    if probe == "sgd":
+        optimizer = torch.optim.SGD(head.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay)
+    elif probe == "lejepa":
+        optimizer = torch.optim.AdamW(head.parameters(), lr=lr, weight_decay=weight_decay)
+    else:
+        raise ValueError(f"probe must be 'sgd' or 'lejepa', got {probe!r}")
+    layer_norm = probe == "lejepa"
     num_samples = train_features.shape[0]
     steps_per_epoch = max(1, math.ceil(num_samples / batch_size))
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs * steps_per_epoch)
@@ -112,6 +134,8 @@ def _train_head(
             y = train_labels[idx].to(device=device, dtype=torch.long, non_blocking=True)
             if mean is not None:
                 x = (x - mean) / std
+            if layer_norm:
+                x = F.layer_norm(x, (x.shape[1],))
             loss = F.cross_entropy(head(x), y)
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
@@ -136,6 +160,7 @@ def run_linear_probe(
     val_frac: float = 0.02,
     device: torch.device | str = "cuda",
     seed: int = 0,
+    probe: str = "sgd",
 ) -> dict:
     """Train a linear probe on frozen features; select the LR on held-out train.
 
@@ -150,12 +175,18 @@ def run_linear_probe(
         seed: controls the held-out split, the minibatch shuffling, and the head
             initialisation. Every grid point and the final refit share it, so the
             search varies the learning rate and nothing else.
+        probe: ``"sgd"`` (ours) or ``"lejepa"`` (LayerNorm -> Linear, AdamW). The
+            learning rate is still selected on the held-out slice of the train split,
+            never on the reported split (state/10-PAPER-STATE.md PD-4).
 
     Returns:
         ``{"top1", "top5", "best_lr", "search": [...], "epochs", ...}`` with
         accuracies in percent on the *test* (validation) split.
     """
     device = torch.device(device)
+    if probe not in ("sgd", "lejepa"):
+        raise ValueError(f"probe must be 'sgd' or 'lejepa', got {probe!r}")
+    layer_norm = probe == "lejepa"
     generator = torch.Generator(device="cpu").manual_seed(seed)
     num_samples = train_features.shape[0]
 
@@ -180,9 +211,9 @@ def run_linear_probe(
         for lr in lr_grid:
             weight, bias = _train_head(
                 fit_x, fit_y, num_classes, lr, epochs, batch_size,
-                weight_decay, momentum, mean, std, device, seed,
+                weight_decay, momentum, mean, std, device, seed, probe=probe,
             )
-            acc, _ = _evaluate(weight, bias, val_x, val_y, mean, std, device)
+            acc, _ = _evaluate(weight, bias, val_x, val_y, mean, std, device, layer_norm=layer_norm)
             search.append({"lr": lr, "heldout_top1": acc})
             logger.info("  linear probe | lr=%-6g held-out top-1 = %.2f%%", lr, acc)
             if acc > best_acc:
@@ -191,10 +222,10 @@ def run_linear_probe(
     # ── refit on the full train split with the selected LR ───────────────────
     weight, bias = _train_head(
         train_features, train_labels, num_classes, best_lr, epochs, batch_size,
-        weight_decay, momentum, mean, std, device, seed,
+        weight_decay, momentum, mean, std, device, seed, probe=probe,
     )
-    top1, top5 = _evaluate(weight, bias, test_features, test_labels, mean, std, device)
-    train_top1, _ = _evaluate(weight, bias, train_features, train_labels, mean, std, device)
+    top1, top5 = _evaluate(weight, bias, test_features, test_labels, mean, std, device, layer_norm=layer_norm)
+    train_top1, _ = _evaluate(weight, bias, train_features, train_labels, mean, std, device, layer_norm=layer_norm)
 
     return {
         "top1": top1,
@@ -206,4 +237,5 @@ def run_linear_probe(
         "batch_size": batch_size,
         "weight_decay": weight_decay,
         "standardize": standardize,
+        "probe": probe,
     }

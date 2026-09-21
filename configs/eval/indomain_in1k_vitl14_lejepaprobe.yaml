@@ -1,0 +1,43 @@
+# ImageNet-1K in-domain evaluation of the ViT-L/14 pair under LeJEPA's PROBE PROTOCOL
+# (campaign decision 3): concatenated class token of the last two blocks (`feature: cls2`),
+# LayerNorm -> Linear trained by AdamW with weight decay 1e-6 (`linear.probe: lejepa`), at the
+# pretraining resolution. Reported in a labelled column beside our protocol
+# (indomain_in1k_ep100.yaml) and never compared to their published 74.24 as a like-for-like:
+# their training setup used an EMA teacher and masking this codebase does not have (decision 13).
+# The learning rate is still selected on a held-out slice of the TRAIN split (PD-4), and the
+# cache key carries the feature mode, so these features never collide with the encoder-mode ones.
+#
+#   sbatch ... --export=NONE,REPO=...,EVAL_SCRIPT=src/eval_indomain.py,EVAL_CONFIG=configs/eval/indomain_in1k_vitl14_lejepaprobe.yaml,ONLY=vitl14_sigreg_s0,EVAL_ROOT=... scripts/aicr/slurm_eval.sh
+device: null
+seed: 0
+dataset: imagenet1k
+data_dir: data/imagenet
+image_folder: imagenet_full_size/061417/
+crop_size: 238            # the pretraining resolution of the ViT-L/14 pair
+feature: cls2             # concat(CLS[-2], CLS[-1]) -> 2048-d for ViT-L
+batch_size: 128
+num_workers: 16
+output_folder: logs/eval_indomain_in1k_vitl14_lejepaprobe
+cache_dir: cache/eval_indomain_in1k_cache   # shared with our protocol; the key's `_cls2` keeps them apart
+train_subset_per_class: null
+knn:                      # k-NN on the same features, our protocol; LeJEPA never reports k-NN
+  k_values: [10, 20, 100, 200]
+  temperature: 0.07
+  report_k: 20
+  chunk_size: 128
+linear:
+  probe: lejepa
+  lr_grid: [0.0001, 0.0003, 0.001, 0.003]   # AdamW learning rates; selected on the held-out train slice
+  epochs: 50
+  batch_size: 4096
+  weight_decay: 0.000001                     # their wd 1e-6
+  standardize: false                         # the LayerNorm is the normalisation
+  val_frac: 0.02
+# Run names from configs/campaign/in1k_vitl14.yaml: the checkpoint directory IS the run name.
+backbones:
+  - name: vitl14_sigreg_s0
+    experiment: lejepa/vitl14_in1k_sigreg_paper
+    checkpoint: checkpoints/vitl14_sigreg_s0/last.ckpt
+  - name: vitl14_local_k4_s0
+    experiment: lejepa/vitl14_in1k_localballreg_paper
+    checkpoint: checkpoints/vitl14_local_k4_s0/last.ckpt

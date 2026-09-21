@@ -520,3 +520,42 @@ def test_an_encoder_that_does_not_return_embeddings_is_caught_at_call_time(check
 
     with pytest.raises(RuntimeError, match=r"Expected encoder to return \(B, D\) embeddings"):
         extract_fn(torch.randn(2, 3, CROP, CROP))
+
+
+# --------------------------------------------------------------------------------------
+# the cls2 feature mode (campaign C4: LeJEPA's probe input)
+# --------------------------------------------------------------------------------------
+
+def test_cls2_mode_concatenates_the_last_two_class_tokens(checkpoint):
+    """vit_tiny has 192 features per block; two class tokens make 384. Checked against a manual
+    ``forward_intermediates`` call, so the mode is pinned to timm's own definition of "the last
+    two blocks, post-norm", not to whatever the extractor happens to return."""
+    extract_fn, dim = load_backbone(EXPERIMENT, checkpoint, torch.device("cpu"),
+                                    crop_size=CROP, overrides=TINY, feature="cls2")
+    body = closed_over(extract_fn, "cls_body")
+    assert dim == 2 * body.num_features == 384
+
+    images = torch.randn(3, 3, CROP, CROP)
+    feats = extract_fn(images)
+    assert feats.shape == (3, 384)
+    outs = body.forward_intermediates(images, indices=2, return_prefix_tokens=True, norm=True,
+                                      output_fmt="NLC", intermediates_only=True)
+    manual = torch.cat([outs[0][1][:, 0], outs[1][1][:, 0]], dim=1)
+    torch.testing.assert_close(feats, manual, rtol=1e-5, atol=1e-5)
+
+
+def test_cls2_is_a_different_representation_from_the_encoder_output(checkpoint):
+    """It bypasses the trained ``embedding_dim`` head entirely, so it must not be mistaken for a
+    superset of the encoder features: widths differ and the values are not a prefix of each other."""
+    enc_fn, enc_dim = load_backbone(EXPERIMENT, checkpoint, torch.device("cpu"), crop_size=CROP, overrides=TINY)
+    cls_fn, cls_dim = load_backbone(EXPERIMENT, checkpoint, torch.device("cpu"), crop_size=CROP,
+                                    overrides=TINY, feature="cls2")
+    assert (enc_dim, cls_dim) == (32, 384)
+    images = torch.randn(2, 3, CROP, CROP)
+    assert not torch.allclose(cls_fn(images)[:, :32], enc_fn(images))
+
+
+def test_cls2_refuses_a_backbone_without_a_class_token(checkpoint):
+    with pytest.raises(ValueError, match="cls2 extraction requires"):
+        load_backbone("lejepa/rn18_stl10_ep500", checkpoint, torch.device("cpu"), crop_size=CROP,
+                      overrides=["model.embedding_dim=32"], feature="cls2")

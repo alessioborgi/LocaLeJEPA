@@ -735,3 +735,25 @@ def test_the_archive_subdirectory_is_named_after_the_evaluation(given, expected)
     from src.eval.io import _eval_name
 
     assert _eval_name(given) == expected
+
+
+# --------------------------------------------------------------------------------------
+# the feature mode is part of the key (campaign C4)
+# --------------------------------------------------------------------------------------
+
+def test_the_default_feature_mode_leaves_the_key_unchanged(tmp_path):
+    """No existing cache is orphaned: ``feature="encoder"`` is the historical key, byte for byte."""
+    from src.eval.io import feature_cache_path
+    ckpt = tmp_path / "last.ckpt"; ckpt.write_bytes(b"x" * 10)
+    plain = feature_cache_path(tmp_path, "bb", "imagenet1k", "val", 128, 99, ckpt)
+    explicit = feature_cache_path(tmp_path, "bb", "imagenet1k", "val", 128, 99, ckpt, feature="encoder")
+    assert plain == explicit and "_encoder" not in plain
+
+
+def test_a_feature_mode_gets_its_own_cache_entry(tmp_path):
+    """cls2 features of the same checkpoint must never be served from its encoder-mode cache."""
+    from src.eval.io import feature_cache_path
+    ckpt = tmp_path / "last.ckpt"; ckpt.write_bytes(b"x" * 10)
+    plain = feature_cache_path(tmp_path, "bb", "imagenet1k", "val", 128, 99, ckpt)
+    cls2 = feature_cache_path(tmp_path, "bb", "imagenet1k", "val", 128, 99, ckpt, feature="cls2")
+    assert cls2 != plain and "_cls2_" in cls2
