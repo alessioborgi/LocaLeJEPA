@@ -71,6 +71,8 @@ REQUIRED_PER_SCRIPT = {
         "callbacks.self_interrupt.at_step": "the rehearsed SIGTERM is real, not simulated",
         "callbacks.learning_rate_monitor.logging_interval=step": "per-step LR rows, or the seam check has nothing to read",
         "-calib-${SLURM_JOB_PARTITION": "calibration dirs are keyed by partition and job: two partitions calibrate one geometry at once",
+        'CKPT_ROOT="${CKPT_ROOT_OVERRIDE:-$CKPT_ROOT}"': "an ablation wave's checkpoint root comes from --export, never from editing roots.env between submissions: tasks read the file when they START",
+        '${CKPT_ROOT_OVERRIDE:+--export "CKPT_ROOT_OVERRIDE=$CKPT_ROOT_OVERRIDE"}': "the successor keeps the checkpoint root of the job it continues, and adds nothing when there is none",
     },
     "slurm_tar_in1k.sh": {
         "tar -tf": "the entry count is compared to the tree, not trusted",
