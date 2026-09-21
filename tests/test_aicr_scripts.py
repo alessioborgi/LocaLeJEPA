@@ -70,6 +70,7 @@ REQUIRED_PER_SCRIPT = {
         "calibrate-verdict": "a calibration ends with the resumed-run verdict, not an exit code",
         "callbacks.self_interrupt.at_step": "the rehearsed SIGTERM is real, not simulated",
         "callbacks.learning_rate_monitor.logging_interval=step": "per-step LR rows, or the seam check has nothing to read",
+        "-calib-${SLURM_JOB_PARTITION": "calibration dirs are keyed by partition and job: two partitions calibrate one geometry at once",
     },
     "slurm_tar_in1k.sh": {
         "tar -tf": "the entry count is compared to the tree, not trusted",
