@@ -719,7 +719,16 @@ def calibrate_verdict(run_dir: Path, *, interrupt_step: int, max_steps: int) -> 
                 return [(int(float(r["step"])), float(r[lr_col])) for r in csv.DictReader(handle) if r.get(lr_col, "") != ""]
         a, b = series(versions[0]), series(versions[1])
         if len(a) >= 2 and b:
-            slope = abs(a[-1][1] - a[-2][1])
+            # F48: with gradient accumulation the scheduler steps once per optimizer step, so the
+            # per-row LR is piecewise constant and the adjacent-row slope is 0 right before the seam
+            # while the seam itself carries one legitimate scheduler step. The local slope is the
+            # largest change between consecutive rows in a window around the seam (16 rows on each
+            # side spans several accumulation windows); a restart from scratch still jumps by orders
+            # of magnitude more than that.
+            window = 16
+            around = [abs(y - x) for (_, x), (_, y) in zip(a[-window:], a[-window + 1:])] + \
+                     [abs(y - x) for (_, x), (_, y) in zip(b[:window], b[1:window + 1])]
+            slope = max(around, default=0.0)
             jump = abs(b[0][1] - a[-1][1])
             checks["lr_continuous"] = (jump <= max(3 * slope, 1e-12), f"lr jump at the seam {jump:.3e} vs local slope {slope:.3e}")
     return Verdict(checks)

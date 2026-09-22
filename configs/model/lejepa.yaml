@@ -24,6 +24,7 @@ probe_lr: 1e-3
 probe_weight_decay: 1e-7
 warmup_epochs: 1
 lr_eta_min_ratio: 0.01
+sync_batchnorm: true   # synchronized BatchNorm under DDP, converted in-place by the module (see trainer/ddp.yaml, F48)
 
 optimizer: ${optimizer}
 

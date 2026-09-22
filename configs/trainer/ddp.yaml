@@ -6,6 +6,9 @@ strategy: ddp
 accelerator: gpu
 devices: 4
 num_nodes: 1
-sync_batchnorm: True
+# BatchNorm IS synchronized across ranks -- by the LightningModule's own conversion (model.sync_batchnorm),
+# not by this flag: torch's converter rebuilds containers through add_module and escnn's containers refuse
+# it, which killed every multi-GPU D4-RN50 launch (F48). Keep this False.
+sync_batchnorm: False
 precision: bf16-mixed # to mimic LeJEPA
 use_distributed_sampler: true

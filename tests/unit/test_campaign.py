@@ -552,6 +552,27 @@ def test_calibrate_verdict_catches_a_restart_from_scratch(tmp_path):
     assert not verdict.checks["resumed"][0]
 
 
+def test_calibrate_verdict_accepts_a_piecewise_constant_lr_across_the_seam(tmp_path):
+    """F48: the B=64x4 Imagenette calibration (accumulate_grad_batches=4) was called broken by
+    the seam check -- `lr jump 6.7e-06 vs local slope 0.0` -- because the LR only moves every
+    fourth row and the two rows before the seam happened to be equal. One scheduler step at the
+    seam is continuity; a restart from scratch is still orders of magnitude bigger."""
+    root = tmp_path / "calib"
+    step_lr = 1e-3 / 400                                     # one scheduler step per 4 rows
+    for version, steps in (("version_0", range(0, 151)), ("version_1", range(151, 200))):
+        d = root / "csv" / version; d.mkdir(parents=True)
+        rows = ["epoch,step,train/loss_step,lr-AdamW"]
+        for step in steps:
+            rows.append(f"0,{step},0.5,{1e-3 - (step // 4) * step_lr}")
+        (d / "metrics.csv").write_text("\n".join(rows) + "\n")
+    verdict = C.calibrate_verdict(root, interrupt_step=150, max_steps=200)
+    assert verdict.checks["lr_continuous"][0], verdict.lines()
+    # the same file with a restart at the seam (LR back to its warm-up value) still fails
+    second = root / "csv" / "version_1" / "metrics.csv"
+    second.write_text("\n".join(["epoch,step,train/loss_step,lr-AdamW"] + [f"0,{s},0.5,{1e-3 - ((s - 151) // 4) * step_lr}" for s in range(151, 200)]) + "\n")
+    assert not C.calibrate_verdict(root, interrupt_step=150, max_steps=200).checks["lr_continuous"][0]
+
+
 def test_calibrate_verdict_catches_a_learning_rate_jump_at_the_seam(tmp_path):
     root = calibration_run(tmp_path, first=range(0, 151), second=range(151, 200), lr_jump=5e-4)
     verdict = C.calibrate_verdict(root, interrupt_step=150, max_steps=200)
