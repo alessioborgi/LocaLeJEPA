@@ -99,16 +99,17 @@ def render(originals,colors,pc1,masks,grid,out,title,labels):
 
 
 def render_comparison(originals, panels, out, rgb_order=(2, 0, 1), render_size=512):
-    """One input per row; model columns share a fixed display-only color mapping."""
+    """One input per row, followed by each model's PCA and 55% PCA overlay."""
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
 
-    fig, axes = plt.subplots(len(originals), 1 + len(panels),
-                             figsize=(9, 3 * len(originals)), squeeze=False)
+    fig, axes = plt.subplots(len(originals), 1 + 2 * len(panels),
+                             figsize=(15, 3 * len(originals)), squeeze=False)
     for row, original in enumerate(originals):
         axes[row, 0].imshow(original)
-        for col, (label, colors, grid) in enumerate(panels, start=1):
+        for model_index, (label, colors, grid) in enumerate(panels):
+            col = 1 + 2 * model_index
             pixels = colors[row].reshape(*grid, 3)[..., list(rgb_order)]
             # Upsample float channels before quantization to avoid banding.
             pixels = np.stack([
@@ -117,11 +118,16 @@ def render_comparison(originals, panels, out, rgb_order=(2, 0, 1), render_size=5
                 for c in range(3)
             ], axis=-1)
             axes[row, col].imshow(np.clip(pixels, 0, 1), interpolation='bilinear')
+            base = np.asarray(original.convert('RGB').resize(
+                (render_size, render_size), Image.Resampling.BILINEAR)) / 255.0
+            overlay = .45 * base + .55 * np.clip(pixels, 0, 1)
+            axes[row, col + 1].imshow(overlay, interpolation='bilinear')
             if row == 0:
                 axes[row, col].set_title(label, fontsize=16, pad=10)
+                axes[row, col + 1].set_title(f'{label} overlay', fontsize=16, pad=10)
         for ax in axes[row]:
             ax.set_axis_off()
-    fig.subplots_adjust(left=.01, right=.99, bottom=.01, top=.95,
+    fig.subplots_adjust(left=.01, right=.99, bottom=.01, top=.91,
                         wspace=.025, hspace=.025)
     fig.savefig(out, dpi=300, facecolor='white')
     plt.close(fig)
@@ -136,7 +142,8 @@ def main():
     ap.add_argument('--images',nargs='+',help='Explicit related images; one shared group')
     ap.add_argument('--image-root',help='Flat image directory or class folders; overrides config image_root')
     ap.add_argument('--classes',nargs='+',help='Optional class folder names')
-    ap.add_argument('--per-class',type=int,default=3)
+    ap.add_argument('--per-class',type=int,default=None,
+                    help='Images per class (config default, otherwise 3)')
     ap.add_argument('--scope',choices=['image','group'],default='image')
     ap.add_argument('--pc1-threshold',type=float,help='Optional [0,1] initial PC1 foreground threshold; background becomes black')
     ap.add_argument('--foreground',choices=['high','low'],default='high')
@@ -151,7 +158,7 @@ def main():
     args=ap.parse_args()
     try:
         if args.render_size<1:raise ValueError('--render-size must be positive')
-        if args.per_class<1:raise ValueError('--per-class must be positive')
+        if args.per_class is not None and args.per_class<1:raise ValueError('--per-class must be positive')
         if args.pc1_threshold is not None and not 0<=args.pc1_threshold<=1:raise ValueError('PC1 threshold must be in [0,1]')
         if args.out.exists() and any(args.out.iterdir()) and not args.overwrite:raise ValueError('Output exists; choose a fresh --out or --overwrite')
         if args.features:
@@ -159,6 +166,8 @@ def main():
             return
         cfg=yaml.safe_load(Path(args.config).read_text());entries=cfg['backbones']
         args.image_root=args.image_root or cfg.get('image_root')
+        args.per_class = args.per_class if args.per_class is not None else cfg.get('per_class', 3)
+        if args.per_class < 1:raise ValueError('per_class must be positive')
         if not args.images and args.classes is None:
             args.classes = cfg.get('classes')
         args.rgb_order = args.rgb_order or cfg.get('rgb_order', '312')
@@ -174,8 +183,8 @@ def main():
         missing=[e['checkpoint'] for e in entries if not Path(e['checkpoint']).is_file()]
         if missing:raise ValueError('Checkpoint files are missing:\n'+'\n'.join(missing))
         groups=select_images(args,cfg.get('class_aliases'))
-        if comparison and (len(entries) != 2 or any(len(paths) != 3 for paths in groups.values())):
-            raise ValueError('Comparison requires two backbones and three images per group')
+        if comparison and (len(entries) != 2 or any(len(paths) != 2 for paths in groups.values())):
+            raise ValueError('Comparison requires two backbones and two images per group; use --per-class 2')
         from src.eval.extract import load_backbone
         from torchvision import transforms
         size=cfg.get('crop_size',128)
@@ -191,7 +200,7 @@ def main():
             raise ValueError('Normalization must be finite with positive std')
         normalize=transforms.Compose([transforms.ToTensor(),transforms.Normalize(norm['mean'],norm['std'])])
         args.out.mkdir(parents=True,exist_ok=True)
-        manifest=dict(comparison=comparison, display_interpolation='bilinear' if comparison else 'nearest', options={k:str(v) if isinstance(v,Path) else v for k,v in vars(args).items()},crop_size=size,image_mode=mode,normalization=norm,groups={},models=[],feature='post-final-norm transformer patch tokens; excludes prefix tokens, pooling, output head and SSL projector',sources=['https://arxiv.org/pdf/2304.07193','https://arxiv.org/pdf/2511.08544'])
+        manifest=dict(comparison=comparison, overlay_alpha=.55 if comparison else None, display_interpolation='bilinear' if comparison else 'nearest', options={k:str(v) if isinstance(v,Path) else v for k,v in vars(args).items()},crop_size=size,image_mode=mode,normalization=norm,groups={},models=[],feature='post-final-norm transformer patch tokens; excludes prefix tokens, pooling, output head and SSL projector',sources=['https://arxiv.org/pdf/2304.07193','https://arxiv.org/pdf/2511.08544'])
         for name,paths in groups.items():
             manifest['groups'][name]=[]
             for p in paths:

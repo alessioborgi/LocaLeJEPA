@@ -16,9 +16,10 @@ class_aliases:
   golf ball: n03445777
   parachute: n03888257
 crop_size: 128
-# Three English springers, with input / LocaLeJEPA / LeJEPA columns.
+# Two English springers: input / LocaLeJEPA PCA + overlay / LeJEPA PCA + overlay.
 classes: [English springer]
 comparison: true
+per_class: 2
 rgb_order: '312'  # R=PC3, G=PC1, B=PC2; display-only permutation.
 backbones:
   - name: H_LocaLe_K4
