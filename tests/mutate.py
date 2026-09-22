@@ -369,6 +369,10 @@ MUTANTS: list[Mutant] = [
     # the defect is re-admitting a container's NON-BatchNorm children through add_module (torch's converter
     # does that for every child); a BatchNorm's own parent inside escnn is a plain module and admits it,
     # so mutating the BatchNorm insertion alone survived (2026-09-21) -- this one rebuilds the way torch does
+    Mutant("c9-download-keeps-hollow-dirs", "scripts/download_transfer_datasets.py",
+           "    hollow = remove_hollow_dirs(root)",
+           "    hollow = []",
+           "a purged, hollow dataset directory is taken for a downloaded dataset and the extraction is skipped (F49)"),
     Mutant("c9-download-never-touches", "scripts/download_transfer_datasets.py",
            '    print(f"=== touched {touch_tree(root)} entries under {root} (scratch purge is by mtime, F49) ===", flush=True)',
            '    pass',
