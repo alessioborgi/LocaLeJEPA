@@ -25,8 +25,8 @@ backbones:
     label: LocaLeJEPA
     experiment: lejepa/vit_imagenette_localballreg_l01_k4
     overrides: [model/encoder=hvit_small_p8]
-    checkpoint: checkpoints/hvit_locale_k4/best.ckpt
+    checkpoint: checkpoints/hvit_locale_k4/snapshots/snap_epoch0099.ckpt
   - name: H_SIGReg
     label: LeJEPA
     experiment: lejepa/hvit_imagenette_sigreg
-    checkpoint: checkpoints/hvit_sigreg_matched/best.ckpt
+    checkpoint: checkpoints/hvit_sigreg_matched/snapshots/snap_epoch0099.ckpt
