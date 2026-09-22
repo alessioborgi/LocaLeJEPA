@@ -1,0 +1,18 @@
+# @package _global_
+# First row of ablations_design_2026-09-22.pdf; array selects lambda/K/batch/seed.
+defaults:
+  - /experiment/ablations/base
+  - _self_
+
+test: false
+model:
+  warmup_epochs: 10
+  lr_eta_min_ratio: 0.001
+
+logger:
+  wandb:
+    group: fixed_k_20260922
+  csv:
+    _target_: lightning.pytorch.loggers.csv_logs.CSVLogger
+    save_dir: ${paths.output_dir}
+    name: csv

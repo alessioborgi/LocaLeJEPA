@@ -216,6 +216,7 @@ def local_loss(
     weighted: bool = False,
     normalize_for_kmeans: bool = True,
     kmeans_backend: str = "fast_pytorch_kmeans",
+    stats: dict[str, float] | None = None,
 ) -> torch.Tensor:
     """A distribution-matching test applied over k-means neighborhoods in embedding space.
 
@@ -237,11 +238,17 @@ def local_loss(
                           still computing the test on raw projections
     kmeans_backend      : "fast_pytorch_kmeans" uses the external accelerated
                           package; "torch" uses the in-repo fallback
+    stats               : optional dict the call fills with the realised partition:
+                          ``configured_clusters`` (the ``num_clusters`` asked for),
+                          ``effective_clusters`` (clusters that survived the size
+                          filter), ``kept_fraction`` (share of the batch inside them)
+                          and ``fallback`` (1.0 when the global test ran instead).
+                          The return value is unchanged; ``None`` costs nothing.
 
     Returns
     -------
     Scalar tensor (float32). Falls back to ``loss`` on the whole batch if every
-    cluster is too small after filtering.
+    cluster is too small after filtering -- reported only through ``stats``.
     """
     if proj.ndim != 3:
         raise ValueError(f"local_loss expects proj with shape (V, N, D), got {tuple(proj.shape)}")
@@ -288,6 +295,16 @@ def local_loss(
         mask = labels == cluster_idx
         losses.append(loss(proj[:, mask, :]))
         weights.append(sizes[cluster_idx])
+
+    if stats is not None:
+        # The realised neighbourhood count. ``num_clusters`` is a MAXIMUM: clusters below
+        # ``min_cluster_size`` are dropped, and when every one is, the statistic silently becomes
+        # the global test (ledger C0-1). Nothing else observes this, so without it the K column
+        # of every ablation table would be the requested K, not the one the run used.
+        stats["configured_clusters"] = float(num_clusters)
+        stats["effective_clusters"] = float(len(losses))
+        stats["kept_fraction"] = float(sum(weights)) / N
+        stats["fallback"] = 0.0 if losses else 1.0
 
     if len(losses) == 0:
         return loss(proj)
@@ -403,19 +420,26 @@ def ballreg_loss(
     )
 
 
-def local_sigreg_loss(proj: torch.Tensor, *, loss: Callable[[torch.Tensor], torch.Tensor] = sigreg_loss, **kwargs: Any) -> torch.Tensor:
+def local_sigreg_loss(
+    proj: torch.Tensor,
+    *,
+    loss: Callable[[torch.Tensor], torch.Tensor] = sigreg_loss,
+    stats: dict[str, float] | None = None,
+    **kwargs: Any,
+) -> torch.Tensor:
     """SIGReg over k-means neighborhoods; see ``local_loss``."""
-    return local_loss(proj, loss=loss, **kwargs)
+    return local_loss(proj, loss=loss, stats=stats, **kwargs)
 
 
 def local_ballreg_loss(
     proj: torch.Tensor,
     *,
     loss: Callable[[torch.Tensor], torch.Tensor] = partial(ballreg_loss, center=True),
+    stats: dict[str, float] | None = None,
     **kwargs: Any,
 ) -> torch.Tensor:
     """Uniform-ball regularization over k-means neighborhoods, centered per cluster; see ``local_loss``."""
-    return local_loss(proj, loss=loss, **kwargs)
+    return local_loss(proj, loss=loss, stats=stats, **kwargs)
 
 
 def _rho_d_cf(t: torch.Tensor, d: int, n_quad: int = 64) -> torch.Tensor:
