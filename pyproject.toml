@@ -38,6 +38,7 @@ experiments = [
     "matplotlib>=3.9",
     "scipy>=1.13",
     "scikit-learn>=1.4",
+    "ripser>=0.6.15",
 ]
 
 [dependency-groups]

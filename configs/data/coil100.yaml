@@ -1,0 +1,18 @@
+defaults:
+  - transform/image@train_transform: coil_train
+  - transform/image@eval_transform: coil_eval
+  - _self_
+
+_target_: src.data.coil100_datamodule.COIL100DataModule
+has_test_data: false
+
+data_dir: ${paths.data_dir}/coil-100
+val_pose_stride: 6
+
+batch_size: 256
+val_batch_size: null
+num_workers: 10
+pin_memory: true
+persistent_workers: false # forked workers accumulate private copy-on-write pages across epochs
+drop_last: true
+crop_size: 128
