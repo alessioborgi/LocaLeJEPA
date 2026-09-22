@@ -37,6 +37,7 @@ REQUIRED_IN_TRAIN = {
     " preflight ": "the tree/env check runs before staging",
     " resume ": "resume is decided from inside the checkpoints",
     " postflight ": "the artifact decides, not the exit code",
+    "--train-rc 0   # a complete cell is verified and marked (F53)": "a complete cell resubmitted runs its postflight and gets its marker, never a bare exit 0 (F53)",
     "successor": "a resumable exit re-submits with this job's resources",
     "trap cleanup EXIT": "node-local /tmp is cleaned on every exit path",
     "verify_imagenet_staging.py": "a staged tree is verified structurally before training",

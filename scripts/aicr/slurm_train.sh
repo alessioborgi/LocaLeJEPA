@@ -84,8 +84,16 @@ eval "$($CAMPAIGN resume --ckpt-dir "$CKPT_DIR" --max-epochs "$MAX_EPOCHS" --she
 # an unreadable checkpoint left in place would be auto-loaded by Lightning on a fresh start (F50)
 for f in ${STALE:-}; do mv "$f" "$f.unreadable.$(date +%s)"; echo "moved unreadable $f aside"; done
 if [ "$DECISION" = "done" ]; then
-    echo "already complete: $CKPT_DIR/last.ckpt is at epoch $((MAX_EPOCHS - 1)); nothing to do"
-    exit 0
+    # F53: a complete cell resubmitted (the third wave after F52's wrong `.failed` markers) is
+    # VERIFIED and marked here, never skipped -- an exit 0 without a postflight left `.failed` in place
+    echo "already complete: $CKPT_DIR/last.ckpt is at epoch $((MAX_EPOCHS - 1)); verifying, no training"
+    set +e
+    $CAMPAIGN postflight "$GRID" --index "$INDEX" --run-dir "$RUN_DIR" --ckpt-dir "$CKPT_DIR" --lock "$ENV_LOCK" --python "$PY" --train-rc 0   # a complete cell is verified and marked (F53)
+    VERDICT=$?
+    set -e
+    if [ "$VERDICT" -eq 0 ]; then echo "=== VERIFIED $RUN_NAME $(date -Is) ==="; exit 0; fi
+    echo "=== FAILED $RUN_NAME: complete last.ckpt but the postflight refused (see .failed in $CKPT_DIR) ===" >&2
+    exit 1
 fi
 
 # ----------------------------------------------------------------------------- staging

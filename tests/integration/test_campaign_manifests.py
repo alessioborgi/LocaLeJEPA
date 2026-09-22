@@ -72,6 +72,21 @@ def test_campaign_invariants(stem, run):
         assert ratio == 0.001, f"{run.run_name}: the local arm's schedule is cosine to peak/1000"
 
 
+@pytest.mark.parametrize("stem, run", CELLS, ids=[f"{s}:{r.run_name}" for s, r in CELLS])
+def test_the_postflight_local_test_agrees_with_the_module_on_every_cell(stem, run):
+    """``config_is_local`` (what the postflight demands ``train/local/*`` from) must equal what the
+    module actually logs -- a regularizer that accepts ``stats``. The control is the case that
+    differs by name only (F53)."""
+    from hydra.utils import instantiate
+    from src.models.lejepa_module import _accepts_keyword
+
+    cfg = C.compose_config(run.hydra_overrides())
+    reg_loss = instantiate(cfg.model.reg_loss)
+    assert C.config_is_local(cfg) == _accepts_keyword(reg_loss, "stats"), run.run_name
+    if run.tag == "vit_control":
+        assert not C.config_is_local(cfg)
+
+
 def test_the_vitl_pair_is_identical_except_the_regularizer():
     """Decision 13, pinned: same views, batch, lr, wd, schedule, lambda, slices, projector."""
     def flat(name):

@@ -204,7 +204,7 @@ def run_dir(tmp_path: Path, *, lamb: float = 0.02, epochs: int = 3, local: bool 
     root = tmp_path / "run"
     (root / ".hydra").mkdir(parents=True)
     cfg = {"model": {"lamb": lamb, "lr_eta_min_ratio": 0.001, "warmup_epochs": 10,
-                     "reg_loss": {"num_clusters": 8}},
+                     **({"reg_loss": {"num_clusters": 8}} if local else {"reg_loss": {"num_slices": 256}})},
            "data": {"batch_size": 64}, "trainer": {"accumulate_grad_batches": 4}, "seed": 1,
            "logger": {"csv": {"_target_": "lightning.pytorch.loggers.csv_logs.CSVLogger"}}}
     OmegaConf.save(OmegaConf.create(cfg), root / ".hydra" / "config.yaml")
@@ -265,11 +265,60 @@ def test_checkpoint_hparams_must_agree_with_the_config(tmp_path):
     assert any("lamb" in p for p in C.checkpoint_matches_config(bad, root))
 
 
+def _csv0(root: Path) -> Path:
+    return root / "csv" / "version_0" / "metrics.csv"
+
+
+def second_launch(root: Path, *, epochs: range, effective: str = "5.0", loss: str = "0.3") -> Path:
+    """A resumed launch's ``version_1/metrics.csv`` re-logging ``epochs`` (local columns present)."""
+    path = root / "csv" / "version_1" / "metrics.csv"
+    path.parent.mkdir(parents=True)
+    columns = ["epoch", "step", "train/loss_step", "train/loss_epoch",
+               "train/local/effective_clusters_epoch", "train/local/fallback_epoch", "train/local/configured_clusters_epoch"]
+    rows = [",".join(columns)]
+    for e in epochs:
+        rows.append(",".join([str(e), str(e * 10 + 5), "0.5", "", "", "", ""]))
+        rows.append(",".join([str(e), str(e * 10 + 9), "", loss, effective, "0.0", "8.0"]))
+    path.write_text("\n".join(rows) + "\n")
+    return path
+
+
+def test_metrics_readers_take_each_epoch_from_the_last_launch(tmp_path):
+    """F52: a resumed run has one metrics.csv per launch and the interrupted launch's rows for
+    the epochs it re-trained are stale. Inverted once on the old readers: the postflight read the
+    newest file only ("2 epochs logged, expected 4") and realised_k averaged its two epochs."""
+    root = run_dir(tmp_path, epochs=4)                               # version_0: epochs 0-3, K 7.5
+    second_launch(root, epochs=range(2, 4))                          # version_1: epochs 2-3 again, K 5.0
+    csv_dir = root / "csv"
+    columns, rows = C.merged_metrics_rows(csv_dir)
+    assert columns[:4] == ["epoch", "step", "train/loss_step", "train/loss_epoch"]
+    assert [int(r["epoch"]) for r in rows] == [0, 0, 1, 1, 2, 2, 3, 3]
+    assert [r["train/loss_epoch"] for r in rows if r["train/loss_epoch"]] == ["0.4", "0.4", "0.3", "0.3"]
+    assert C.metrics_complete(csv_dir, 4, local_run=True) == []
+    assert any("2 epochs logged, expected 4" in p for p in
+               C.metrics_complete(csv_dir / "version_1" / "metrics.csv", 4, local_run=True)), "one file still reads alone"
+    out = C.realised_k(csv_dir)
+    assert out["epochs"] == 4 and out["mean"] == pytest.approx((2 * 7.5 + 2 * 5.0) / 4)
+    assert C.realised_k(csv_dir / "version_0" / "metrics.csv")["mean"] == pytest.approx(7.5)
+
+
+def test_postflight_verifies_a_resumed_run_across_its_launches(tmp_path):
+    """The 05:15 wave's resumed cells ended `.failed` with a complete last.ckpt (F52)."""
+    root = run_dir(tmp_path, epochs=3)
+    second_launch(root, epochs=range(1, 3))
+    ckpt_dir = tmp_path / "ckpt"; ckpt_dir.mkdir()
+    ckpt(ckpt_dir / "last.ckpt", epoch=2, step=29)
+    repo, commit = git_repo(tmp_path)
+    verdict = C.postflight(spec(), root, ckpt_dir, grid_commit=commit, lock_hash=None, python=None, repo=repo)
+    assert verdict.ok, verdict.lines()
+    assert verdict.checks["metrics"] == (True, "complete over 2 launch(es)")
+
+
 def test_metrics_complete_wants_every_epoch_no_nan_and_the_realised_k_column(tmp_path):
-    csv_path = C.find_metrics_csv(run_dir(tmp_path))
+    csv_path = _csv0(run_dir(tmp_path))
     assert C.metrics_complete(csv_path, 3, local_run=True) == []
     assert any("epochs logged" in p for p in C.metrics_complete(csv_path, 5, local_run=True))
-    csv_no_local = C.find_metrics_csv(run_dir(tmp_path / "b", local=False))
+    csv_no_local = _csv0(run_dir(tmp_path / "b", local=False))
     assert any("effective_clusters" in p for p in C.metrics_complete(csv_no_local, 3, local_run=True))
     assert C.metrics_complete(csv_no_local, 3, local_run=False) == []
     text = csv_path.read_text().replace("0.4", "nan", 1)
@@ -286,6 +335,25 @@ def test_postflight_verdict_and_marker_on_a_good_run(tmp_path):
     assert verdict.ok, verdict.lines()
     marker = C.write_marker(ckpt_dir, verdict, spec(), {"train_rc": 0})
     assert marker.name == ".verified" and json.loads(marker.read_text())["ok"] is True
+
+
+def test_postflight_reads_local_from_the_config_never_from_the_experiment_name(tmp_path):
+    """F53: the SIGReg control lives at ``lejepa/vit_in1k_sigreg_localrecipe``; the old name test
+    called it local and demanded a realised-K column it never logs. Inverted once on the old
+    code: 'local run without train/local/effective_clusters_epoch'."""
+    control = spec(experiment="lejepa/vit_in1k_sigreg_localrecipe", run_name="vit_control_lam0.02_s1",
+                   overrides=("data.batch_size=64", "logger=csv", "model.lamb=0.02", "trainer.accumulate_grad_batches=4"))
+    root = run_dir(tmp_path, local=False,
+                   overrides=["experiment=lejepa/vit_in1k_sigreg_localrecipe", "logger=csv", "seed=1"])
+    assert not C.run_is_local(root, control)
+    ckpt_dir = tmp_path / "ckpt"; ckpt_dir.mkdir()
+    ckpt(ckpt_dir / "last.ckpt", epoch=2, step=29)
+    repo, commit = git_repo(tmp_path)
+    verdict = C.postflight(control, root, ckpt_dir, grid_commit=commit, lock_hash=None, python=None, repo=repo)
+    assert verdict.ok, verdict.lines()
+    assert C.run_is_local(run_dir(tmp_path / "local"), spec()), "a config with reg_loss.num_clusters is local"
+    (root / ".hydra" / "config.yaml").unlink()
+    assert not C.run_is_local(root, control) and C.run_is_local(root, spec()), "without a config: the manifest's overrides"
 
 
 def test_postflight_fails_on_an_unfinished_artifact_and_writes_failed(tmp_path):
@@ -420,7 +488,7 @@ def test_submit_names_the_gpu_type_on_preemptable_and_refuses_mixed_gpu_counts(t
 
 
 def test_realised_k_reads_the_epoch_series_only(tmp_path):
-    csv_path = C.find_metrics_csv(run_dir(tmp_path, epochs=12))
+    csv_path = _csv0(run_dir(tmp_path, epochs=12))
     text = csv_path.read_text().replace("7.5,0.0,8.0", "6.0,1.0,8.0", 1)   # one fallback epoch
     csv_path.write_text(text)
     out = C.realised_k(csv_path, last_n=10)
@@ -429,7 +497,7 @@ def test_realised_k_reads_the_epoch_series_only(tmp_path):
 
 
 def test_realised_k_is_explicit_about_a_global_run(tmp_path):
-    out = C.realised_k(C.find_metrics_csv(run_dir(tmp_path, local=False)))
+    out = C.realised_k(_csv0(run_dir(tmp_path, local=False)))
     assert out["epochs"] == 0 and out["mean"] is None
 
 
@@ -633,6 +701,25 @@ def test_online_probe_curve_spans_the_launches_of_a_resumed_run(tmp_path):
     online_csv(tmp_path / "csv" / "version_10" / "metrics.csv", [0.61], epoch0=4)     # numeric order, not lexical
     curve = C.online_probe_curve(tmp_path / "csv")
     assert curve == {"epochs": 5, "final": 61.0, "max": 65.0, "argmax_epoch": 2}
+
+
+def test_online_probe_curve_drops_the_stale_tail_of_an_interrupted_launch(tmp_path):
+    """F52: the first launch of task 0 had logged every epoch (last.ckpt was stale at 97); the
+    resume re-trained 98-99. Its old rows for those epochs must not enter the curve -- a stale
+    0.99 at epoch 3 here would otherwise become the maximum."""
+    online_csv(tmp_path / "csv" / "version_0" / "metrics.csv", [0.30, 0.55, 0.60, 0.99])
+    online_csv(tmp_path / "csv" / "version_1" / "metrics.csv", [0.58, 0.62], epoch0=2)
+    assert C.online_probe_curve(tmp_path / "csv") == {"epochs": 4, "final": 62.0, "max": 62.0, "argmax_epoch": 3}
+
+
+def test_metrics_readers_accept_lightning_crlf_line_endings(tmp_path):
+    """Lightning's CSVLogger writes with csv.DictWriter's default line terminator, CRLF; an awk on
+    the cluster missed the last column for that reason (2026-09-22). The Python readers must not."""
+    rows = ["epoch,step,train/loss_epoch,val/probe_acc", "0,9,0.5,0.30", "1,19,0.4,0.55", "100,20,,"]
+    path = tmp_path / "csv" / "version_0" / "metrics.csv"; path.parent.mkdir(parents=True)
+    path.write_bytes(("\r\n".join(rows) + "\r\n").encode())
+    assert C.metrics_complete(tmp_path / "csv", 2, local_run=False) == []
+    assert C.online_probe_curve(tmp_path / "csv") == {"epochs": 2, "final": 55.0, "max": 55.0, "argmax_epoch": 1}
 
 
 def test_online_probe_curve_without_the_column_is_empty_not_wrong(tmp_path):
