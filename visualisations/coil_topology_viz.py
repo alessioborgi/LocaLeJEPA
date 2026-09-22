@@ -153,7 +153,9 @@ def embed_checkpoint(
     return _payload(dataset, torch.cat(embeddings), torch.cat(projections))
 
 
-def load_checkpoint(name: str, experiment: str, ckpt: str | Path | None, dataset: COIL100Dataset, head: str = "embeddings", **kwargs) -> Run:
+def load_checkpoint(
+    name: str, experiment: str, ckpt: str | Path | None, dataset: COIL100Dataset, head: str = "embeddings", **kwargs
+) -> Run:
     return _run(name, embed_checkpoint(experiment, ckpt, **kwargs), dataset, head)
 
 
