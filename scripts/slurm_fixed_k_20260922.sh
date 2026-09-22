@@ -7,6 +7,7 @@
 #SBATCH --gres=gpu:1
 #SBATCH --mem=80G
 #SBATCH --time=1-00:00:00
+#SBATCH --nodelist=diufrd205
 #SBATCH --array=0-179%1
 #SBATCH --output=logs/slurm/%x_%A_%a.out
 #SBATCH --error=logs/slurm/%x_%A_%a.err
