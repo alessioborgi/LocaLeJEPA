@@ -80,7 +80,9 @@ mkdir -p "$RUN_DIR" "$CKPT_DIR"
 $CAMPAIGN preflight "$GRID" --index "$INDEX" --lock "$ENV_LOCK" --python "$PY"
 eval "$($CAMPAIGN geometry "$GRID" --index "$INDEX" --world-size "$GPUS" --shell)"   # GEO_*
 $CAMPAIGN geometry "$GRID" --index "$INDEX" --world-size "$GPUS"
-eval "$($CAMPAIGN resume --ckpt-dir "$CKPT_DIR" --max-epochs "$MAX_EPOCHS" --shell)"   # DECISION, RESUME
+eval "$($CAMPAIGN resume --ckpt-dir "$CKPT_DIR" --max-epochs "$MAX_EPOCHS" --shell)"   # DECISION, RESUME, STALE
+# an unreadable checkpoint left in place would be auto-loaded by Lightning on a fresh start (F50)
+for f in ${STALE:-}; do mv "$f" "$f.unreadable.$(date +%s)"; echo "moved unreadable $f aside"; done
 if [ "$DECISION" = "done" ]; then
     echo "already complete: $CKPT_DIR/last.ckpt is at epoch $((MAX_EPOCHS - 1)); nothing to do"
     exit 0
@@ -90,6 +92,13 @@ fi
 TMP="/tmp/localejepa_${SLURM_JOB_ID:-$$}"
 cleanup() { rm -rf "$TMP"; }
 trap cleanup EXIT
+# A SIGTERM that reaches THIS script is a cancel (scancel signals the batch step too) or a
+# preemption (which Slurm requeues by itself); the wall's --signal=TERM@120 goes to the srun
+# tasks only. So a signalled script must not submit a successor -- the first wave's cancel spawned
+# eighteen of them (F50). Bash runs the trap after the foreground srun returns.
+SIGNALLED=0; TIME_LEFT=unknown
+on_term() { SIGNALLED=1; TIME_LEFT=$(squeue -h -j "${SLURM_JOB_ID:-0}" -o %L 2>/dev/null || echo unknown); }
+trap on_term TERM
 find /tmp -maxdepth 1 -name 'localejepa_*' -user "$USER" -mmin +2880 -exec rm -rf {} + 2>/dev/null || true
 
 DATA_OVERRIDE=""
@@ -115,7 +124,8 @@ LAUNCH=($($CAMPAIGN launch-overrides --gpus "$GPUS" --cpus "${SLURM_CPUS_PER_TAS
 RESUME_OVERRIDE=""
 [ -n "${RESUME:-}" ] && RESUME_OVERRIDE="ckpt_path=$RESUME"
 COMMON=("$PY" src/train.py $OVERRIDES "${LAUNCH[@]}" "hydra.run.dir=$RUN_DIR"
-        "callbacks.model_checkpoint.dirpath=$CKPT_DIR" "callbacks.on_exception.dirpath=$CKPT_DIR" "$DATA_OVERRIDE")
+        "callbacks.model_checkpoint.dirpath=$CKPT_DIR" "callbacks.last_checkpoint.dirpath=$CKPT_DIR"
+        "callbacks.on_exception.dirpath=$CKPT_DIR" "$DATA_OVERRIDE")
 SRUN=(srun --ntasks-per-node="$GPUS" --cpus-per-task="${SLURM_CPUS_PER_TASK:-16}" --kill-on-bad-exit=1)
 
 if [ "${MODE:-train}" = "calibrate" ]; then
@@ -166,13 +176,16 @@ case "$VERDICT" in
     0) echo "=== VERIFIED $RUN_NAME $(date -Is) ==="; exit 0 ;;
     3) echo "=== RESUMABLE $RUN_NAME; requeue_left=$REQUEUE_LEFT ==="
        if [ "$REQUEUE_LEFT" -gt 0 ]; then
-           CMD="$($CAMPAIGN successor --requeue-left "$REQUEUE_LEFT" --time "${TIME_LIMIT:?TIME_LIMIT was not exported}" \
-                  --script "$REPO/scripts/aicr/slurm_train.sh" \
+           SIG=(); [ "$SIGNALLED" = 1 ] && SIG=(--signalled --time-left "$TIME_LEFT")
+           if CMD="$($CAMPAIGN successor --requeue-left "$REQUEUE_LEFT" --time "${TIME_LIMIT:?TIME_LIMIT was not exported}" \
+                  --script "$REPO/scripts/aicr/slurm_train.sh" "${SIG[@]}" \
                   --export "GRID=$GRID" --export "REPO=$REPO" --export "GRID_INDEX=$INDEX" --export "TIME_LIMIT=$TIME_LIMIT" \
-                  ${CKPT_ROOT_OVERRIDE:+--export "CKPT_ROOT_OVERRIDE=$CKPT_ROOT_OVERRIDE"})"
-           echo "successor: $CMD"
-           eval "$CMD"
-           exit 0
+                  ${CKPT_ROOT_OVERRIDE:+--export "CKPT_ROOT_OVERRIDE=$CKPT_ROOT_OVERRIDE"})"; then
+               echo "successor: $CMD"
+               eval "$CMD"
+               exit 0
+           fi
+           echo "no successor submitted (see the reason above); resume by hand with GRID_INDEX=$INDEX" >&2; exit 3
        fi
        echo "requeue budget exhausted: resubmit by hand with GRID_INDEX=$INDEX" >&2; exit 3 ;;
     *) echo "=== FAILED $RUN_NAME (see .failed in $CKPT_DIR) ==="; exit 1 ;;

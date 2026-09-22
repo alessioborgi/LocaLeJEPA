@@ -738,6 +738,43 @@ def calibrate_verdict(run_dir: Path, *, interrupt_step: int, max_steps: int) -> 
 # successor -- inherits what THIS job actually got, and counts down
 # ======================================================================================
 
+def parse_slurm_time_left(text: str | None) -> float | None:
+    """``squeue -o %L`` (``D-HH:MM:SS``, ``HH:MM:SS``, ``MM:SS``, ``SS``) in seconds; ``None`` when
+    unknown (``UNLIMITED``, ``INVALID``, ``NOT_SET``, an empty string, garbage)."""
+    if not text:
+        return None
+    text = text.strip()
+    days = 0
+    if "-" in text:
+        day_part, text = text.split("-", 1)
+        if not day_part.isdigit():
+            return None
+        days = int(day_part)
+    parts = text.split(":")
+    if not all(part.isdigit() for part in parts) or not 1 <= len(parts) <= 3:
+        return None
+    values = [int(part) for part in parts]
+    seconds = 0
+    for value in values:
+        seconds = seconds * 60 + value
+    return float(days * 86400 + seconds)
+
+
+WALL_SIGNAL_WINDOW_S = 300.0     # --signal=TERM@120 plus the postflight's own time; a cancel has far more left
+
+
+def successor_allowed(*, signalled: bool, time_left: str | None) -> tuple[bool, str]:
+    """A successor continues a run the WALL interrupted. A SIGTERM that reached the batch script
+    with more than the signal window left is a cancel (F50: the first wave's `scancel` spawned
+    eighteen successors) or a preemption (Slurm requeues those itself): no successor."""
+    if not signalled:
+        return True, "no signal reached the script: a wall or a crash, resumable"
+    left = parse_slurm_time_left(time_left)
+    if left is not None and left <= WALL_SIGNAL_WINDOW_S:
+        return True, f"signalled with {left:.0f}s left: the wall"
+    return False, f"signalled with {time_left!r} left, not the wall: a cancel or a preemption -- no successor"
+
+
 def successor_argv(env: Mapping[str, str], *, script: str, requeue_left: int, time: str,
                    exports: Mapping[str, str]) -> list[str] | None:
     """The ``sbatch`` argv for a resumable exit, or ``None`` when the budget is spent.
@@ -960,6 +997,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--train-rc", type=int, default=0)
     p = sub.add_parser("successor"); p.add_argument("--requeue-left", type=int, required=True)
     p.add_argument("--time", required=True); p.add_argument("--script", required=True)
+    p.add_argument("--signalled", action="store_true", help="a SIGTERM reached the batch script (F50)")
+    p.add_argument("--time-left", default=None, help="squeue %L at the signal")
     p.add_argument("--export", action="append", default=[], help="KEY=VALUE to carry to the successor")
     p = sub.add_parser("realised-k"); p.add_argument("metrics", type=Path)
     p = sub.add_parser("online-curve"); p.add_argument("metrics", type=Path)
@@ -1036,7 +1075,12 @@ def main(argv: list[str] | None = None) -> int:
                   f"{'' if candidate.valid else ' UNREADABLE ' + str(candidate.error)}", file=sys.stderr)
         print(f"# decision: {decision.kind} -- {decision.reason}", file=sys.stderr)
         if args.shell:
-            _emit_shell({"DECISION": decision.kind, "RESUME": str(decision.path) if decision.path and decision.kind == "resume" else ""})
+            # F50: with an OnExceptionCheckpoint in the callbacks Lightning turns fit(ckpt_path=None)
+            # into ckpt_path="last" and loads any last.ckpt / on_exception.ckpt it finds -- so a
+            # "fresh" decision taken because those files are unreadable must move them aside first
+            stale = " ".join(str(c.path) for c in decision.candidates if not c.valid) if decision.kind == "fresh" else ""
+            _emit_shell({"DECISION": decision.kind, "RESUME": str(decision.path) if decision.path and decision.kind == "resume" else "",
+                         "STALE": stale})
         else:
             print(decision.kind if decision.path is None else f"{decision.kind}:{decision.path}")
         return 0
@@ -1069,6 +1113,10 @@ def main(argv: list[str] | None = None) -> int:
         exports = dict(item.split("=", 1) for item in args.export)
         argv_out = successor_argv(os.environ, script=args.script, requeue_left=args.requeue_left,
                                   time=args.time, exports=exports)
+        allowed, why = successor_allowed(signalled=args.signalled, time_left=args.time_left)
+        if not allowed:
+            print(f"# {why}", file=sys.stderr)
+            return 1
         if argv_out is None:
             print("# requeue budget exhausted: no successor", file=sys.stderr)
             return 1

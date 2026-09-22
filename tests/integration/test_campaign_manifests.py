@@ -166,6 +166,13 @@ def test_the_launchers_override_sets_compose_for_every_cell(stem, run):
     assert cfg.data.num_workers == 16 and cfg.trainer.log_every_n_steps == 50
     # the `gpu` trainer config has no sync_batchnorm key (Lightning's default: off); `ddp` sets it False
     assert cfg.model.sync_batchnorm is True and cfg.trainer.get("sync_batchnorm", False) is False, "BatchNorm is synchronized by the module, not by Lightning (F48)"
+    # F50: the three checkpoint dirpaths the launcher overrides must exist, last.ckpt must come from a
+    # monitor-less callback and best.ckpt from the online probe's, neither versioned
+    cfg = C.compose_config(run.hydra_overrides() + launch + ["callbacks.model_checkpoint.dirpath=/x",
+                                                             "callbacks.last_checkpoint.dirpath=/x", "callbacks.on_exception.dirpath=/x"])
+    assert cfg.callbacks.last_checkpoint.monitor is None and cfg.callbacks.last_checkpoint.save_top_k == 1
+    assert cfg.callbacks.model_checkpoint.save_last is False and cfg.callbacks.last_checkpoint.save_last is False
+    assert cfg.callbacks.model_checkpoint.enable_version_counter is False and cfg.callbacks.last_checkpoint.enable_version_counter is False
     assert cfg.trainer.devices == run.gpus and (run.gpus == 1 or cfg.trainer.strategy == "ddp")
     assert cfg.logger.csv is not None
 

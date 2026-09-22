@@ -369,6 +369,14 @@ MUTANTS: list[Mutant] = [
     # the defect is re-admitting a container's NON-BatchNorm children through add_module (torch's converter
     # does that for every child); a BatchNorm's own parent inside escnn is a plain module and admits it,
     # so mutating the BatchNorm insertion alone survived (2026-09-21) -- this one rebuilds the way torch does
+    Mutant("c10-last-ckpt-follows-the-monitor", "configs/callbacks/default.yaml",
+           "  monitor: null\n  save_top_k: 1\n  save_last: False\n  every_n_epochs: 1",
+           '  monitor: "val/probe_acc"\n  save_top_k: 1\n  save_last: True\n  every_n_epochs: 1',
+           "last.ckpt is again a copy of best.ckpt: the final-epoch weights are never written (F50)"),
+    Mutant("c10-successor-after-a-cancel", "scripts/aicr/campaign.py",
+           "    if left is not None and left <= WALL_SIGNAL_WINDOW_S:",
+           "    if True:",
+           "a cancelled wave spawns a successor per task again (F50)"),
     Mutant("c9-download-keeps-hollow-dirs", "scripts/download_transfer_datasets.py",
            "    hollow = remove_hollow_dirs(root)",
            "    hollow = []",

@@ -4,20 +4,38 @@ defaults:
   - rich_progress_bar
   - _self_
 
+# TWO checkpoint callbacks, on purpose (F50, 2026-09-22). Lightning 2.6.6 writes a callback's
+# last.ckpt only in the same call in which it saved a top-k checkpoint -- i.e. only when the
+# monitored metric improved -- so with `monitor` + `save_top_k: 1` + `save_last: True` the file
+# named last.ckpt was a copy of best.ckpt and the final-epoch weights were never written. The
+# first ablation wave found it (last.ckpt at epoch 97 of a 100-epoch run); every FASRC run of the
+# draft carried the same version and the same settings, so its "last" numbers were best-on-val.
 model_checkpoint:
   dirpath: ${paths.output_dir}/checkpoints
-  # Keep the BEST checkpoint (by validation online-probe accuracy) at a stable
-  # path best.ckpt, plus last.ckpt for the final-epoch weights. The campaign's
-  # headline numbers come from last.ckpt (no selection on the reported split --
-  # state/10-PAPER-STATE.md PD-4); best.ckpt feeds a labelled secondary column.
-  # Runs without an online probe override monitor: null in their experiment
-  # config (they fall back to keeping the last checkpoint).
+  # best.ckpt: the epoch the online probe ranked highest on val -- the labelled secondary
+  # column (state/10-PAPER-STATE.md PD-4), never the headline. Runs without an online probe
+  # override monitor: null in their experiment config (it then saves every epoch as best.ckpt).
   filename: "best"
   monitor: "val/probe_acc"
   mode: "max"
   save_top_k: 1
-  save_last: True
+  save_last: False                 # last.ckpt is the other callback's, written EVERY epoch
   auto_insert_metric_name: False
+  enable_version_counter: False    # overwrite a stale best.ckpt, never write best-v1.ckpt
+
+last_checkpoint:
+  _target_: lightning.pytorch.callbacks.ModelCheckpoint
+  dirpath: ${paths.output_dir}/checkpoints
+  # last.ckpt: the final-epoch weights, the headline artifact (no selection on the reported
+  # split). No monitor, so it is saved at every validation end regardless of any metric; the
+  # launcher's postflight requires epoch == max_epochs - 1 inside it.
+  filename: "last"
+  monitor: null
+  save_top_k: 1
+  save_last: False
+  every_n_epochs: 1
+  auto_insert_metric_name: False
+  enable_version_counter: False    # a resumed or re-run job overwrites last.ckpt, never last-v1.ckpt
 
 model_summary:
   max_depth: -1
