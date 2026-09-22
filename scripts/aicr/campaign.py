@@ -927,6 +927,29 @@ def stage_check(free_bytes: int, tar_bytes: int, factor: float = 1.2) -> tuple[b
     return True, f"/tmp has {free_bytes / 1e9:.0f} GB free for a {tar_bytes / 1e9:.0f} GB tar"
 
 
+def block_index_ranges(runs: Iterable[RunSpec]) -> list[tuple[str, int, int]]:
+    """``(tag, first index, last index)`` per block in INDEX order -- the order of the manifest's
+    blocks, which is the order ``SLURM_ARRAY_TASK_ID`` counts in. F51: the summary used to print the
+    tags sorted, and three arrays were submitted twice with ``--indices`` read off that sorted list
+    (the D4 baselines on a 14 h wall, the ViT-L local arm for the SIGReg one, the control for a
+    local arm). Anything that names cells to a human names them in this order."""
+    ranges: list[tuple[str, int, int]] = []
+    for i, run in enumerate(runs):
+        if ranges and ranges[-1][0] == run.tag:
+            ranges[-1] = (run.tag, ranges[-1][1], i)
+        else:
+            ranges.append((run.tag, i, i))
+    return ranges
+
+
+def describe_cells(runs: list[RunSpec], indices: list[int] | None) -> str:
+    """The cells a submission names, by index and run name (F51). A full array is described by
+    its blocks' index ranges; an ``--indices`` submission by every chosen ``index=run_name``."""
+    if indices is None:
+        return f"0-{len(runs) - 1} in index order: " + " ".join(f"{t}[{a}-{b}]" for t, a, b in block_index_ranges(runs))
+    return " ".join(f"{i}={runs[i].run_name}" for i in indices)
+
+
 def submit_command(grid_path: Path, runs: list[RunSpec], *, partition: str, account: str, time: str,
                    script: str, log_dir: str, exports: Mapping[str, str], throttle: int | None = None,
                    cpus_per_gpu: int = 16, mem_per_gpu_gb: int = 60, gpu_type: str | None = None,
@@ -1028,8 +1051,9 @@ def main(argv: list[str] | None = None) -> int:
         commit, dirty = tree_state(REPO)
         write_grid(runs, args.out, manifest_name=str(manifest.get("name", args.manifest.stem)),
                    commit=(commit + ("-dirty" if dirty else "")) if commit else None)
-        tags = sorted({run.tag for run in runs})
-        print(f"{len(runs)} runs from {len(manifest['blocks'])} block(s) {tags} x {len(manifest.get('seeds', [0]))} seed(s) -> {args.out}")
+        blocks = " ".join(f"{t}[{a}-{b}]" for t, a, b in block_index_ranges(runs))   # index order, never sorted (F51)
+        print(f"{len(runs)} runs from {len(manifest['blocks'])} block(s) in index order: {blocks} "
+              f"x {len(manifest.get('seeds', [0]))} seed(s) -> {args.out}")
         return 0
 
     if args.command == "show":
@@ -1157,6 +1181,7 @@ def main(argv: list[str] | None = None) -> int:
                                   throttle=args.throttle, cpus_per_gpu=args.cpus_per_gpu,
                                   mem_per_gpu_gb=args.mem_per_gpu_gb, gpu_type=args.gpu_type, indices=indices)
         import shlex
+        print(f"# cells: {describe_cells(runs, indices)}", file=sys.stderr)   # F51: verify by name, not by position
         print(" ".join(shlex.quote(a) for a in argv_out))
         return 0
 
