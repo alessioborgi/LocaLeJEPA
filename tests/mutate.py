@@ -366,10 +366,13 @@ MUTANTS: list[Mutant] = [
            '        if not line or line.startswith("#"):',
            "the conda half of the lock enters the hash and every preflight refuses again"),
     # --- C7, decision 16: the eval-selected column and the online curve ---
+    # the defect is re-admitting a container's NON-BatchNorm children through add_module (torch's converter
+    # does that for every child); a BatchNorm's own parent inside escnn is a plain module and admits it,
+    # so mutating the BatchNorm insertion alone survived (2026-09-21) -- this one rebuilds the way torch does
     Mutant("c8-sync-bn-through-add-module", "src/utils/sync_bn.py",
-           "            module._modules[name] = new          # never parent.add_module: escnn refuses the re-admission",
-           "            module.add_module(name, new)",
-           "the conversion goes through add_module again and every multi-GPU D4-RN50 launch dies (F48)"),
+           "            convert_sync_batchnorm_inplace(child, process_group)",
+           "            module.add_module(name, convert_sync_batchnorm_inplace(child, process_group))",
+           "containers are rebuilt through add_module again and every multi-GPU D4-RN50 launch dies (F48)"),
     Mutant("c8-module-never-syncs-bn", "src/models/lejepa_module.py",
            '        if stage == "fit" and self.sync_batchnorm and trainer is not None and trainer.world_size > 1:',
            '        if False:',
