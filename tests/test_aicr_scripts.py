@@ -89,6 +89,12 @@ REQUIRED_PER_SCRIPT = {
         "--begin=now+25days": "the next refresh is on the scheduler, not in memory",
         "REFUSING": "a purged tar is reported, never silently re-created",
     },
+    "slurm_touch_scratch.sh": {
+        "touch -h": "every file's mtime is reset, symlinks as links: the purge deletes by mtime (F49)",
+        "--begin=now+25days": "the next touch is on the scheduler, not in memory",
+        "/tmp/*)": "a node-local root is refused (F39)",
+        "was it purged already": "a missing root is reported, never silently skipped",
+    },
     "slurm_download_transfer.sh": {
         "--verify": "the structural check replaces the existence-only .ready marker",
         "/tmp/*)": "a node-local root is refused (F39)",

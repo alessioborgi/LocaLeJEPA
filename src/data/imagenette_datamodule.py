@@ -103,6 +103,11 @@ class ImagenetteDataModule(LightningDataModule):
         url, root_name = self._variant_info()
         if not self._dataset_root.exists():
             download_and_extract_archive(url, download_root=str(self.data_dir), filename=f"{root_name}.tgz")
+            # F49: extraction keeps the archive's (years-old) mtimes and AICR's scratch purge deletes
+            # by mtime at its next daily sweep -- twice, this dataset arrived and vanished within hours
+            from src.utils.touch import touch_tree
+
+            touch_tree(self._dataset_root)
 
     def setup(self, stage: Optional[str] = None) -> None:
         eval_transform = self.eval_transform

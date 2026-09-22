@@ -6,6 +6,10 @@
 
 """Download the seven SPHERE-JEPA Table 1 transfer datasets with torchvision, then verify them.
 
+Run it with the repo on the Python path (``PYTHONPATH=<clone>``; the batch wrapper does that).
+Every download ends by resetting the modification times of the whole tree (F49: the scratch
+purge deletes by mtime, and extracted archives carry old ones).
+
 Run it as a batch job (``scripts/aicr/slurm_download_transfer.sh``): on AICR the compute nodes
 have outbound internet and the login node kills sustained downloads, so the old instruction
 "run on a login node" was wrong there. The eval jobs then read the datasets with
@@ -29,6 +33,7 @@ import time
 from pathlib import Path
 
 from src.eval.transfer import TRANSFER_DATASETS, get_transfer_splits
+from src.utils.touch import touch_tree
 
 
 def download(root: str, keys: list[str]) -> list[str]:
@@ -43,6 +48,9 @@ def download(root: str, keys: list[str]) -> list[str]:
         except Exception as exc:  # noqa: BLE001
             print(f"=== {key}: FAILED: {exc!r} ===", flush=True)
             failed.append(key)
+    # F49: the scratch purge is by mtime and extraction keeps the archives' old mtimes; without this
+    # the extracted files are gone at the next sweep while the archives and directories remain
+    print(f"=== touched {touch_tree(root)} entries under {root} (scratch purge is by mtime, F49) ===", flush=True)
     return failed
 
 
