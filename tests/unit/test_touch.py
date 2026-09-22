@@ -78,3 +78,30 @@ def test_the_imagenette_datamodule_touches_what_it_extracts(tmp_path, monkeypatc
     marker = extracted.stat().st_mtime
     dm.prepare_data()                        # already there: no download, no second touch of the root
     assert extracted.stat().st_mtime == marker
+
+
+def test_the_transfer_download_removes_hollow_directories_first(tmp_path, monkeypatch):
+    """F49, second bite: after the sweep a dataset's directory still exists with no file in it, and
+    torchvision then skips the extraction and fails to read. The script clears such directories
+    before it starts; a populated one and a plain file are left alone."""
+    import scripts.download_transfer_datasets as dl
+
+    root = tmp_path / "transfer"
+    (root / "dtd" / "images").mkdir(parents=True)                    # hollow: directories only
+    (root / "fgvc-aircraft-2013b").mkdir()                            # hollow: empty
+    (root / "cifar-10-batches-py").mkdir(); (root / "cifar-10-batches-py" / "data_batch_1").write_bytes(b"x")
+    (root / "cifar-10-python.tar.gz").write_bytes(b"archive")
+    assert dl.remove_hollow_dirs(str(root)) == ["dtd", "fgvc-aircraft-2013b"]
+    assert not (root / "dtd").exists() and not (root / "fgvc-aircraft-2013b").exists()
+    assert (root / "cifar-10-batches-py" / "data_batch_1").is_file() and (root / "cifar-10-python.tar.gz").is_file()
+    assert dl.remove_hollow_dirs(str(tmp_path / "absent")) == []
+
+    (root / "dtd").mkdir()                                            # hollow again; download() clears it and says so
+    monkeypatch.setattr(dl, "get_transfer_splits", lambda key, r, crop_size, download: ([1], [1], 47))
+    import io, contextlib
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        assert dl.download(str(root), ["dtd"]) == []
+    assert "removed 1 hollow directory (purge leftovers): dtd" in out.getvalue()
+    assert not (root / "dtd").exists(), "the fake download wrote nothing, so nothing came back"
+

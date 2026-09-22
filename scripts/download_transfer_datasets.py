@@ -28,6 +28,7 @@ download could earn: a file on disk proves a process started, not that it finish
 import argparse
 import json
 import os
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -36,8 +37,30 @@ from src.eval.transfer import TRANSFER_DATASETS, get_transfer_splits
 from src.utils.touch import touch_tree
 
 
+def remove_hollow_dirs(root: str) -> list[str]:
+    """Remove every directory under ``root`` that holds no regular file -- what the scratch purge
+    leaves behind (F49: files go, directories stay). torchvision takes such a directory for a
+    downloaded dataset, skips the extraction and then fails to read it; four of the seven did on
+    2026-09-22. Returns the names removed."""
+    removed = []
+    if not os.path.isdir(root):
+        return removed
+    for name in sorted(os.listdir(root)):
+        path = os.path.join(root, name)
+        if os.path.isdir(path) and not os.path.islink(path) and not any(
+            files for _, _, files in os.walk(path)
+        ):
+            shutil.rmtree(path)
+            removed.append(name)
+    return removed
+
+
 def download(root: str, keys: list[str]) -> list[str]:
     failed = []
+    hollow = remove_hollow_dirs(root)
+    if hollow:
+        print(f"=== removed {len(hollow)} hollow director{'y' if len(hollow) == 1 else 'ies'} (purge leftovers): "
+              f"{', '.join(hollow)} ===", flush=True)
     for key in keys:
         started = time.time()
         print(f"=== {key}: downloading to {root} ===", flush=True)
