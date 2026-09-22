@@ -117,6 +117,12 @@ REQUIRED_PER_SCRIPT = {
         "eval-postflight": "the per-backbone JSON is checked, not the exit code",
         "srun --ntasks-per-node=1": "one task, one GPU",
     },
+    "slurm_eval_array.sh": {
+        'sed -n "$((INDEX + 1))p"': "task i takes line i+1: the names file and the config share one order",
+        "the array is wider than the names file": "an index past the end is refused, never an empty --only (which would evaluate EVERY backbone)",
+        '[ -f "$RESULT" ]': "a skipped backbone exits 0 from the eval; the per-backbone JSON is the evidence",
+        "srun --ntasks-per-node=1": "one task, one GPU",
+    },
 }
 
 

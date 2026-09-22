@@ -369,6 +369,18 @@ MUTANTS: list[Mutant] = [
     # the defect is re-admitting a container's NON-BatchNorm children through add_module (torch's converter
     # does that for every child); a BatchNorm's own parent inside escnn is a plain module and admits it,
     # so mutating the BatchNorm insertion alone survived (2026-09-21) -- this one rebuilds the way torch does
+    Mutant("c15-eval-config-takes-unverified-cells", "scripts/aicr/make_ablation_eval_config.py",
+           '        if require_verified and not (run_dir / ".verified").is_file():',
+           "        if False:",
+           "a cell whose postflight refused is evaluated and its numbers reach a table (G5/V4)"),
+    Mutant("c15-eval-names-file-sorted", "scripts/aicr/make_ablation_eval_config.py",
+           '    args.names.write_text("".join(f"{e[\'name\']}\\n" for e in entries), encoding="utf-8")',
+           '    args.names.write_text("".join(f"{n}\\n" for n in sorted(e["name"] for e in entries)), encoding="utf-8")',
+           "the array index and the config order drift: every task evaluates another cell's checkpoint"),
+    Mutant("c15-eval-array-trusts-the-exit-code", "scripts/aicr/slurm_eval_array.sh",
+           '[ -f "$RESULT" ] || { echo "=== EVAL FAILED $NAME: no $RESULT ===" >&2; exit 1; }',
+           "true",
+           "a backbone the eval SKIPPED (missing checkpoint, exit 0) counts as evaluated"),
     Mutant("c14-done-from-any-candidate", "scripts/aicr/campaign.py",
            '                if c.path.name == "last.ckpt" and c.epoch is not None and c.epoch >= max_epochs - 1]',
            '                if c.epoch is not None and c.epoch >= max_epochs - 1]',
