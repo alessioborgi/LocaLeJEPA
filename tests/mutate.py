@@ -369,6 +369,10 @@ MUTANTS: list[Mutant] = [
     # the defect is re-admitting a container's NON-BatchNorm children through add_module (torch's converter
     # does that for every child); a BatchNorm's own parent inside escnn is a plain module and admits it,
     # so mutating the BatchNorm insertion alone survived (2026-09-21) -- this one rebuilds the way torch does
+    Mutant("c14-done-from-any-candidate", "scripts/aicr/campaign.py",
+           '                if c.path.name == "last.ckpt" and c.epoch is not None and c.epoch >= max_epochs - 1]',
+           '                if c.epoch is not None and c.epoch >= max_epochs - 1]',
+           "a run interrupted inside its final epoch is called done; the resubmission skips training and the postflight refuses (F54)"),
     Mutant("c13-local-by-experiment-name", "scripts/aicr/campaign.py",
            "    local_run = run_is_local(run_dir, spec)      # from the recorded config, never the name (F53)",
            '    local_run = any(item.startswith("model.reg_loss.num_clusters=") for item in spec.overrides) or "local" in spec.experiment',

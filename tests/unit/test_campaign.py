@@ -158,6 +158,33 @@ def test_resume_is_fresh_on_an_empty_directory(tmp_path):
     assert decision.kind == "fresh" and decision.path is None
 
 
+def test_an_on_exception_checkpoint_at_the_last_epoch_is_a_resume_never_done(tmp_path):
+    """F54: task 18 of the third wave -- interrupted 14 steps before the end of epoch 99, so
+    on_exception.ckpt says epoch 99 while last.ckpt (old callback config) says epoch 4. The old
+    rule called any epoch-99 candidate done; the resubmission skipped training and the postflight
+    refused. Inverted once on the old code: decision.kind == "done"."""
+    ckpt(tmp_path / "last.ckpt", epoch=4, step=185)
+    ckpt(tmp_path / "on_exception.ckpt", epoch=99, step=3686)
+    decision = C.resume_decision(tmp_path, max_epochs=100)
+    assert decision.kind == "resume" and decision.path.name == "on_exception.ckpt"
+    (tmp_path / "last.ckpt").unlink()
+    decision = C.resume_decision(tmp_path, max_epochs=100)
+    assert decision.kind == "resume" and decision.path.name == "on_exception.ckpt", "alone, still not done"
+
+
+def test_a_finished_last_ckpt_is_done_whatever_the_on_exception_file_says(tmp_path):
+    """A TERM during the post-fit test writes on_exception.ckpt at the same step as the finished
+    last.ckpt; the epoch-end file decides, and a tie in global_step goes to it."""
+    ckpt(tmp_path / "last.ckpt", epoch=99, step=3700)
+    ckpt(tmp_path / "on_exception.ckpt", epoch=99, step=3700)
+    decision = C.resume_decision(tmp_path, max_epochs=100)
+    assert decision.kind == "done" and decision.path.name == "last.ckpt"
+    ckpt(tmp_path / "last.ckpt", epoch=50, step=1887)
+    ckpt(tmp_path / "on_exception.ckpt", epoch=50, step=1887)
+    decision = C.resume_decision(tmp_path, max_epochs=100)
+    assert decision.kind == "resume" and decision.path.name == "last.ckpt", "a tie goes to the epoch-end file"
+
+
 def test_resume_is_done_when_the_last_epoch_is_inside_the_checkpoint(tmp_path):
     ckpt(tmp_path / "last.ckpt", epoch=99, step=14800)
     decision = C.resume_decision(tmp_path, max_epochs=100)
