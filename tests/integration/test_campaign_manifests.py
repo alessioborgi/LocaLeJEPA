@@ -11,6 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import torch
 from omegaconf import OmegaConf
 
 import scripts.aicr.campaign as C
@@ -163,6 +164,8 @@ def test_the_launchers_override_sets_compose_for_every_cell(stem, run):
     launch = C.launch_overrides(run.gpus, 16)
     cfg = C.compose_config(run.hydra_overrides() + launch)
     assert cfg.data.num_workers == 16 and cfg.trainer.log_every_n_steps == 50
+    # the `gpu` trainer config has no sync_batchnorm key (Lightning's default: off); `ddp` sets it False
+    assert cfg.model.sync_batchnorm is True and cfg.trainer.get("sync_batchnorm", False) is False, "BatchNorm is synchronized by the module, not by Lightning (F48)"
     assert cfg.trainer.devices == run.gpus and (run.gpus == 1 or cfg.trainer.strategy == "ddp")
     assert cfg.logger.csv is not None
 
@@ -172,4 +175,26 @@ def test_the_launchers_override_sets_compose_for_every_cell(stem, run):
     assert cfg.callbacks.self_interrupt.at_step == 150
     assert cfg.callbacks.learning_rate_monitor.logging_interval == "step"
     assert cfg.callbacks.throughput is not None and cfg.callbacks.on_exception is not None
+
+
+# --------------------------------------------------------------------------- the D4 encoder as the campaign builds it (F48)
+
+def test_the_campaign_d4_encoder_builds_at_depth_50_and_survives_sync_batchnorm():
+    """F48: depth 18 built everywhere while the campaign runs depth 50, and the multi-GPU
+    conversion of BatchNorm killed the D4 cells before their first step. This instantiates the
+    encoder from the composed D4 experiment config -- the production arguments, nothing tidier --
+    forwards at 128 px, and converts it the way the module does under DDP. ~1 min on CPU."""
+    pytest.importorskip("escnn", reason="escnn is a post-create install (environment-aicr.yml)")
+    from hydra.utils import instantiate
+    from src.utils.sync_bn import convert_sync_batchnorm_inplace
+
+    d4 = next(run for _, run in CELLS if run.experiment == "lejepa/d4rn50_in1k_sigreg")   # the deduplicated cell may carry the calibration manifest's tag
+    cfg = C.compose_config(d4.hydra_overrides() + C.launch_overrides(d4.gpus, 16))
+    assert cfg.model.encoder.depth == 50 and cfg.model.sync_batchnorm is True and cfg.trainer.sync_batchnorm is False
+    encoder = instantiate(cfg.model.encoder)
+    with torch.no_grad():
+        y = encoder.eval()(torch.zeros(1, 3, 128, 128))
+    assert tuple(y.shape) == (1, cfg.model.embedding_dim)
+    converted = convert_sync_batchnorm_inplace(encoder)
+    assert any(isinstance(m, torch.nn.SyncBatchNorm) for m in converted.modules())
 

@@ -68,6 +68,7 @@ class LeJEPAModule(LightningModule):
         warmup_epochs: int = 0,
         lr_eta_min_ratio: float = 0.01,
         compile: bool = False,
+        sync_batchnorm: bool = True,
     ) -> None:
         super().__init__()
         self.save_hyperparameters(ignore=["encoder", "projector", "online_probe", "optimizer", "reg_loss", "inv_loss"], logger=False)
@@ -93,6 +94,7 @@ class LeJEPAModule(LightningModule):
         self.warmup_epochs = warmup_epochs
         self.lr_eta_min_ratio = lr_eta_min_ratio
         self.compile_model = compile
+        self.sync_batchnorm = sync_batchnorm
 
     # ------------------------------------------------------------------
     # Encoding
@@ -244,6 +246,16 @@ class LeJEPAModule(LightningModule):
         self._probe_eval_step(batch, "test")
 
     def setup(self, stage: str | None = None) -> None:
+        # Synchronized BatchNorm across the DDP ranks, done here rather than by Lightning's
+        # `trainer.sync_batchnorm`: torch's converter rebuilds containers through add_module and
+        # escnn's containers refuse that (F48: every D4-RN50 launch on more than one GPU died
+        # before its first step). Same statistics for every arm -- the projector's BatchNorm1d and
+        # the D4 encoder's inner BatchNorm3d alike; a no-op on one GPU.
+        trainer = getattr(self, "_trainer", None)          # None when setup() is called without a Trainer (tests)
+        if stage == "fit" and self.sync_batchnorm and trainer is not None and trainer.world_size > 1:
+            from src.utils.sync_bn import convert_sync_batchnorm_inplace
+
+            convert_sync_batchnorm_inplace(self)
         if self.compile_model and stage == "fit":
             self.encoder = torch.compile(self.encoder)
             self.projector = torch.compile(self.projector)
