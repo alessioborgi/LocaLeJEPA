@@ -369,6 +369,14 @@ MUTANTS: list[Mutant] = [
     # the defect is re-admitting a container's NON-BatchNorm children through add_module (torch's converter
     # does that for every child); a BatchNorm's own parent inside escnn is a plain module and admits it,
     # so mutating the BatchNorm insertion alone survived (2026-09-21) -- this one rebuilds the way torch does
+    Mutant("c11-expand-summary-sorted-tags", "scripts/aicr/campaign.py",
+           '        blocks = " ".join(f"{t}[{a}-{b}]" for t, a, b in block_index_ranges(runs))   # index order, never sorted (F51)',
+           '        blocks = " ".join(f"{t}[{a}-{b}]" for t, a, b in sorted(block_index_ranges(runs)))',
+           "the expand summary lists the blocks alphabetically again and --indices are read off the wrong order (F51)"),
+    Mutant("c11-submit-names-no-cell", "scripts/aicr/campaign.py",
+           '        print(f"# cells: {describe_cells(runs, indices)}", file=sys.stderr)   # F51: verify by name, not by position',
+           '        pass',
+           "a submission no longer names its cells: the wrong --indices go unnoticed until the run announces itself (F51)"),
     Mutant("c10-last-ckpt-follows-the-monitor", "configs/callbacks/default.yaml",
            "  monitor: null\n  save_top_k: 1\n  save_last: False\n  every_n_epochs: 1",
            '  monitor: "val/probe_acc"\n  save_top_k: 1\n  save_last: True\n  every_n_epochs: 1',

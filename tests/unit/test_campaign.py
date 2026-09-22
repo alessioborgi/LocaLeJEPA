@@ -362,6 +362,49 @@ def test_submit_builds_one_homogeneous_array(tmp_path):
     assert "--export=ALL" not in " ".join(argv)
 
 
+def _manifest_with_blocks_out_of_alphabetical_order() -> dict:
+    """Two blocks whose manifest order ('zulu' then 'alpha') is the reverse of their sorted order."""
+    block = dict(MANIFEST["blocks"][0])
+    return {**MANIFEST, "seeds": [0], "blocks": [{**block, "tag": "zulu"}, {**block, "tag": "alpha"}]}
+
+
+def test_index_ranges_and_the_expand_summary_follow_the_manifest_order_never_the_alphabet(tmp_path, capsys):
+    """F51: the array index counts in manifest order; the summary printed the tags SORTED, and three
+    arrays were submitted twice with --indices read off that list. Inverted once on the old summary:
+    the order assertion below fails there (it printed ['alpha', 'zulu'])."""
+    manifest = _manifest_with_blocks_out_of_alphabetical_order()
+    runs = C.expand(manifest)
+    assert C.block_index_ranges(runs) == [("zulu", 0, 7), ("alpha", 8, 15)]
+    assert [r.tag for r in runs[:8]] == ["zulu"] * 8 and [r.tag for r in runs[8:]] == ["alpha"] * 8
+    path = tmp_path / "m.yaml"; path.write_text(yaml.safe_dump(manifest))
+    assert C.main(["expand", str(path), "--out", str(tmp_path / "g.json")]) == 0
+    out = capsys.readouterr().out
+    assert "in index order: zulu[0-7] alpha[8-15]" in out
+    assert "['alpha', 'zulu']" not in out
+
+
+def test_submit_names_every_chosen_cell_by_index_and_run_name(tmp_path, capsys):
+    """The printed sbatch line stays the only stdout line (it is copied verbatim); the cells it names
+    go to stderr as index=run_name, in manifest order (F51)."""
+    manifest = _manifest_with_blocks_out_of_alphabetical_order()
+    path = tmp_path / "m.yaml"; path.write_text(yaml.safe_dump(manifest))
+    grid = tmp_path / "g.json"
+    assert C.main(["expand", str(path), "--out", str(grid)]) == 0
+    capsys.readouterr()
+    _, runs = C.read_grid(grid)
+    assert C.main(["submit", str(grid), "--partition", "rtx-batch", "--indices", "1,9", "--time", "01:00:00",
+                   "--log-dir", "/logs", "--export", "REPO=/r"]) == 0
+    out, err = capsys.readouterr()
+    lines = out.strip().splitlines()
+    assert len(lines) == 1 and lines[0].startswith("sbatch --parsable") and "--array=1,9" in lines[0]
+    assert err.strip() == f"# cells: 1={runs[1].run_name} 9={runs[9].run_name}"
+    assert runs[1].tag == "zulu" and runs[9].tag == "alpha"
+    assert C.main(["submit", str(grid), "--partition", "rtx-batch", "--time", "01:00:00",
+                   "--log-dir", "/logs", "--export", "REPO=/r"]) == 0
+    out, err = capsys.readouterr()
+    assert "--array=0-15" in out and err.strip() == "# cells: 0-15 in index order: zulu[0-7] alpha[8-15]"
+
+
 def test_submit_names_the_gpu_type_on_preemptable_and_refuses_mixed_gpu_counts(tmp_path):
     runs = C.expand(MANIFEST)
     with pytest.raises(ValueError, match="gpu-type"):
