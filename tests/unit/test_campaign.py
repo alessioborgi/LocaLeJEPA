@@ -506,6 +506,54 @@ def test_launch_and_calibrate_override_sets_are_exactly_these(capsys):
     assert out[1].endswith("trainer.log_every_n_steps=1 callbacks.self_interrupt.at_step=150")
 
 
+def test_resume_shell_output_names_unreadable_candidates_on_a_fresh_start(tmp_path, capsys):
+    """F50: Lightning auto-loads any last.ckpt / on_exception.ckpt when an OnExceptionCheckpoint is
+    among the callbacks and no path is passed; a fresh start with an unreadable file in place would
+    crash at load. The shell output carries the files to move aside."""
+    ckpt = tmp_path / "ckpt"; ckpt.mkdir()
+    (ckpt / "last.ckpt").write_bytes(b"truncated")
+    assert C.main(["resume", "--ckpt-dir", str(ckpt), "--max-epochs", "3", "--shell"]) == 0
+    out = capsys.readouterr().out
+    assert "export DECISION=fresh" in out and f"export STALE={ckpt / 'last.ckpt'}" in out
+    (ckpt / "last.ckpt").unlink()
+    C.main(["resume", "--ckpt-dir", str(ckpt), "--max-epochs", "3", "--shell"])
+    assert "export STALE=''" in capsys.readouterr().out, "nothing to move on a clean fresh start"
+
+
+def test_slurm_time_left_parses_every_squeue_form():
+    assert C.parse_slurm_time_left("1-02:03:04") == 93784.0
+    assert C.parse_slurm_time_left("02:03:04") == 7384.0
+    assert C.parse_slurm_time_left("1:59") == 119.0
+    assert C.parse_slurm_time_left("45") == 45.0
+    for bad in ("UNLIMITED", "INVALID", "NOT_SET", "", None, "x-1:2", "1:2:3:4"):
+        assert C.parse_slurm_time_left(bad) is None, bad
+
+
+def test_a_successor_follows_the_wall_and_never_a_cancel(capsys):
+    """F50: `scancel` of the first wave spawned eighteen successors, because every cancelled task's
+    postflight found a resumable checkpoint. A SIGTERM that reaches the batch script with more than
+    the signal window left is a cancel (or a preemption, which Slurm requeues itself)."""
+    assert C.successor_allowed(signalled=False, time_left=None)[0], "a crash or an OOM: resumable"
+    assert C.successor_allowed(signalled=True, time_left="1:58")[0], "the wall's --signal=TERM@120"
+    ok, why = C.successor_allowed(signalled=True, time_left="23:41:07")
+    assert not ok and "cancel" in why
+    ok, why = C.successor_allowed(signalled=True, time_left="unknown")
+    assert not ok, "an unparsable time left is treated as a cancel, never as a wall"
+    env = {"SLURM_JOB_ID": "7", "SLURM_JOB_PARTITION": "rtx-batch", "SLURM_JOB_ACCOUNT": "a", "SLURM_JOB_NAME": "n",
+           "SLURM_GPUS_ON_NODE": "1", "SLURM_NTASKS_PER_NODE": "1", "SLURM_CPUS_PER_TASK": "16", "SLURM_MEM_PER_NODE": "61440"}
+    import os
+    old = dict(os.environ); os.environ.update(env)
+    try:
+        assert C.main(["successor", "--requeue-left", "1", "--time", "01:00:00", "--script", "s.sh", "--signalled",
+                       "--time-left", "23:41:07", "--export", "GRID=g"]) == 1
+        assert "cancel" in capsys.readouterr().err
+        assert C.main(["successor", "--requeue-left", "1", "--time", "01:00:00", "--script", "s.sh", "--signalled",
+                       "--time-left", "1:30", "--export", "GRID=g"]) == 0
+        assert "sbatch" in capsys.readouterr().out
+    finally:
+        os.environ.clear(); os.environ.update(old)
+
+
 def online_csv(path: Path, values: list[float], *, epoch0: int = 0) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     rows = ["epoch,step,train/loss_step,val/probe_acc"]
