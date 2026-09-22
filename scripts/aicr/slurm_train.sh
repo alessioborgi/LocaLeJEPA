@@ -178,7 +178,7 @@ case "$VERDICT" in
        if [ "$REQUEUE_LEFT" -gt 0 ]; then
            SIG=(); [ "$SIGNALLED" = 1 ] && SIG=(--signalled --time-left "$TIME_LEFT")
            if CMD="$($CAMPAIGN successor --requeue-left "$REQUEUE_LEFT" --time "${TIME_LIMIT:?TIME_LIMIT was not exported}" \
-                  --script "$REPO/scripts/aicr/slurm_train.sh" "${SIG[@]}" \
+                  --script "$REPO/scripts/aicr/slurm_train.sh" --log-dir "$LOG_ROOT/slurm" "${SIG[@]}" \
                   --export "GRID=$GRID" --export "REPO=$REPO" --export "GRID_INDEX=$INDEX" --export "TIME_LIMIT=$TIME_LIMIT" \
                   ${CKPT_ROOT_OVERRIDE:+--export "CKPT_ROOT_OVERRIDE=$CKPT_ROOT_OVERRIDE"})"; then
                echo "successor: $CMD"

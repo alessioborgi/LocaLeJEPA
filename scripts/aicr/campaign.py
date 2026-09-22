@@ -776,7 +776,7 @@ def successor_allowed(*, signalled: bool, time_left: str | None) -> tuple[bool, 
 
 
 def successor_argv(env: Mapping[str, str], *, script: str, requeue_left: int, time: str,
-                   exports: Mapping[str, str]) -> list[str] | None:
+                   exports: Mapping[str, str], log_dir: str | None = None) -> list[str] | None:
     """The ``sbatch`` argv for a resumable exit, or ``None`` when the budget is spent.
 
     Resources are read from the running job's ``SLURM_*`` variables, never from a header, so
@@ -809,6 +809,9 @@ def successor_argv(env: Mapping[str, str], *, script: str, requeue_left: int, ti
     ]
     if mem_mb:
         argv.append(f"--mem={mem_mb}M")
+    # F50: without --output Slurm writes slurm-<id>.out into the submitting directory -- the clone --
+    # and the next task's preflight refuses the dirty tree; twenty such files stalled the resubmission
+    argv.append(f"--output={log_dir or '.'}/{env['SLURM_JOB_NAME']}-successor-%j.out")
     if env.get("SLURM_JOB_GRES"):
         argv.append(f"--gres={env['SLURM_JOB_GRES']}")
     export = ",".join([f"{k}={v}" for k, v in exports.items()] + [f"REQUEUE_LEFT={requeue_left - 1}"])
@@ -999,6 +1002,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--time", required=True); p.add_argument("--script", required=True)
     p.add_argument("--signalled", action="store_true", help="a SIGTERM reached the batch script (F50)")
     p.add_argument("--time-left", default=None, help="squeue %L at the signal")
+    p.add_argument("--log-dir", default=None, help="where the successor's stdout goes (never the clone, F50)")
     p.add_argument("--export", action="append", default=[], help="KEY=VALUE to carry to the successor")
     p = sub.add_parser("realised-k"); p.add_argument("metrics", type=Path)
     p = sub.add_parser("online-curve"); p.add_argument("metrics", type=Path)
@@ -1112,7 +1116,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "successor":
         exports = dict(item.split("=", 1) for item in args.export)
         argv_out = successor_argv(os.environ, script=args.script, requeue_left=args.requeue_left,
-                                  time=args.time, exports=exports)
+                                  time=args.time, exports=exports, log_dir=args.log_dir)
         allowed, why = successor_allowed(signalled=args.signalled, time_left=args.time_left)
         if not allowed:
             print(f"# {why}", file=sys.stderr)
