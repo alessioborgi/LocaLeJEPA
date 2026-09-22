@@ -369,6 +369,10 @@ MUTANTS: list[Mutant] = [
     # the defect is re-admitting a container's NON-BatchNorm children through add_module (torch's converter
     # does that for every child); a BatchNorm's own parent inside escnn is a plain module and admits it,
     # so mutating the BatchNorm insertion alone survived (2026-09-21) -- this one rebuilds the way torch does
+    Mutant("c9-download-never-touches", "scripts/download_transfer_datasets.py",
+           '    print(f"=== touched {touch_tree(root)} entries under {root} (scratch purge is by mtime, F49) ===", flush=True)',
+           '    pass',
+           "the extracted transfer datasets keep their archives' mtimes and vanish at the next purge sweep (F49)"),
     Mutant("c8-sync-bn-through-add-module", "src/utils/sync_bn.py",
            "            convert_sync_batchnorm_inplace(child, process_group)",
            "            module.add_module(name, convert_sync_batchnorm_inplace(child, process_group))",
