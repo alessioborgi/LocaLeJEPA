@@ -55,20 +55,19 @@ def batch_label(b: int, x: int) -> str:
 def summarise_run(run: C.RunSpec, log_root: Path) -> dict | None:
     """Final-epoch online-probe accuracy and the realised K of one run, or None if it has no
     complete metrics.csv. A run that is not finished is 'pending', never a partial number."""
-    candidates = sorted((log_root / "train" / "runs" / run.run_name / "csv").glob("version_*/metrics.csv")) \
-        if (log_root / "train" / "runs" / run.run_name / "csv").is_dir() else []
-    if not candidates:
+    csv_dir = log_root / "train" / "runs" / run.run_name / "csv"
+    if not C.metrics_versions(csv_dir):
         return None
-    metrics = candidates[-1]
+    # every launch of a resumed run, each epoch from the last launch that logged it (F52)
+    _, rows = C.merged_metrics_rows(csv_dir)
     final_acc, epochs = None, set()
-    with open(metrics, newline="", encoding="utf-8") as handle:
-        for row in csv.DictReader(handle):
-            if row.get(ACC, "") != "":
-                final_acc = float(row[ACC])
-                epochs.add(int(float(row["epoch"])))
+    for row in rows:
+        if row.get(ACC) not in ("", None):
+            final_acc = float(row[ACC])
+            epochs.add(int(float(row["epoch"])))
     if final_acc is None or len(epochs) < run.max_epochs:
         return None
-    realised = C.realised_k(metrics)
+    realised = C.realised_k(csv_dir)
     return {"run": run.run_name, "tag": run.tag, "seed": run.seed, "overrides": list(run.overrides),
             "final_probe_acc": 100.0 * final_acc if final_acc <= 1.0 else final_acc,
             "epochs": len(epochs), "realised_k_last10": realised["last_mean"],

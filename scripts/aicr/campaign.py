@@ -423,31 +423,89 @@ def checkpoint_matches_config(ckpt_path: Path, run_dir: Path) -> list[str]:
     return problems
 
 
-def find_metrics_csv(run_dir: Path) -> Path | None:
-    candidates = sorted((run_dir / "csv").glob("version_*/metrics.csv")) if (run_dir / "csv").is_dir() else []
-    return candidates[-1] if candidates else None
+def config_is_local(cfg) -> bool:
+    """A composed config trains a LOCAL regularizer iff ``model.reg_loss.num_clusters`` exists --
+    the local losses and the dynamic-K wrapper carry it, SIGReg/RDMReg/SubReg do not. This is
+    what decides whether a run must log ``train/local/*`` (the module's own test is whether the
+    loss accepts ``stats``; the manifests test pins the two equal on every campaign cell)."""
+    return _select(cfg, "model.reg_loss.num_clusters", default=None) is not None
 
 
-def metrics_complete(metrics_csv: Path, max_epochs: int, *, local_run: bool) -> list[str]:
-    """Every epoch logged, no NaN in the loss, and the realised-K column present on local runs."""
+def run_is_local(run_dir: Path, spec: RunSpec) -> bool:
+    """Whether a run trained a local regularizer, read from the config Hydra recorded for it.
+    F53: the old test was ``"local" in spec.experiment``, which is TRUE for the SIGReg control
+    ``lejepa/vit_in1k_sigreg_localrecipe`` -- the control would have failed its postflight for
+    lacking a realised-K column it never logs. Falls back to the manifest's overrides when the
+    config is missing (the config check reports that on its own)."""
+    from omegaconf import OmegaConf
+
+    config_path = run_dir / ".hydra" / "config.yaml"
+    if config_path.is_file():
+        return config_is_local(OmegaConf.load(config_path))
+    return any(item.startswith("model.reg_loss.num_clusters=") for item in spec.overrides)
+
+
+def metrics_versions(csv_dir: Path) -> list[Path]:
+    """The launches' ``version_k/metrics.csv`` under a run's csv directory, in NUMERIC order."""
+    csv_dir = Path(csv_dir)
+    if not csv_dir.is_dir():
+        return []
+    return sorted(csv_dir.glob("version_*/metrics.csv"), key=lambda f: int(f.parent.name.split("_")[-1]))
+
+
+def merged_metrics_rows(source: Path) -> tuple[list[str], list[dict[str, str]]]:
+    """``(columns, rows)`` of a run's metrics across its launches, the LAST launch winning per epoch.
+
+    Lightning's CSVLogger opens a new ``version_k`` per launch, so a resumed run (a wall, a cancel,
+    a stale ``last.ckpt`` -- F50) holds the interrupted launch's rows for the epochs it re-trains
+    beside the resumed launch's. Those earlier rows are stale: the run continued from the
+    checkpoint, not from them. Every epoch is therefore taken from the last launch that logged
+    it, rows in epoch order; rows without an epoch are kept from every launch. F52: reading only
+    the newest file made every resumed cell of the 2026-09-22 wave fail its postflight ("2 epochs
+    logged, expected 100") with a complete artifact. ``source`` is a csv directory or one file.
+    """
+    source = Path(source)
+    files = metrics_versions(source) if source.is_dir() else [source]
+    columns: list[str] = []
+    by_epoch: dict[int, list[dict[str, str]]] = {}
+    no_epoch: list[dict[str, str]] = []
+    for file in files:
+        with open(file, newline="", encoding="utf-8") as handle:
+            reader = csv.DictReader(handle)
+            for name in reader.fieldnames or []:
+                if name not in columns:
+                    columns.append(name)
+            launch: dict[int, list[dict[str, str]]] = {}
+            for row in reader:
+                value = row.get("epoch")
+                if value in ("", None):
+                    no_epoch.append(row)
+                    continue
+                launch.setdefault(int(float(value)), []).append(row)
+        by_epoch.update(launch)      # this launch supersedes every earlier one on the epochs it logged
+    rows = [row for epoch in sorted(by_epoch) for row in by_epoch[epoch]] + no_epoch
+    return columns, rows
+
+
+def metrics_complete(metrics: Path, max_epochs: int, *, local_run: bool) -> list[str]:
+    """Every epoch logged, no NaN in the loss, and the realised-K column present on local runs.
+    ``metrics`` is a run's csv directory (every launch merged, F52) or one ``metrics.csv``."""
     problems: list[str] = []
-    with open(metrics_csv, newline="", encoding="utf-8") as handle:
-        reader = csv.DictReader(handle)
-        columns = reader.fieldnames or []
-        loss_col = "train/loss_epoch"
-        if loss_col not in columns:
-            return [f"{metrics_csv}: no {loss_col} column"]
-        epochs: set[int] = set()
-        for row in reader:
-            value = row.get(loss_col, "")
-            if value == "":
-                continue
-            if value.lower() in ("nan", "inf", "-inf"):
-                problems.append(f"{loss_col} is {value} at epoch {row.get('epoch')}")
-            try:
-                epochs.add(int(float(row["epoch"])))
-            except (KeyError, ValueError):
-                problems.append("a loss row has no epoch")
+    columns, rows = merged_metrics_rows(metrics)
+    loss_col = "train/loss_epoch"
+    if loss_col not in columns:
+        return [f"{metrics}: no {loss_col} column"]
+    epochs: set[int] = set()
+    for row in rows:
+        value = row.get(loss_col)
+        if value in ("", None):
+            continue
+        if value.lower() in ("nan", "inf", "-inf"):
+            problems.append(f"{loss_col} is {value} at epoch {row.get('epoch')}")
+        try:
+            epochs.add(int(float(row["epoch"])))
+        except (KeyError, ValueError, TypeError):
+            problems.append("a loss row has no epoch")
     if len(epochs) != max_epochs:
         problems.append(f"{len(epochs)} epochs logged, expected {max_epochs}")
     if local_run and "train/local/effective_clusters_epoch" not in columns:
@@ -538,14 +596,14 @@ def postflight(spec: RunSpec, run_dir: Path, ckpt_dir: Path, *, grid_commit: str
         problems = checkpoint_matches_config(ckpt, run_dir)
         checks["checkpoint_hparams"] = (not problems, "agree with the config" if not problems else "; ".join(problems))
 
-    metrics = find_metrics_csv(run_dir)
-    local_run = any(item.startswith("model.reg_loss.num_clusters=") for item in spec.overrides) or \
-        "local" in spec.experiment
-    if metrics is None:
+    csv_dir = run_dir / "csv"
+    launches = metrics_versions(csv_dir)
+    local_run = run_is_local(run_dir, spec)      # from the recorded config, never the name (F53)
+    if not launches:
         checks["metrics"] = (False, "no csv/version_*/metrics.csv under the run dir")
     else:
-        problems = metrics_complete(metrics, spec.max_epochs, local_run=local_run)
-        checks["metrics"] = (not problems, f"{metrics.name} complete" if not problems else "; ".join(problems))
+        problems = metrics_complete(csv_dir, spec.max_epochs, local_run=local_run)   # every launch, merged (F52)
+        checks["metrics"] = (not problems, f"complete over {len(launches)} launch(es)" if not problems else "; ".join(problems))
 
     commit, dirty = tree_state(repo)
     if commit is None:
@@ -862,23 +920,16 @@ def online_probe_curve(metrics_csv: Path) -> dict[str, float | int | None]:
     """
     candidates = ("val/probe_acc", "val/probe_acc_epoch")
     points: list[tuple[int, float]] = []
-    metrics_csv = Path(metrics_csv)
     # a resumed run writes one metrics.csv per launch (version_0, version_1, ...): a csv directory
-    # is read version by version, in order, so the curve spans the whole run
-    files = sorted(metrics_csv.glob("version_*/metrics.csv"), key=lambda f: int(f.parent.name.split("_")[-1])) \
-        if metrics_csv.is_dir() else [metrics_csv]
-    for file in files:
-        with open(file, newline="", encoding="utf-8") as handle:
-            reader = csv.DictReader(handle)
-            fields = reader.fieldnames or []
-            column = next((c for c in candidates if c in fields), None)
-            if column is None:
+    # is read across its launches, each epoch from the last launch that logged it (F52)
+    columns, rows = merged_metrics_rows(Path(metrics_csv))
+    column = next((c for c in candidates if c in columns), None)
+    if column is not None:
+        for row in rows:
+            if row.get(column) in ("", None):
                 continue
-            for row in reader:
-                if row.get(column, "") == "":
-                    continue
-                epoch = int(float(row["epoch"])) if row.get("epoch", "") != "" else len(points)
-                points.append((epoch, round(100.0 * float(row[column]), 6)))     # percent; 6 dp kills float noise
+            epoch = int(float(row["epoch"])) if row.get("epoch") not in ("", None) else len(points)
+            points.append((epoch, round(100.0 * float(row[column]), 6)))     # percent; 6 dp kills float noise
     if not points:
         return {"epochs": 0, "final": None, "max": None, "argmax_epoch": None}
     best_epoch, best = max(points, key=lambda pt: (pt[1], -pt[0]))
@@ -886,7 +937,8 @@ def online_probe_curve(metrics_csv: Path) -> dict[str, float | int | None]:
 
 
 def realised_k(metrics_csv: Path, last_n: int = 10) -> dict[str, float | int | None]:
-    """Epoch means of the local diagnostics from a run's ``metrics.csv``.
+    """Epoch means of the local diagnostics from a run's metrics (a csv directory across its
+    launches, each epoch from the last launch that logged it -- F52 -- or one ``metrics.csv``).
 
     Reads the ``_epoch`` series only: the ``_step`` rows are noisier and Lightning writes both
     into one file with blanks, so averaging all non-empty cells would mix the two.
@@ -897,18 +949,17 @@ def realised_k(metrics_csv: Path, last_n: int = 10) -> dict[str, float | int | N
     values: list[float] = []
     fallbacks = 0
     configured: float | None = None
-    with open(metrics_csv, newline="", encoding="utf-8") as handle:
-        reader = csv.DictReader(handle)
-        if column not in (reader.fieldnames or []):
-            return {"epochs": 0, "mean": None, "last_mean": None, "fallback_epochs": None, "configured": None}
-        for row in reader:
-            if row.get(column, "") == "":
-                continue
-            values.append(float(row[column]))
-            if row.get(fallback_col, "") not in ("", None) and float(row[fallback_col]) > 0:
-                fallbacks += 1
-            if row.get(configured_col, "") not in ("", None):
-                configured = float(row[configured_col])
+    columns, rows = merged_metrics_rows(Path(metrics_csv))
+    if column not in columns:
+        return {"epochs": 0, "mean": None, "last_mean": None, "fallback_epochs": None, "configured": None}
+    for row in rows:
+        if row.get(column) in ("", None):
+            continue
+        values.append(float(row[column]))
+        if row.get(fallback_col) not in ("", None) and float(row[fallback_col]) > 0:
+            fallbacks += 1
+        if row.get(configured_col) not in ("", None):
+            configured = float(row[configured_col])
     if not values:
         return {"epochs": 0, "mean": None, "last_mean": None, "fallback_epochs": 0, "configured": configured}
     tail = values[-last_n:]

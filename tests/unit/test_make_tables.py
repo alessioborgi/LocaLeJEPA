@@ -223,14 +223,14 @@ def test_the_audit_catches_a_hand_edited_digit_and_a_stale_archive(in1k, audit, 
 # --------------------------------------------------------------------------------------
 
 def metrics_csv(path: Path, *, epochs: int, final_acc: float, local: bool, realised_k: float | None,
-                fallback_epochs: int = 0) -> None:
+                fallback_epochs: int = 0, epoch0: int = 0) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     cols = ["epoch", "step", "train/loss_epoch", "val/probe_acc"]
     if local:
         cols += ["train/local/effective_clusters_epoch", "train/local/fallback_epoch", "train/local/configured_clusters_epoch"]
     rows = [",".join(cols)]
-    for e in range(epochs):
-        acc = final_acc if e == epochs - 1 else 0.5 * final_acc
+    for e in range(epoch0, epoch0 + epochs):
+        acc = final_acc if e == epoch0 + epochs - 1 else 0.5 * final_acc
         row = [str(e), str(e * 10), "0.4", f"{acc / 100:.4f}"]
         if local:
             row += [f"{realised_k}", "1.0" if e < fallback_epochs else "0.0", "8.0"]
@@ -267,6 +267,34 @@ def ablation_root(tmp_path: Path, ablations) -> Path:
     metrics_csv(log_root / "train" / "runs" / unfinished.run_name / "csv" / "version_0" / "metrics.csv",
                 epochs=50, final_acc=99.0, local=True, realised_k=1.0)
     return log_root
+
+
+def test_ablation_summary_spans_the_launches_of_a_resumed_run(ablations, tmp_path):
+    """F52: a cell resumed after a wall or a cancel has two metrics.csv; read from the newest
+    alone it looked unfinished ('pending') and its realised K covered two epochs."""
+    run = ablations.C.expand(ablations.C.load_manifest(REPO / "configs/campaign/ablation_grid.yaml"))[0]
+    base = tmp_path / "logs" / "train" / "runs" / run.run_name / "csv"
+    metrics_csv(base / "version_0" / "metrics.csv", epochs=98, final_acc=99.0, local=True, realised_k=7.6)
+    metrics_csv(base / "version_1" / "metrics.csv", epochs=4, final_acc=85.0, local=True, realised_k=5.0, epoch0=96)
+    summary = ablations.summarise_run(run, tmp_path / "logs")
+    assert summary is not None and summary["epochs"] == 100 and summary["final_probe_acc"] == pytest.approx(85.0)
+    assert summary["realised_k_mean"] == pytest.approx((96 * 7.6 + 4 * 5.0) / 100)
+    assert summary["realised_k_last10"] == pytest.approx((6 * 7.6 + 4 * 5.0) / 10)
+
+
+def test_audit_online_rederivation_agrees_with_the_curve_on_a_resumed_run(audit, tmp_path):
+    """The audit's own parser applies the same last-launch-wins rule as the generator (F52)."""
+    import scripts.aicr.campaign as C
+    rows0 = "epoch,step,val/probe_acc\n0,9,0.30\n1,19,0.55\n2,29,0.60\n3,39,0.99\n"
+    rows1 = "epoch,step,val/probe_acc\n2,29,0.58\n3,39,0.62\n"
+    raw = tmp_path / "raw" / "online" / "run"; raw.mkdir(parents=True)
+    (raw / "version_0.csv").write_text(rows0); (raw / "version_1.csv").write_text(rows1)
+    live = tmp_path / "csv"; (live / "version_0").mkdir(parents=True); (live / "version_1").mkdir()
+    (live / "version_0" / "metrics.csv").write_text(rows0); (live / "version_1" / "metrics.csv").write_text(rows1)
+    curve = C.online_probe_curve(live)
+    rederived = audit.rederive_online(tmp_path / "raw", {"source": "online/run"})
+    assert rederived == {"final": curve["final"], "max": curve["max"], "argmax_epoch": curve["argmax_epoch"]} \
+        == {"final": 62.0, "max": 62.0, "argmax_epoch": 3}
 
 
 def test_ablation_cells_aggregate_over_seeds_with_the_realised_k(ablations, tmp_path):

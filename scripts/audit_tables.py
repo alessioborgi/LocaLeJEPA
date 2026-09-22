@@ -59,14 +59,18 @@ def rederive_online(raw_root: Path, cell: dict) -> dict:
     files = sorted(folder.glob("version_*.csv"), key=lambda f: int(f.stem.split("_")[-1]))
     if not files:
         raise FileNotFoundError(f"archived online curve {folder} missing")
-    points: list[tuple[int, float]] = []
+    by_epoch: dict[int, list[float]] = {}
     for file in files:
+        launch: dict[int, list[float]] = {}
         with open(file, newline="", encoding="utf-8") as handle:
             for row in csv.DictReader(handle):
                 value = row.get("val/probe_acc") or row.get("val/probe_acc_epoch") or ""
                 if value == "":
                     continue
-                points.append((int(float(row.get("epoch") or len(points))), round(100.0 * float(value), 6)))
+                epoch = int(float(row.get("epoch") or len(launch)))
+                launch.setdefault(epoch, []).append(round(100.0 * float(value), 6))
+        by_epoch.update(launch)      # a later launch supersedes the epochs it re-trained (F52)
+    points = [(epoch, value) for epoch in sorted(by_epoch) for value in by_epoch[epoch]]
     if not points:
         raise ValueError(f"no online-probe rows in {folder}")
     best = max(v for _, v in points)
