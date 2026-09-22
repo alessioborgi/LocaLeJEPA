@@ -98,6 +98,35 @@ def render(originals,colors,pc1,masks,grid,out,title,labels):
     plt.close(fig)
 
 
+def render_comparison(originals, panels, out, rgb_order=(2, 0, 1), render_size=512):
+    """One input per row; model columns share a fixed display-only color mapping."""
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+
+    fig, axes = plt.subplots(len(originals), 1 + len(panels),
+                             figsize=(9, 3 * len(originals)), squeeze=False)
+    for row, original in enumerate(originals):
+        axes[row, 0].imshow(original)
+        for col, (label, colors, grid) in enumerate(panels, start=1):
+            pixels = colors[row].reshape(*grid, 3)[..., list(rgb_order)]
+            # Upsample float channels before quantization to avoid banding.
+            pixels = np.stack([
+                np.asarray(Image.fromarray(pixels[..., c].astype(np.float32)).resize(
+                    (render_size, render_size), Image.Resampling.BILINEAR))
+                for c in range(3)
+            ], axis=-1)
+            axes[row, col].imshow(np.clip(pixels, 0, 1), interpolation='bilinear')
+            if row == 0:
+                axes[row, col].set_title(label, fontsize=16, pad=10)
+        for ax in axes[row]:
+            ax.set_axis_off()
+    fig.subplots_adjust(left=.01, right=.99, bottom=.01, top=.95,
+                        wspace=.025, hspace=.025)
+    fig.savefig(out, dpi=300, facecolor='white')
+    plt.close(fig)
+
+
 def main():
     ap=argparse.ArgumentParser(description=__doc__)
     inputs=ap.add_mutually_exclusive_group(required=True)
@@ -115,8 +144,13 @@ def main():
     ap.add_argument('--device',default='cuda' if torch.cuda.is_available() else 'cpu')
     ap.add_argument('--out',type=Path,default=Path('logs/patch_pca'))
     ap.add_argument('--overwrite',action='store_true')
+    ap.add_argument('--rgb-order', default=None, choices=['123','132','213','231','312','321'],
+                    help='PCA components assigned to R,G,B in the comparison figure')
+    ap.add_argument('--render-size', type=int, default=512,
+                    help='Bilinear PCA display resolution; does not change feature extraction')
     args=ap.parse_args()
     try:
+        if args.render_size<1:raise ValueError('--render-size must be positive')
         if args.per_class<1:raise ValueError('--per-class must be positive')
         if args.pc1_threshold is not None and not 0<=args.pc1_threshold<=1:raise ValueError('PC1 threshold must be in [0,1]')
         if args.out.exists() and any(args.out.iterdir()) and not args.overwrite:raise ValueError('Output exists; choose a fresh --out or --overwrite')
@@ -125,6 +159,13 @@ def main():
             return
         cfg=yaml.safe_load(Path(args.config).read_text());entries=cfg['backbones']
         args.image_root=args.image_root or cfg.get('image_root')
+        if not args.images and args.classes is None:
+            args.classes = cfg.get('classes')
+        args.rgb_order = args.rgb_order or cfg.get('rgb_order', '312')
+        if args.rgb_order not in ('123','132','213','231','312','321'):
+            raise ValueError('rgb_order must be a permutation of 123')
+        comparison = cfg.get('comparison', False)
+        comparison_panels = {}
         if not args.images and not args.image_root:raise ValueError('Provide --images, --image-root, or config image_root')
         if args.only:
             names=set(args.only.split(','))
@@ -133,6 +174,8 @@ def main():
         missing=[e['checkpoint'] for e in entries if not Path(e['checkpoint']).is_file()]
         if missing:raise ValueError('Checkpoint files are missing:\n'+'\n'.join(missing))
         groups=select_images(args,cfg.get('class_aliases'))
+        if comparison and (len(entries) != 2 or any(len(paths) != 3 for paths in groups.values())):
+            raise ValueError('Comparison requires two backbones and three images per group')
         from src.eval.extract import load_backbone
         from torchvision import transforms
         size=cfg.get('crop_size',128)
@@ -148,7 +191,7 @@ def main():
             raise ValueError('Normalization must be finite with positive std')
         normalize=transforms.Compose([transforms.ToTensor(),transforms.Normalize(norm['mean'],norm['std'])])
         args.out.mkdir(parents=True,exist_ok=True)
-        manifest=dict(options={k:str(v) if isinstance(v,Path) else v for k,v in vars(args).items()},crop_size=size,image_mode=mode,normalization=norm,groups={},models=[],feature='post-final-norm transformer patch tokens; excludes prefix tokens, pooling, output head and SSL projector',sources=['https://arxiv.org/pdf/2304.07193','https://arxiv.org/pdf/2511.08544'])
+        manifest=dict(comparison=comparison, display_interpolation='bilinear' if comparison else 'nearest', options={k:str(v) if isinstance(v,Path) else v for k,v in vars(args).items()},crop_size=size,image_mode=mode,normalization=norm,groups={},models=[],feature='post-final-norm transformer patch tokens; excludes prefix tokens, pooling, output head and SSL projector',sources=['https://arxiv.org/pdf/2304.07193','https://arxiv.org/pdf/2511.08544'])
         for name,paths in groups.items():
             manifest['groups'][name]=[]
             for p in paths:
@@ -174,8 +217,17 @@ def main():
                 )
                 hyper='H-ViT body (before hyperbolic head)' if is_hvit else 'ViT body'
                 title=f'{entry["name"]} · {name} · {hyper}\n{args.scope} PCA; {side}×{side} patches; {dim} channels; mask={args.pc1_threshold}, side={args.foreground}'
-                render(originals,rgb,pc1,mask,grid,prefix,title,[p.name for p in paths])
-                print(f'Wrote {prefix}.png',flush=True)
+                if comparison:
+                    comparison_panels.setdefault(group_index, []).append(
+                        (entry.get('label', entry['name']), rgb, grid))
+                    if len(comparison_panels[group_index]) == len(entries):
+                        output = args.out / f'comparison_{group_index:02d}.png'
+                        render_comparison(originals, comparison_panels[group_index], output,
+                                          tuple(int(c)-1 for c in args.rgb_order), args.render_size)
+                        print(f'Wrote {output}', flush=True)
+                else:
+                    render(originals,rgb,pc1,mask,grid,prefix,title,[p.name for p in paths])
+                    print(f'Wrote {prefix}.png',flush=True)
             manifest['models'].append(dict(entry,token_dim=dim,checkpoint_size=Path(entry['checkpoint']).stat().st_size))
             del extract
             if args.device.startswith('cuda'):torch.cuda.empty_cache()

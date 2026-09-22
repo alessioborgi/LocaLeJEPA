@@ -16,25 +16,17 @@ class_aliases:
   golf ball: n03445777
   parachute: n03888257
 crop_size: 128
+# Three English springers, with input / LocaLeJEPA / LeJEPA columns.
+classes: [English springer]
+comparison: true
+rgb_order: '312'  # R=PC3, G=PC1, B=PC2; display-only permutation.
 backbones:
-  - name: LocaLe_K2
-    experiment: lejepa/vit_imagenette_localballreg_l01_k4
-    overrides: [model.reg_loss.num_clusters=2]
-    checkpoint: checkpoints/ball_l01_k2_s0/best.ckpt
-  - name: LocaLe_K4
-    experiment: lejepa/vit_imagenette_localballreg_l01_k4
-    checkpoint: checkpoints/ball_l01_k4_s0/best.ckpt
-  - name: LocaLe_K8
-    experiment: lejepa/vit_imagenette_localballreg_l01_k4
-    overrides: [model.reg_loss.num_clusters=8]
-    checkpoint: checkpoints/ball_l01_k8_s0/best.ckpt
-  - name: SIGReg
-    experiment: lejepa/vit_imagenette_sigreg
-    checkpoint: checkpoints/lejepa/best.ckpt
-  - name: RDMReg
-    experiment: rectifiedlpjepa/vit_imagenette_rdmreg
-    checkpoint: checkpoints/rectlpjepa/best.ckpt
   - name: H_LocaLe_K4
+    label: LocaLeJEPA
     experiment: lejepa/vit_imagenette_localballreg_l01_k4
     overrides: [model/encoder=hvit_small_p8]
     checkpoint: checkpoints/hvit_locale_k4/best.ckpt
+  - name: H_SIGReg
+    label: LeJEPA
+    experiment: lejepa/hvit_imagenette_sigreg
+    checkpoint: checkpoints/hvit_sigreg_matched/best.ckpt

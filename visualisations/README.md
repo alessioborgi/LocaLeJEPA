@@ -110,6 +110,31 @@ ordinary pooled evaluation remains strict. Direct ViT maps currently require a
 square spatial grid. Outputs include input crops, PCA/PC1/overlay panels, features
 and PCA metadata.
 
+### English springer comparison
+
+```bash
+uv run --extra experiments python src/visualize_patch_pca.py \
+  --config configs/eval/patch_pca_imagenette.yaml \
+  --out logs/english_springer_pca
+```
+
+Set the two checkpoint paths in that config to your trained hyperbolic
+LocaLeJEPA K4 and SigREG checkpoints. The config selects three English springers
+from Imagenette validation using seed 0. `comparison_00.png` has three rows and
+three columns: unnormalized input crop, **LocaLeJEPA**, **LeJEPA** (SigREG).
+Only the two model columns have headers; there is no overall title.
+The input crop is exactly the region processed by both models.
+
+PCA maps are bilinearly upsampled to 512×512 for display and the figure is saved
+at 300 dpi (2700×2700). Change display resolution with `--render-size`.
+This smooths existing patch features without increasing their spatial detail.
+The comparison defaults to R=PC3, G=PC1, B=PC2; use `--rgb-order 123` for the
+original mapping or another permutation such as `--rgb-order 231`.
+The same permutation is used for both models. Native PCA arrays and bases remain
+unchanged in the NPZ/JSON outputs; the manifest records display options.
+Other checkpoint configs retain the diagnostic panel layout unless they enable
+`comparison: true`, which requires two models and three images per group.
+
 ### Interpreting PCA colors
 
 `--scope image` fits PCA separately for each sample. `--scope group` shares the
