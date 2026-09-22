@@ -520,6 +520,16 @@ def test_resume_shell_output_names_unreadable_candidates_on_a_fresh_start(tmp_pa
     assert "export STALE=''" in capsys.readouterr().out, "nothing to move on a clean fresh start"
 
 
+def test_a_successor_writes_its_stdout_into_the_log_dir_never_the_clone():
+    """F50: twenty slurm-<id>.out files from cancelled successors made the clone dirty and every
+    later preflight would have refused. The successor names its output in the log dir."""
+    env = {"SLURM_JOB_ID": "7", "SLURM_JOB_PARTITION": "rtx-batch", "SLURM_JOB_ACCOUNT": "a", "SLURM_JOB_NAME": "ablation_grid",
+           "SLURM_GPUS_ON_NODE": "1", "SLURM_NTASKS_PER_NODE": "1", "SLURM_CPUS_PER_TASK": "16"}
+    argv = C.successor_argv(env, script="s.sh", requeue_left=1, time="01:00:00", exports={"GRID": "g"}, log_dir="/logs/slurm")
+    assert "--output=/logs/slurm/ablation_grid-successor-%j.out" in argv
+    assert not any(a == "--output=." for a in argv)
+
+
 def test_slurm_time_left_parses_every_squeue_form():
     assert C.parse_slurm_time_left("1-02:03:04") == 93784.0
     assert C.parse_slurm_time_left("02:03:04") == 7384.0

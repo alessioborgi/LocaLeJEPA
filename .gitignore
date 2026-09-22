@@ -185,3 +185,6 @@ results/figures/
 
 # site roots for the AICR launcher (template: roots.env.example)
 scripts/aicr/roots.env
+
+# a Slurm job submitted from the clone without --output writes its stdout here (F50): never tracked, never a dirty tree
+slurm-*.out

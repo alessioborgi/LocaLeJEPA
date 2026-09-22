@@ -74,6 +74,7 @@ REQUIRED_PER_SCRIPT = {
         "callbacks.last_checkpoint.dirpath=$CKPT_DIR": "last.ckpt is written by the monitor-less callback into the run's checkpoint dir (F50)",
         "trap on_term TERM": "a SIGTERM that reaches the script is a cancel or a preemption, never the wall (F50)",
         "moved unreadable $f aside": "a fresh start moves unreadable checkpoints aside, or Lightning auto-loads them (F50)",
+        '--log-dir "$LOG_ROOT/slurm"': "a successor's stdout goes to the log dir, never into the clone (F50: a dirty tree stalls the wave)",
         '--signalled --time-left "$TIME_LEFT"': "the successor decision knows whether the script was signalled and how much time was left (F50)",
         "-calib-${SLURM_JOB_PARTITION": "calibration dirs are keyed by partition and job: two partitions calibrate one geometry at once",
         'CKPT_ROOT="${CKPT_ROOT_OVERRIDE:-$CKPT_ROOT}"': "an ablation wave's checkpoint root comes from --export, never from editing roots.env between submissions: tasks read the file when they START",
