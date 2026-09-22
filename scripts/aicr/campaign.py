@@ -311,21 +311,29 @@ def resume_decision(ckpt_dir: Path, max_epochs: int,
                     names: tuple[str, ...] = ("last.ckpt", "on_exception.ckpt")) -> Decision:
     """The three-way decision, from what is *inside* the candidates.
 
-    ``done`` when any readable candidate has finished the last epoch (Lightning's epoch key is
-    the 0-based index of the completed epoch, so ``max_epochs - 1``); otherwise ``resume`` from
-    the readable candidate with the largest ``global_step`` -- an on-exception checkpoint from
+    ``done`` only when ``last.ckpt`` -- written at the END of an epoch by the every-epoch callback
+    -- carries the last epoch (Lightning's epoch key is the 0-based index of the epoch, so
+    ``max_epochs - 1``). An ``on_exception.ckpt`` never means done: it is written mid-epoch, and
+    its epoch key is the epoch that was being trained, not one that finished. F54 (2026-09-22): a
+    cell interrupted 14 steps before the end of epoch 99 had ``on_exception.ckpt`` at epoch 99 and
+    the old rule called it done; the resubmission skipped training and the postflight refused the
+    artifact (``last.ckpt`` at epoch 4). Otherwise ``resume`` from the readable candidate with the
+    largest ``global_step``, ``last.ckpt`` winning a tie -- an on-exception checkpoint from
     mid-epoch beats an older ``last.ckpt`` even though its mtime may be older on NFS; ``fresh``
     when nothing readable exists, saying so if something unreadable does.
     """
     candidates = tuple(read_checkpoint_progress(ckpt_dir / name)
                        for name in names if (ckpt_dir / name).is_file())
     readable = [c for c in candidates if c.valid]
-    finished = [c for c in readable if c.epoch is not None and c.epoch >= max_epochs - 1]
+    finished = [c for c in readable
+                if c.path.name == "last.ckpt" and c.epoch is not None and c.epoch >= max_epochs - 1]
     if finished:
-        best = max(finished, key=lambda c: c.global_step or 0)
+        best = finished[0]
         return Decision("done", best.path, f"{best.path.name} is at epoch {best.epoch} "
                         f"(max_epochs {max_epochs})", candidates)
     if readable:
+        # the largest global_step wins; on a tie max() keeps the first maximal element, i.e. the
+        # epoch-end checkpoint (last.ckpt, first in `names`) rather than the mid-epoch one
         best = max(readable, key=lambda c: c.global_step or 0)
         return Decision("resume", best.path, f"{best.path.name} at epoch {best.epoch}, "
                         f"global_step {best.global_step}", candidates)
