@@ -84,7 +84,15 @@ class RunSpec:
         return [f"experiment={self.experiment}", *self.overrides, f"seed={self.seed}"]
 
     def override_map(self) -> dict[str, str]:
-        return dict(item.split("=", 1) for item in self.overrides) | {"seed": str(self.seed)}
+        """``key -> value``, with Hydra's leading ``+``/``++`` stripped.
+
+        The prefix says whether the key is APPENDED to the config or forced over it; it is not part
+        of the key path. F58 (2026-09-23): the postflight looked `+trainer.limit_train_batches` up
+        verbatim, found nothing, and reported every smoke cell as a config mismatch while its
+        artifact was complete and correct. ``hydra_overrides`` keeps the prefix, which is where it
+        belongs -- on the command line."""
+        return {key.lstrip("+"): value
+                for key, value in (item.split("=", 1) for item in self.overrides)} | {"seed": str(self.seed)}
 
 
 def format_value(value: Any) -> str:

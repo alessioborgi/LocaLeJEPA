@@ -72,6 +72,47 @@ def distinct_cells():
 CELLS = distinct_cells()
 
 
+SMOKE = [(s, r) for s, r in CELLS if s.startswith("smoke_")]
+
+
+def _geo(cfg) -> tuple[int, int]:
+    """(per-step batch, accumulation); not every trainer config declares the accumulation."""
+    from omegaconf import OmegaConf
+
+    return (int(OmegaConf.select(cfg, "data.batch_size")),
+            int(OmegaConf.select(cfg, "trainer.accumulate_grad_batches", default=1) or 1))
+
+
+def _geometry_pairs_by_experiment():
+    """(batch, accumulation) actually run for each experiment, over the REAL cells only."""
+    from collections import defaultdict
+
+    pairs = defaultdict(set)
+    for stem, run in CELLS:
+        if not stem.startswith("smoke_"):
+            pairs[run.experiment].add(_geo(C.compose_config(run.hydra_overrides())))
+    return pairs
+
+
+REAL_GEOMETRIES = _geometry_pairs_by_experiment()
+
+
+@pytest.mark.parametrize("stem, run", SMOKE, ids=[f"{s}:{r.run_name}" for s, r in SMOKE])
+def test_a_smoke_cell_rehearses_a_geometry_the_campaign_actually_runs(stem, run):
+    """A debug cell exists to rehearse a real one, so it may shorten the run and nothing else. Its
+    batch geometry must be one the campaign runs for that experiment -- NOT one the author picked.
+    On 2026-09-23 the spherical-ViT smoke cell was given per-step 256, the ablations' geometry,
+    where its own lineup runs 64 x 4; it died of CUDA OOM on a 95 GB card in a shape that appears
+    nowhere in the campaign. Inverted by restoring that 256: this test fails naming both.
+    """
+    cfg = C.compose_config(run.hydra_overrides())
+    pair = _geo(cfg)
+    allowed = REAL_GEOMETRIES.get(run.experiment)
+    assert allowed, f"{run.run_name}: {run.experiment} is rehearsed but never run by a real manifest"
+    assert pair in allowed, f"{run.run_name}: rehearses {pair}, the campaign runs {sorted(allowed)}"
+    assert int(cfg.trainer.max_epochs) == 2, "the only thing a smoke cell shortens is the run"
+
+
 @pytest.mark.parametrize("stem, run", CELLS, ids=[f"{s}:{r.run_name}" for s, r in CELLS])
 def test_every_distinct_cell_composes_at_its_declared_geometry(stem, run):
     """Composition with the run's overrides, then the geometry assert: the per-GPU micro-batch

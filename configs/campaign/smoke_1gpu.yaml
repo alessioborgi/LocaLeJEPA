@@ -15,15 +15,20 @@
 # matters; validation is NOT limited, because the calibrate override set already claims
 # `trainer.limit_val_batches` and a cell must compose under both modes (the test pins that).
 # Every override is composed by tests/integration/test_campaign_manifests.py.
+#
+# A smoke cell MIRRORS its real cell's geometry and never imposes one: the four 800-epoch Imagenette
+# rows run at their configs' own per-step 64 x accumulate 4 (`micro_batch: 64` per block) and only the
+# ablation rows are 256 x 1. Getting that wrong made the spherical ViT run at batch 256 and die of CUDA
+# OOM on a 95 GB card -- a geometry the campaign never uses (2026-09-23).
 name: smoke_1gpu
 seeds: [0]
 gpus: 1
 micro_batch: 256
 max_epochs: 2
 blocks:
-  - {tag: smoke_vit_imagenette_sigreg, experiment: lejepa/vit_imagenette_sigreg,          overrides: {logger: csv, trainer.max_epochs: 2, data.batch_size: 256, trainer.accumulate_grad_batches: 1, +trainer.limit_train_batches: 20}}
-  - {tag: smoke_vit_imagenette_rdmreg, experiment: rectifiedlpjepa/vit_imagenette_rdmreg, overrides: {logger: csv, trainer.max_epochs: 2, data.batch_size: 256, trainer.accumulate_grad_batches: 1, +trainer.limit_train_batches: 20}}
+  - {tag: smoke_vit_imagenette_sigreg, experiment: lejepa/vit_imagenette_sigreg,          micro_batch: 64, overrides: {logger: csv, trainer.max_epochs: 2, +trainer.limit_train_batches: 20}}
+  - {tag: smoke_vit_imagenette_rdmreg, experiment: rectifiedlpjepa/vit_imagenette_rdmreg, micro_batch: 64, overrides: {logger: csv, trainer.max_epochs: 2, +trainer.limit_train_batches: 20}}
   - {tag: smoke_ablation_local,        experiment: ablations/base,                        overrides: {logger: csv, trainer.max_epochs: 2, +trainer.limit_train_batches: 20}}
   - {tag: smoke_ablation_dynk,         experiment: ablations/dynk,                        overrides: {logger: csv, trainer.max_epochs: 2, +trainer.limit_train_batches: 20}}
-  - {tag: smoke_svit_susreg,           experiment: lejepa/svit_imagenette_susreg,         overrides: {logger: csv, trainer.max_epochs: 2, data.batch_size: 256, trainer.accumulate_grad_batches: 1, +trainer.limit_train_batches: 20}}
-  - {tag: smoke_nvit_sigreg,           experiment: lejepa/nvit_imagenette_sigreg,         overrides: {logger: csv, trainer.max_epochs: 2, data.batch_size: 256, trainer.accumulate_grad_batches: 1, +trainer.limit_train_batches: 20}}
+  - {tag: smoke_svit_susreg,           experiment: lejepa/svit_imagenette_susreg,         micro_batch: 64, overrides: {logger: csv, trainer.max_epochs: 2, +trainer.limit_train_batches: 20}}
+  - {tag: smoke_nvit_sigreg,           experiment: lejepa/nvit_imagenette_sigreg,         micro_batch: 64, overrides: {logger: csv, trainer.max_epochs: 2, +trainer.limit_train_batches: 20}}
