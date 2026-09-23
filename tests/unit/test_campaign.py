@@ -279,6 +279,25 @@ def test_config_check_verifies_group_overrides_through_the_command_line(tmp_path
     assert any("logger=csv" in p for p in problems)
 
 
+def test_an_override_key_is_read_without_hydras_plus_prefix(tmp_path):
+    """F58 (2026-09-23): the debug cycle's cells carry `+trainer.limit_train_batches=20`. Hydra's
+    leading `+` says the key is APPENDED to the config, it is not part of the key path, but the
+    postflight looked it up verbatim and reported `manifest '20', run used '<absent>'` on four
+    cells whose artifacts were complete. Inverted once without the strip: the config check fails."""
+    spec_plus = spec(overrides=("+trainer.limit_train_batches=20", "logger=csv", "model.lamb=0.02"))
+    assert spec_plus.override_map()["trainer.limit_train_batches"] == "20"
+    assert not any(k.startswith("+") for k in spec_plus.override_map())
+    assert "+trainer.limit_train_batches=20" in spec_plus.hydra_overrides(), "the command line KEEPS the prefix"
+    root = run_dir(tmp_path)
+    from omegaconf import OmegaConf
+    cfg = OmegaConf.load(root / ".hydra" / "config.yaml")
+    cfg.trainer.limit_train_batches = 20
+    OmegaConf.save(cfg, root / ".hydra" / "config.yaml")
+    OmegaConf.save(OmegaConf.create(["experiment=ablations/base", "logger=csv", "seed=1",
+                                     "+trainer.limit_train_batches=20"]), root / ".hydra" / "overrides.yaml")
+    assert C.config_matches_spec(root, spec_plus) == []
+
+
 def test_config_check_catches_the_wrong_experiment(tmp_path):
     problems = C.config_matches_spec(run_dir(tmp_path, overrides=["experiment=lejepa/other", "logger=csv"]), spec())
     assert any("experiment=ablations/base" in p for p in problems)

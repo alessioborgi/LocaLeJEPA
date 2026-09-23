@@ -369,6 +369,14 @@ MUTANTS: list[Mutant] = [
     # the defect is re-admitting a container's NON-BatchNorm children through add_module (torch's converter
     # does that for every child); a BatchNorm's own parent inside escnn is a plain module and admits it,
     # so mutating the BatchNorm insertion alone survived (2026-09-21) -- this one rebuilds the way torch does
+    Mutant("c17-override-key-keeps-hydra-plus", "scripts/aicr/campaign.py",
+           '        return {key.lstrip("+"): value',
+           "        return {key: value",
+           "a `+key=value` override is looked up with the prefix and every cell carrying one fails its config check (F58)"),
+    Mutant("c17-smoke-imposes-its-own-batch", "configs/campaign/smoke_1gpu.yaml",
+           "  - {tag: smoke_svit_susreg,           experiment: lejepa/svit_imagenette_susreg,         micro_batch: 64,",
+           "  - {tag: smoke_svit_susreg,           experiment: lejepa/svit_imagenette_susreg,         micro_batch: 256, data.batch_size: 256,",
+           "a debug cell rehearses a geometry the campaign never runs (the spherical ViT OOMed at batch 256)"),
     Mutant("c16-torus-tag-collides-with-in1k", "configs/campaign/torus.yaml",
            "  - {tag: vit_imagenette_sigreg, experiment: lejepa/vit_imagenette_sigreg,",
            "  - {tag: vit_sigreg, experiment: lejepa/vit_imagenette_sigreg,",
