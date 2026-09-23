@@ -21,7 +21,7 @@ MANIFESTS = sorted((REPO / "configs" / "campaign").glob("*.yaml"))
 EXPECTED_RUNS = {
     "ablation_grid": 252, "ablation_batch128": 24, "in1k_baselines": 6, "in1k_vitl14": 2,
     "in1k_local": 4, "torus": 11, "calibration_1gpu": 2, "calibration_4gpu": 3, "calibration_8gpu": 1,
-    "smoke_1gpu": 6, "smoke_4gpu": 5, "smoke_8gpu": 2,
+    "smoke_1gpu": 6, "smoke_4gpu": 5, "smoke_8gpu": 2, "ablation_grid_ep800": 252,
 }
 
 
@@ -120,6 +120,36 @@ def test_every_distinct_cell_composes_at_its_declared_geometry(stem, run):
     geo = C.geometry(run, world_size=run.gpus)
     assert geo["micro_batch_per_gpu"] == run.micro_batch
     assert geo["effective_batch"] in (256, 512), geo
+
+
+@pytest.mark.parametrize("stem, run", CELLS, ids=[f"{s}:{r.run_name}" for s, r in CELLS])
+def test_the_manifests_max_epochs_is_the_one_the_run_will_train(stem, run):
+    """The manifest's `max_epochs` is what `resume`, `verify_artifact` and `metrics_complete` judge the
+    run by; `trainer.max_epochs` is what it trains. If they disagree the cell can never verify -- it
+    either stops short of the target or overshoots it. Cheap to state, impossible to see in a log."""
+    cfg = C.compose_config(run.hydra_overrides())
+    assert int(cfg.trainer.max_epochs) == run.max_epochs, \
+        f"{run.run_name}: manifest says {run.max_epochs}, the config trains {int(cfg.trainer.max_epochs)}"
+
+
+@pytest.mark.parametrize("stem, run", CELLS, ids=[f"{s}:{r.run_name}" for s, r in CELLS])
+def test_a_k_ramp_arrives_at_the_same_fraction_of_every_run_length(stem, run):
+    """`DynamicNumClusters` steps every `step_epochs`, so a ramp written for 100 epochs arrives at 84%
+    of it. Copied unchanged into an 800-epoch grid it would arrive at 10% and sit at its endpoint for
+    716 epochs -- a different experiment wearing the same name. Every ramp the campaign runs must
+    arrive in the last fifth: the ablations' 2->16 at 84%, the torus row's 1->8 at 87.5%. A SMOKE
+    cell is exempt, because shortening the run is the one thing it is allowed to do."""
+    from omegaconf import OmegaConf
+
+    if stem.startswith("smoke_"):
+        return
+    cfg = C.compose_config(run.hydra_overrides())
+    ramp = OmegaConf.select(cfg, "callbacks.dynamic_num_clusters")
+    if ramp is None:
+        return
+    steps = abs(int(ramp.end) - int(ramp.start)) / int(OmegaConf.select(ramp, "step", default=1) or 1)
+    arrival = steps * int(ramp.step_epochs) / int(cfg.trainer.max_epochs)
+    assert 0.80 <= arrival <= 0.90, f"{run.run_name}: the ramp arrives at {arrival:.2f} of the run"
 
 
 @pytest.mark.parametrize("stem, run", CELLS, ids=[f"{s}:{r.run_name}" for s, r in CELLS])

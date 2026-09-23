@@ -369,6 +369,14 @@ MUTANTS: list[Mutant] = [
     # the defect is re-admitting a container's NON-BatchNorm children through add_module (torch's converter
     # does that for every child); a BatchNorm's own parent inside escnn is a plain module and admits it,
     # so mutating the BatchNorm insertion alone survived (2026-09-21) -- this one rebuilds the way torch does
+    Mutant("c18-ep800-ramp-keeps-the-100-epoch-schedule", "configs/campaign/ablation_grid_ep800.yaml",
+           "    overrides: {logger: csv, trainer.max_epochs: 800, callbacks.dynamic_num_clusters.step_epochs: 96}",
+           "    overrides: {logger: csv, trainer.max_epochs: 800}",
+           "the K ramp arrives at 10% of an 800-epoch run and holds for 716 epochs: a different experiment"),
+    Mutant("c18-manifest-epochs-disagree-with-the-config", "configs/campaign/ablation_grid_ep800.yaml",
+           "max_epochs: 800\nshort:",
+           "max_epochs: 100\nshort:",
+           "the manifest judges by 100 epochs while the run trains 800: the cell can never verify"),
     Mutant("c17-override-key-keeps-hydra-plus", "scripts/aicr/campaign.py",
            '        return {key.lstrip("+"): value',
            "        return {key: value",

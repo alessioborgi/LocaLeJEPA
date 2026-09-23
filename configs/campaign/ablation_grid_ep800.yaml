@@ -1,0 +1,66 @@
+# The ablation grid at 800 epochs -- the CONVERGED regime, all axes (2026-09-23).
+#
+# Why it exists: at 100 epochs, read three ways (the online probe and the draft's post-hoc k-NN and
+# linear), the surface's best cell is K=1 -- locality OFF -- and the pre-registered rule declares
+# lambda 0.02, K 1 (state/10-PAPER-STATE.md, C-17). The draft's own table is 800 epochs, where its
+# every K sits within 0.8 points of LeJEPA. Whether locality helps at convergence is therefore
+# unanswered by the short grid, and the honest instrument is the SAME grid at the draft's length.
+# All axes, both batch geometries: lambda and K interact (the optimum moves to larger K as lambda
+# grows), so fixing either would be choosing the regime after seeing the data.
+#
+# Cost: 252 runs x ~4.4 h on one RTX ~= 1100 GPU-h, ~35 h of wall at throttle 32.
+#
+# Two things that must scale with the run and one that must not:
+#   * `trainer.max_epochs` 800 (the manifest's max_epochs and the config's must agree, pinned by a test);
+#   * the K RAMPS step every 12 epochs over 100, i.e. they arrive at 84% of the run. Left alone at 800
+#     they would arrive at 10% and sit there for 716 epochs -- a different experiment. `step_epochs`
+#     is therefore 96, which arrives at 672/800 = the same 84%;
+#   * warm-up stays 10 epochs, because the draft's own 800-epoch local configs use 10.
+#
+# Names carry `ep800` so nothing can collide with the 100-epoch grid (F56: two runs sharing a name
+# shared a checkpoint directory).
+name: ablation_grid_ep800
+seeds: [0, 1, 2]
+gpus: 1
+max_epochs: 800
+short: {model.lamb: lam, model.reg_loss.num_clusters: k, data.batch_size: b, trainer.accumulate_grad_batches: x}
+blocks:
+  - tag: ep800_fixk                   # 5 x 6 x 2 = 60 cells; K=1 is the global statistic, the control inside every table
+    experiment: ablations/base
+    axes:
+      model.lamb: [0.02, 0.05, 0.1, 0.2, 0.3]
+      model.reg_loss.num_clusters: [1, 2, 4, 8, 16, 32]
+      batch:
+      - {data.batch_size: 64, trainer.accumulate_grad_batches: 4, micro_batch: 64}
+      - {data.batch_size: 256, trainer.accumulate_grad_batches: 1, micro_batch: 256}
+    overrides: {logger: csv, trainer.max_epochs: 800}
+  - tag: ep800_fwd                    # K 2 -> 16, +2 every 96 epochs (arrives at 672/800, as 12/100 arrives at 84/100)
+    experiment: ablations/dynk
+    axes:
+      model.lamb: [0.02, 0.05, 0.1, 0.2, 0.3]
+      batch:
+      - {data.batch_size: 64, trainer.accumulate_grad_batches: 4, micro_batch: 64}
+      - {data.batch_size: 256, trainer.accumulate_grad_batches: 1, micro_batch: 256}
+    overrides: {logger: csv, trainer.max_epochs: 800, callbacks.dynamic_num_clusters.step_epochs: 96}
+  - tag: ep800_rev                    # K 16 -> 2, the reverse ramp, same schedule
+    experiment: ablations/dynk_rev
+    axes:
+      model.lamb: [0.02, 0.05, 0.1, 0.2, 0.3]
+      batch:
+      - {data.batch_size: 64, trainer.accumulate_grad_batches: 4, micro_batch: 64}
+      - {data.batch_size: 256, trainer.accumulate_grad_batches: 1, micro_batch: 256}
+    overrides: {logger: csv, trainer.max_epochs: 800, callbacks.dynamic_num_clusters.step_epochs: 96}
+  - tag: ep800_sigreg                 # scale row: LeJEPA at MINIMAL.md's recipe, its own 800 epochs
+    experiment: lejepa/vit_imagenette_sigreg
+    axes:
+      batch:
+      - {data.batch_size: 64, trainer.accumulate_grad_batches: 4, micro_batch: 64}
+      - {data.batch_size: 256, trainer.accumulate_grad_batches: 1, micro_batch: 256}
+    overrides: {logger: csv}
+  - tag: ep800_rdmreg                 # scale row: Rectified LpJEPA, its own 800 epochs
+    experiment: rectifiedlpjepa/vit_imagenette_rdmreg
+    axes:
+      batch:
+      - {data.batch_size: 64, trainer.accumulate_grad_batches: 4, micro_batch: 64}
+      - {data.batch_size: 256, trainer.accumulate_grad_batches: 1, micro_batch: 256}
+    overrides: {logger: csv}
