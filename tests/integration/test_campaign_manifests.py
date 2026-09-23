@@ -21,11 +21,32 @@ MANIFESTS = sorted((REPO / "configs" / "campaign").glob("*.yaml"))
 EXPECTED_RUNS = {
     "ablation_grid": 252, "ablation_batch128": 24, "in1k_baselines": 6, "in1k_vitl14": 2,
     "in1k_local": 4, "torus": 11, "calibration_1gpu": 2, "calibration_4gpu": 3, "calibration_8gpu": 1,
+    "smoke_1gpu": 6, "smoke_4gpu": 5, "smoke_8gpu": 2,
 }
 
 
 def expand(path: Path) -> list[C.RunSpec]:
     return C.expand(C.load_manifest(path))
+
+
+def test_every_run_name_is_unique_across_ALL_manifests():
+    """F56 (2026-09-23): `expand` refuses duplicates WITHIN a manifest, nothing checked across them. Both
+    `torus` and `in1k_baselines` had blocks tagged `vit_sigreg`/`vit_rdmreg` with no axes, so both expanded to
+    `vit_sigreg_s0` -- one checkpoint directory and one run directory for an 800-epoch Imagenette run and a
+    100-epoch ImageNet-1K one. They resumed from each other's checkpoints. The name IS the identity: it is the
+    checkpoint dir, the hydra run dir, and the key every eval config resolves.
+
+    Inverted once by renaming the torus tags back: this test fails with both names listed.
+    """
+    from collections import defaultdict
+
+    owners = defaultdict(set)
+    for manifest in MANIFESTS:
+        for run in expand(manifest):
+            owners[run.run_name].add((manifest.stem, run.experiment))
+    collisions = {name: sorted(v) for name, v in owners.items() if len({exp for _, exp in v}) > 1}
+    assert not collisions, "run names shared by different experiments: " + "; ".join(
+        f"{name} <- " + ", ".join(f"{stem}:{exp}" for stem, exp in v) for name, v in sorted(collisions.items()))
 
 
 def test_every_manifest_is_accounted_for():

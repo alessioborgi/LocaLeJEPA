@@ -1,0 +1,14 @@
+# The DEBUG CYCLE, 4-GPU half: the ImageNet-1K shapes, including the two the campaign has broken
+# on -- the D4-equivariant ResNet (escnn containers under DDP, F48) and the SIGReg CONTROL, whose
+# experiment name contains "local" while its regularizer does not (F53). See smoke_1gpu.yaml.
+name: smoke_4gpu
+seeds: [0]
+gpus: 4
+micro_batch: 64
+max_epochs: 2
+blocks:
+  - {tag: smoke_vit_in1k_sigreg,   experiment: lejepa/vit_in1k_sigreg,                 overrides: {logger: csv, trainer.max_epochs: 2, data.batch_size: 256, trainer.accumulate_grad_batches: 1, +trainer.limit_train_batches: 20}}
+  - {tag: smoke_hvit_in1k_sigreg,  experiment: lejepa/hvit_in1k_sigreg,                overrides: {logger: csv, trainer.max_epochs: 2, data.batch_size: 256, trainer.accumulate_grad_batches: 1, +trainer.limit_train_batches: 20}}
+  - {tag: smoke_d4rn50_in1k_sigreg, experiment: lejepa/d4rn50_in1k_sigreg,             overrides: {logger: csv, trainer.max_epochs: 2, data.batch_size: 256, trainer.accumulate_grad_batches: 1, +trainer.limit_train_batches: 20}}
+  - {tag: smoke_vit_in1k_local,    experiment: lejepa/vit_in1k_localballreg_l01_k4,    overrides: {logger: csv, trainer.max_epochs: 2, data.batch_size: 256, trainer.accumulate_grad_batches: 1, +trainer.limit_train_batches: 20}}
+  - {tag: smoke_vit_in1k_control,  experiment: lejepa/vit_in1k_sigreg_localrecipe,     overrides: {logger: csv, trainer.max_epochs: 2, data.batch_size: 256, trainer.accumulate_grad_batches: 1, +trainer.limit_train_batches: 20}}

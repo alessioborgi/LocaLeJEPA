@@ -29,15 +29,15 @@ backbones:
   - name: nvit_subreg_s0
     experiment: lejepa/nvit_imagenette_subreg
     checkpoint: checkpoints/nvit_subreg_s0/last.ckpt
-  - name: vit_sigreg_s0
+  - name: vit_imagenette_sigreg_s0
     experiment: lejepa/vit_imagenette_sigreg
-    checkpoint: checkpoints/vit_sigreg_s0/last.ckpt
+    checkpoint: checkpoints/vit_imagenette_sigreg_s0/last.ckpt
   - name: vit_subreg_s0
     experiment: lejepa/vit_imagenette_subreg
     checkpoint: checkpoints/vit_subreg_s0/last.ckpt
-  - name: vit_rdmreg_s0
+  - name: vit_imagenette_rdmreg_s0
     experiment: rectifiedlpjepa/vit_imagenette_rdmreg
-    checkpoint: checkpoints/vit_rdmreg_s0/last.ckpt
+    checkpoint: checkpoints/vit_imagenette_rdmreg_s0/last.ckpt
   - name: vit_local_l01_k2_s0
     experiment: lejepa/vit_imagenette_localballreg_l01_k2
     checkpoint: checkpoints/vit_local_l01_k2_s0/last.ckpt

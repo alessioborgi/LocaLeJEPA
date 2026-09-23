@@ -1,0 +1,11 @@
+# The DEBUG CYCLE, 8-GPU half: the ViT-L/14 pair. This is the shape that has cost the most GPU
+# time for the least evidence (2026-09-23: two launches, both dead inside an hour at the
+# calibrated speed), so it gets a two-epoch run of its own before any long one. See smoke_1gpu.yaml.
+name: smoke_8gpu
+seeds: [0]
+gpus: 8
+micro_batch: 64
+max_epochs: 2
+blocks:
+  - {tag: smoke_vitl14_sigreg, experiment: lejepa/vitl14_in1k_sigreg_paper,       overrides: {logger: csv, trainer.max_epochs: 2, +trainer.limit_train_batches: 20}}
+  - {tag: smoke_vitl14_local,  experiment: lejepa/vitl14_in1k_localballreg_paper, overrides: {logger: csv, trainer.max_epochs: 2, +trainer.limit_train_batches: 20}}
