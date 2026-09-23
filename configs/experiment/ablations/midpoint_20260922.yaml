@@ -1,0 +1,62 @@
+# @package _global_
+
+defaults:
+  - /experiment/ablations/fixed_k_20260922
+  - _self_
+
+tags: ["lejepa", "imagenette", "vit-small-p8", "localereg", "midpoint"]
+
+trainer:
+  accumulate_grad_batches: 2
+
+data:
+  batch_size: 128
+
+model:
+  lamb: ...
+  reg_loss:
+    num_clusters: ${midpoint.arms[${midpoint.arm}].k}
+
+midpoint:
+  arm: k1
+  run_name: midpoint_20260922_l${model.lamb}_${midpoint.arm}_B${data.batch_size}x${trainer.accumulate_grad_batches}_seed${seed}
+  arms:
+    k1: { k: 1, callback: null }
+    k2: { k: 2, callback: null }
+    k4: { k: 4, callback: null }
+    k8: { k: 8, callback: null }
+    k16: { k: 16, callback: null }
+    k32: { k: 32, callback: null }
+    kfwd:
+      k: 2
+      callback:
+        _target_: src.callbacks.dynamic_num_clusters.DynamicNumClusters
+        start: 2
+        end: 16
+        step_epochs: 12
+        step: 2
+    krev:
+      k: 16
+      callback:
+        _target_: src.callbacks.dynamic_num_clusters.DynamicNumClusters
+        start: 16
+        end: 2
+        step_epochs: 12
+        step: 2
+
+callbacks:
+  dynamic_num_clusters: ${midpoint.arms[${midpoint.arm}].callback}
+
+logger:
+  wandb:
+    name: ${midpoint.run_name}
+    group: midpoint_20260922
+
+hydra:
+  sweep:
+    dir: ${paths.root_dir}/outputs/midpoint_20260922
+    subdir: ${midpoint.run_name}
+  sweeper:
+    params:
+      midpoint.arm: k1,k2,k4,k8,k16,k32,kfwd,krev
+      seed: 42,43,44

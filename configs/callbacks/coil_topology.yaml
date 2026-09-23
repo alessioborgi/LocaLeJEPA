@@ -1,0 +1,11 @@
+coil_topology:
+  _target_: src.callbacks.coil_topology.COILTopologyCallback
+  stride: 3 # keep every n-th frame for the global cloud
+  global_maxdim: 1
+  thresh_quantile: 0.4
+  h0_scale: 2.0 # radius, in units of the within-object spread, at which clusters are counted
+  h1_cut: 0.3 # shortest H1 bar that counts as a loop
+  holdout_objects: 20
+  batch_size: 256
+  num_workers: ${data.num_workers}
+  save_embeddings: true

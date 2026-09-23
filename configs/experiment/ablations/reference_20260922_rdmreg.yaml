@@ -1,0 +1,8 @@
+# @package _global_
+defaults:
+  - /experiment/rectifiedlpjepa/vit_imagenette_rdmreg
+  - /experiment/ablations/reference_20260922
+  - _self_
+
+reference:
+  method: rdmreg

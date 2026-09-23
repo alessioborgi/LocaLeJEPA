@@ -34,6 +34,12 @@ python visualisations/plot_yoda_torus.py            # or:  cd visualisations && 
 - `logs/eval_angle_probe_lowdata/results_lowdata.{json,csv}` — learning-curve metrics (produced by `src/eval_angle_probe_lowdata.py` at the repo root).
 - `logs/eval_angle_probe_*/cache/*_features.pt` — cached frozen 512-d features + angle labels per backbone.
 
+## COIL-100 topology
+
+`coil_topology_viz.py` draws the per-object views used by [`notebooks/coil_objects.ipynb`](../notebooks/coil_objects.ipynb): persistence diagrams, PC1/PC2 planes with frame call-outs, rotation gifs and run-vs-run grids. Every function returns a figure and writes nothing.
+
+It reads the `coil_embeddings_{final,best}.pt` dumps that `src/callbacks/coil_topology.py` writes at the end of a COIL-100 run (`experiment=lejepa/coil100_localereg`, `experiment=lejepa/coil100_sigreg`). `dump_pixels(data_dir, out)` writes the same layout from raw pixels, for the baseline panel in the notebook's overlay.
+
 ## Spatial feature PCA
 
 Run `src/visualize_patch_pca.py` from the repository root to produce spatial
