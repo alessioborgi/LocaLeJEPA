@@ -1,0 +1,24 @@
+# @package _global_
+# PDF ramp recipe: forward 2->16 or reverse 16->2, +/-2 every 12 epochs.
+defaults:
+  - /experiment/ablations/fixed_k_20260922
+  - override /callbacks: dynamic_num_clusters
+  - _self_
+
+data:
+  batch_size: 64
+trainer:
+  max_epochs: 100
+  accumulate_grad_batches: 4
+model:
+  reg_loss:
+    num_clusters: 2
+callbacks:
+  dynamic_num_clusters:
+    start: 2
+    end: 16
+    step_epochs: 12
+    step: 2
+logger:
+  wandb:
+    group: ramps_b64_20260922
