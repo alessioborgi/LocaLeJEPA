@@ -13,7 +13,7 @@ data:
   batch_size: 128
 
 model:
-  lamb: 0.1 # provisional until the fixed-K declaration
+  lamb: ...
   reg_loss:
     num_clusters: ${midpoint.arms[${midpoint.arm}].k}
 

@@ -1,0 +1,37 @@
+# @package _global_
+seed: 42
+test: false
+
+trainer:
+  max_epochs: 100
+  accumulate_grad_batches: ${reference.geometries[${reference.geometry}].accumulate}
+
+data:
+  batch_size: ${reference.geometries[${reference.geometry}].batch_size}
+
+model:
+  encoder:
+    grad_checkpointing: ${reference.geometries[${reference.geometry}].grad_checkpointing}
+
+reference:
+  method: ???
+  geometry: B256x1
+  geometries:
+    B64x4: { batch_size: 64, accumulate: 4, grad_checkpointing: false }
+    B256x1: { batch_size: 256, accumulate: 1, grad_checkpointing: true } # ~44 GiB without it
+  seeds: [42, 43, 44]
+  run_name: reference_20260922_${reference.method}_${reference.geometry}_seed${seed}
+
+logger:
+  wandb:
+    name: ${reference.run_name}
+    group: reference_20260922
+  csv:
+    _target_: lightning.pytorch.loggers.csv_logs.CSVLogger
+    save_dir: ${paths.output_dir}
+    name: csv
+
+hydra:
+  sweep:
+    dir: ${oc.env:DRIVE_DIR}/reference_20260922
+    subdir: ${reference.run_name}
