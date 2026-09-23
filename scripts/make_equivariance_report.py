@@ -42,6 +42,9 @@ IN1K_DIRS = {"in1k_baselines.yaml": "logs/eval_angle_probe_in1k_campaign",
 
 LABELS = {  # torus lineup tags -> (encoder, regularizer), the draft's row labels
     "svit_susreg": ("Spherical ViT", "SUSReg"), "nvit_sigreg": ("nViT", "SIGReg"), "nvit_subreg": ("nViT", "SubReg"),
+    # F56: the two Imagenette tags carry the dataset because `vit_sigreg`/`vit_rdmreg` are also block tags of
+    # in1k_baselines.yaml and a run name is tag+seed; the old spellings stay so an existing run still labels.
+    "vit_imagenette_sigreg": ("ViT", "SIGReg"), "vit_imagenette_rdmreg": ("ViT", "RDMReg"),
     "vit_sigreg": ("ViT", "SIGReg"), "vit_subreg": ("ViT", "SubReg"), "vit_rdmreg": ("ViT", "RDMReg"),
     "vit_local_l01_k2": ("ViT", "LocaLeJEPA (λ=0.1, K=2)"), "vit_local_l01_dynk": ("ViT", "LocaLeJEPA (λ=0.1, dynamic K)"),
     "vit_local_l01_k4": ("ViT", "LocaLeJEPA (λ=0.1, K=4)"), "vit_local_l03_k2": ("ViT", "LocaLeJEPA (λ=0.3, K=2)"),

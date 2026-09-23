@@ -369,6 +369,10 @@ MUTANTS: list[Mutant] = [
     # the defect is re-admitting a container's NON-BatchNorm children through add_module (torch's converter
     # does that for every child); a BatchNorm's own parent inside escnn is a plain module and admits it,
     # so mutating the BatchNorm insertion alone survived (2026-09-21) -- this one rebuilds the way torch does
+    Mutant("c16-torus-tag-collides-with-in1k", "configs/campaign/torus.yaml",
+           "  - {tag: vit_imagenette_sigreg, experiment: lejepa/vit_imagenette_sigreg,",
+           "  - {tag: vit_sigreg, experiment: lejepa/vit_imagenette_sigreg,",
+           "the Imagenette and ImageNet-1K LeJEPA runs share one checkpoint directory again (F56)"),
     Mutant("c15-eval-config-takes-unverified-cells", "scripts/aicr/make_ablation_eval_config.py",
            '        if require_verified and not (run_dir / ".verified").is_file():',
            "        if False:",

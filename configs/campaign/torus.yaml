@@ -1,3 +1,7 @@
+# F56 (2026-09-23): the two tags below carry `imagenette` because `vit_sigreg`/`vit_rdmreg` are ALSO
+# block tags of configs/campaign/in1k_baselines.yaml, and a run name is tag+seed: both expanded to
+# `vit_sigreg_s0` and the two runs shared one checkpoint directory. A test now pins every run name
+# unique across ALL manifests.
 # Phase 3c: the torus lineup (decision 12) -- the draft's eleven rows, 800 epochs, 1 GPU each.
 # The twelfth row, the declared (lambda, K), is added at Phase 4 if it is not already here.
 name: torus
@@ -9,9 +13,9 @@ blocks:
   - {tag: svit_susreg,          experiment: lejepa/svit_imagenette_susreg,               overrides: {logger: csv}}
   - {tag: nvit_sigreg,          experiment: lejepa/nvit_imagenette_sigreg,               overrides: {logger: csv}}
   - {tag: nvit_subreg,          experiment: lejepa/nvit_imagenette_subreg,               overrides: {logger: csv}}
-  - {tag: vit_sigreg,           experiment: lejepa/vit_imagenette_sigreg,                overrides: {logger: csv}}
+  - {tag: vit_imagenette_sigreg, experiment: lejepa/vit_imagenette_sigreg,                overrides: {logger: csv}}
   - {tag: vit_subreg,           experiment: lejepa/vit_imagenette_subreg,                overrides: {logger: csv}}
-  - {tag: vit_rdmreg,           experiment: rectifiedlpjepa/vit_imagenette_rdmreg,        overrides: {logger: csv}}
+  - {tag: vit_imagenette_rdmreg, experiment: rectifiedlpjepa/vit_imagenette_rdmreg,        overrides: {logger: csv}}
   - {tag: vit_local_l01_k2,     experiment: lejepa/vit_imagenette_localballreg_l01_k2,   overrides: {logger: csv}}
   - {tag: vit_local_l01_dynk,   experiment: lejepa/vit_imagenette_local_ballreg_dynk,    overrides: {logger: csv}}
   - {tag: vit_local_l01_k4,     experiment: lejepa/vit_imagenette_localballreg_l01_k4,   overrides: {logger: csv}}

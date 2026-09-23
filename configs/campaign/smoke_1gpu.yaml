@@ -1,0 +1,29 @@
+# The DEBUG CYCLE, 1-GPU half (F56, 2026-09-23). Every distinct 1-GPU shape of the campaign, run
+# through the REAL lifecycle -- preflight, staging, training to `max_epochs`, the epoch-end and
+# on-exception callbacks, postflight, the `.verified` marker -- in about three minutes a cell.
+#
+# Why it exists: F50, F52, F53 and F54 were all found by wave-sized runs after hours of GPU time,
+# and every one of them would have shown up in a two-epoch run that COMPLETES. The calibration
+# grids do not: they are step-limited, so nothing in them ever reaches `max_epochs - 1`, which is
+# where `last.ckpt`, the metrics merge and the done branch all live.
+#
+# The axes are chosen to be the ones that have actually broken: backbone (escnn, hyperbolic,
+# spherical, nViT), world size (DDP conversion), dataset and staging, regularizer family (a local
+# arm must log `train/local/*`, the SIGReg control must NOT be asked for it).
+#
+# `limit_train_batches` keeps the data volume small while the number of EPOCHS stays the thing that
+# matters; validation is NOT limited, because the calibrate override set already claims
+# `trainer.limit_val_batches` and a cell must compose under both modes (the test pins that).
+# Every override is composed by tests/integration/test_campaign_manifests.py.
+name: smoke_1gpu
+seeds: [0]
+gpus: 1
+micro_batch: 256
+max_epochs: 2
+blocks:
+  - {tag: smoke_vit_imagenette_sigreg, experiment: lejepa/vit_imagenette_sigreg,          overrides: {logger: csv, trainer.max_epochs: 2, data.batch_size: 256, trainer.accumulate_grad_batches: 1, +trainer.limit_train_batches: 20}}
+  - {tag: smoke_vit_imagenette_rdmreg, experiment: rectifiedlpjepa/vit_imagenette_rdmreg, overrides: {logger: csv, trainer.max_epochs: 2, data.batch_size: 256, trainer.accumulate_grad_batches: 1, +trainer.limit_train_batches: 20}}
+  - {tag: smoke_ablation_local,        experiment: ablations/base,                        overrides: {logger: csv, trainer.max_epochs: 2, +trainer.limit_train_batches: 20}}
+  - {tag: smoke_ablation_dynk,         experiment: ablations/dynk,                        overrides: {logger: csv, trainer.max_epochs: 2, +trainer.limit_train_batches: 20}}
+  - {tag: smoke_svit_susreg,           experiment: lejepa/svit_imagenette_susreg,         overrides: {logger: csv, trainer.max_epochs: 2, data.batch_size: 256, trainer.accumulate_grad_batches: 1, +trainer.limit_train_batches: 20}}
+  - {tag: smoke_nvit_sigreg,           experiment: lejepa/nvit_imagenette_sigreg,         overrides: {logger: csv, trainer.max_epochs: 2, data.batch_size: 256, trainer.accumulate_grad_batches: 1, +trainer.limit_train_batches: 20}}
