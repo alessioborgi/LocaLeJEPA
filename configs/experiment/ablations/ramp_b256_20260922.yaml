@@ -1,0 +1,13 @@
+# @package _global_
+# Same PDF ramp recipe as B64, with per-step B256 and no accumulation.
+defaults:
+  - /experiment/ablations/ramp_b64_20260922
+  - _self_
+
+data:
+  batch_size: 256
+trainer:
+  accumulate_grad_batches: 1
+logger:
+  wandb:
+    group: ramps_b256_20260922
