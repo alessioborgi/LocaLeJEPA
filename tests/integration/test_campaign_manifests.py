@@ -22,6 +22,7 @@ EXPECTED_RUNS = {
     "ablation_grid": 252, "ablation_batch128": 24, "in1k_baselines": 6, "in1k_vitl14": 2,
     "in1k_local": 4, "torus": 11, "calibration_1gpu": 2, "calibration_4gpu": 3, "calibration_8gpu": 1,
     "smoke_1gpu": 6, "smoke_4gpu": 5, "smoke_8gpu": 2, "ablation_grid_ep800": 252,
+    "target_and_centering": 24,
 }
 
 
@@ -177,6 +178,46 @@ def test_the_postflight_local_test_agrees_with_the_module_on_every_cell(stem, ru
     assert C.config_is_local(cfg) == _accepts_keyword(reg_loss, "stats"), run.run_name
     if run.tag == "vit_control":
         assert not C.config_is_local(cfg)
+
+
+def test_the_target_and_centering_grid_is_a_clean_two_by_two_with_locality_OFF():
+    """Decision 20d. Two differences between LocaLeJEPA and LeJEPA are uncontrolled in every grid we
+    have run: the TARGET (uniform-on-a-ball against the isotropic Gaussian) and CENTRING --
+    `localereg` subtracts each neighbourhood's mean and `sigreg` subtracts nothing, so SIGReg pins
+    the representation's global mean and ours leaves the location free, at EVERY K including K=1
+    (state/10-PAPER-STATE.md, 2026-09-24). This manifest exists to isolate those two, so what it must
+    guarantee is that NOTHING ELSE differs between its cells: one recipe, one geometry, one length,
+    and `num_clusters=1` throughout so locality never enters. All four combinations also go through
+    `local_loss`, because calling `sigreg_loss` directly would make the wrapper a third difference.
+
+    Inverted twice: dropping `model.reg_loss.num_clusters: 1` from one block fails on the K assert,
+    and changing one block's `experiment` away from `ablations/base` fails on the single-recipe assert.
+    """
+    runs = expand(REPO / "configs" / "campaign" / "target_and_centering.yaml")
+    assert len(runs) == 24, f"expected 2 targets x 2 centrings x 2 lambdas x 3 seeds, got {len(runs)}"
+    cells: dict[tuple[float, str, bool], list[str]] = {}
+    recipes: set[tuple] = set()
+    for run in runs:
+        cfg = C.compose_config(run.hydra_overrides())
+        reg = cfg.model.reg_loss
+        assert int(reg.num_clusters) == 1, \
+            f"{run.run_name}: locality must be OFF in this grid, the config asks for K={reg.num_clusters}"
+        assert str(reg._target_).endswith(("local_ballreg_loss", "local_sigreg_loss")), \
+            f"{run.run_name}: every cell must go through local_loss, got {reg._target_}"
+        key = (float(cfg.model.lamb), str(reg.loss._target_).split(".")[-1], bool(reg.loss.center))
+        cells.setdefault(key, []).append(run.run_name)
+        recipes.add((float(cfg.optimizer.lr), int(cfg.model.warmup_epochs),
+                     float(cfg.model.lr_eta_min_ratio), float(cfg.trainer.gradient_clip_val),
+                     _geo(cfg), int(cfg.trainer.max_epochs)))
+    assert len(recipes) == 1, \
+        f"the cells must differ ONLY in target and centring; {len(recipes)} recipes/geometries seen: {sorted(recipes)}"
+    expected = {(lam, target, center)
+                for lam in (0.02, 0.1)
+                for target in ("ballreg_loss", "sigreg_loss")
+                for center in (True, False)}
+    assert set(cells) == expected, f"the 2x2x2 is incomplete: missing {sorted(expected - set(cells))}"
+    assert all(len(names) == 3 for names in cells.values()), \
+        f"every cell needs its three seeds: {{k: len(v) for k, v in cells.items()}}"
 
 
 def test_the_vitl_pair_is_identical_except_the_regularizer():
