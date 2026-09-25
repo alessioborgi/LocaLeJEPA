@@ -1,0 +1,59 @@
+# The two differences between LocaLeJEPA and LeJEPA that NO other grid isolates (decision 20d).
+#
+# Why it exists: `ablation_grid_ep800` holds the recipe fixed and varies K, so it measures LOCALITY
+# and nothing else. Its `ep800_sigreg` reference row is NOT a control for anything -- it runs
+# MINIMAL.md's recipe (lr 2e-3, lr_eta_min_ratio 0.5), its own lambda, and no centring. So two
+# claims the paper wants to make are currently unmeasured:
+#
+#   (i)  the TARGET: is uniform-on-a-ball better than the isotropic Gaussian?
+#   (ii) CENTRING: our objective subtracts each neighbourhood's mean (localereg ->
+#        ballreg_loss(center=True)) and SIGReg subtracts nothing (sigreg.yaml -> center: false).
+#        SIGReg therefore pins the representation's global mean and ours leaves the location free --
+#        at EVERY K, including K=1. That is a second uncontrolled difference in every reported pair
+#        (state/10-PAPER-STATE.md, 2026-09-24 centring entry).
+#
+# Design: a 2 x 2, target x centring, with `num_clusters: 1` throughout so LOCALITY NEVER ENTERS,
+# on the ablation recipe (`ablations/base`: lr 1e-3, warm-up 10, cosine to peak/1000, clip 1.0) at
+# the b=64x4 geometry where the 90-cell block is complete and directly comparable. All four cells go
+# through `local_loss` (local_ballreg_loss / local_sigreg_loss) so the only differences are the two
+# under test -- calling `sigreg_loss` directly would have added the wrapper as a third difference.
+#
+# TWO lambdas, not one. A single matched lambda would reintroduce a confound: 0.02 is where SIGReg
+# was tuned (MINIMAL.md) and 0.1 is where the ball's own optimum sits at this batch (91.38 at K=1,
+# state/10-PAPER-STATE.md 2026-09-25). Running both means neither target is judged at a lambda it
+# was never tuned for, and it shows whether the answer depends on lambda at all.
+#
+# Cost: 2 blocks x 2 lambda x 2 centring x 3 seeds = 24 runs x ~4.4 h on one RTX ~= 106 GPU-h.
+# To halve it, delete one value from `model.lamb` -- the manifest stays valid and the tests still pass.
+#
+# No new code and no new configs: every cell is an override on `localereg` / `locale_sigreg`, both
+# of which already take `loss.center`.
+name: target_and_centering
+seeds: [0, 1, 2]
+gpus: 1
+max_epochs: 800
+micro_batch: 64
+experiment: ablations/base
+short: {model.lamb: lam, model.reg_loss.loss.center: ctr}
+blocks:
+  - tag: tc_ball                      # target = uniform on the ball (localereg, inherited from ablations/base)
+    axes:
+      model.lamb: [0.02, 0.1]
+      model.reg_loss.loss.center: [true, false]
+    overrides:
+      logger: csv
+      trainer.max_epochs: 800
+      model.reg_loss.num_clusters: 1
+      data.batch_size: 64
+      trainer.accumulate_grad_batches: 4
+  - tag: tc_gauss                     # target = isotropic Gaussian, same wrapper, same recipe
+    axes:
+      model.lamb: [0.02, 0.1]
+      model.reg_loss.loss.center: [true, false]
+    overrides:
+      logger: csv
+      trainer.max_epochs: 800
+      model.reg_loss.num_clusters: 1
+      data.batch_size: 64
+      trainer.accumulate_grad_batches: 4
+      model/reg_loss: locale_sigreg
