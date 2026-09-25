@@ -240,7 +240,7 @@ def metrics_csv(path: Path, *, epochs: int, final_acc: float, local: bool, reali
 
 def ablation_root(tmp_path: Path, ablations) -> Path:
     log_root = tmp_path / "logs"
-    runs = [r for m in ablations.MANIFESTS for r in ablations.C.expand(ablations.C.load_manifest(REPO / "configs/campaign" / m))]
+    runs = [r for m in ablations.DEFAULT_MANIFESTS for r in ablations.C.expand(ablations.C.load_manifest(REPO / "configs/campaign" / m))]
     by_name = {r.run_name: r for r in runs}
     accs = {  # (tag, lam, k, b): final acc; K=8 wins at 256, fwd wins at 64; lambda 0.1 and 0.2 tie at their best
         ("fixk", 0.1, 1, 256): 80.0, ("fixk", 0.1, 8, 256): 85.0, ("fixk", 0.2, 8, 256): 85.0,
@@ -328,3 +328,98 @@ def test_the_six_tables_render_and_main_writes_declaration_and_raw_inputs(ablati
     raw = list(Path("results/raw/ablations").glob("*.json"))
     assert len(raw) == 8 * 3, "one archived summary per finished run"
     assert "## Provenance" in Path("results/ablations/ablation_tables.md").read_text()
+
+
+# --------------------------------------------------------------------------------------
+# the 800-epoch grid: a different tag prefix, and the draft's post-hoc rulers
+# --------------------------------------------------------------------------------------
+
+def ep800_root(tmp_path: Path, ablations, *, with_eval: bool = True, skip_eval_for: str | None = None):
+    """Six 800-epoch cells: K=1 and K=2 at lambda 0.1, per-step batch 64, three seeds each."""
+    log_root, eval_dir = tmp_path / "logs800", tmp_path / "eval800"
+    runs = ablations.C.expand(ablations.C.load_manifest(REPO / "configs/campaign/ablation_grid_ep800.yaml"))
+    wanted = {}
+    for run in runs:
+        o = run.override_map()
+        if run.tag != "ep800_fixk" or o.get("model.lamb") != "0.1" or o.get("data.batch_size") != "64":
+            continue
+        k = int(o["model.reg_loss.num_clusters"])
+        if k in (1, 2):
+            wanted[run.run_name] = k
+    assert len(wanted) == 6, f"expected 2 K x 3 seeds, got {sorted(wanted)}"
+    for name, k in wanted.items():
+        metrics_csv(log_root / "train" / "runs" / name / "csv" / "version_0" / "metrics.csv",
+                    epochs=800, final_acc=90.0 + k, local=True, realised_k=float(k))
+        if with_eval and name != skip_eval_for:
+            write(eval_dir / "per_backbone" / f"{name}.json", entry(knn20=70.0 + k, linear=80.0 + k, epoch=799))
+    return log_root, eval_dir, wanted
+
+
+def test_the_800_epoch_grid_needs_its_tag_prefix_and_renders_nothing_without_it(ablations, tmp_path):
+    """The generator was written for the 100-epoch grid, whose blocks are tagged `fixk`/`fwd`/`rev`.
+    Every block of `ablation_grid_ep800` carries an `ep800_` prefix, so a lookup by the bare tag
+    matches NOTHING and all six tables render as em dashes -- a silent empty report, not an error.
+
+    This is the inversion: with prefix="" the cells are unreachable; with the prefix they are found.
+    """
+    log_root, _, wanted = ep800_root(tmp_path, ablations, with_eval=False)
+    cells, per_run, runs = ablations.build(log_root, ["ablation_grid_ep800.yaml"])
+    assert len(per_run) == len(wanted), "the runs themselves must be summarised regardless of tags"
+
+    bare = ablations.lookup(cells, runs, tag="fixk", lam=0.1, k=2, batch=(64, 4))
+    assert bare is None, "a bare tag must not reach an ep800_ cell"
+    found = ablations.lookup(cells, runs, tag="fixk", lam=0.1, k=2, batch=(64, 4), prefix="ep800_")
+    assert found is not None and found["n"] == 3
+    assert found["mean"] == pytest.approx(92.0) and found["std"] == pytest.approx(0.0), found
+    assert found["realised_k"] == pytest.approx(2.0), found
+
+
+def test_the_post_hoc_rulers_come_from_the_evaluation_and_an_unevaluated_cell_is_ABSENT(ablations, tmp_path):
+    """Decision 16 and the 2026-09-25 reading: the online probe is what trains, the draft's tables are
+    post-hoc. A cell that has finished training but has NOT been evaluated must render as absent for
+    the post-hoc metric -- never as its online number, which would silently mix two rulers in one table.
+    """
+    log_root, eval_dir, wanted = ep800_root(tmp_path, ablations)
+    picked = dict.fromkeys(wanted)
+    for metric, base in (("online", 90.0), ("knn", 70.0), ("linear", 80.0)):
+        cells, _, runs = ablations.build(log_root, ["ablation_grid_ep800.yaml"], eval_dir, metric)
+        cell = ablations.lookup(cells, runs, tag="fixk", lam=0.1, k=2, batch=(64, 4), prefix="ep800_")
+        assert cell is not None, metric
+        picked[metric] = cell["mean"]
+        assert cell["mean"] > base, (metric, cell)
+    assert picked["knn"] < picked["linear"] < picked["online"], picked
+
+    # one seed of the K=1 cell never evaluated: the cell survives with n=2, the online one keeps n=3
+    victim = next(n for n, k in wanted.items() if k == 1)
+    log_root, eval_dir, _ = ep800_root(tmp_path / "b", ablations, skip_eval_for=victim)
+    cells, _, runs = ablations.build(log_root, ["ablation_grid_ep800.yaml"], eval_dir, "knn")
+    assert ablations.lookup(cells, runs, tag="fixk", lam=0.1, k=1, batch=(64, 4), prefix="ep800_")["n"] == 2
+    cells, _, runs = ablations.build(log_root, ["ablation_grid_ep800.yaml"], eval_dir, "online")
+    assert ablations.lookup(cells, runs, tag="fixk", lam=0.1, k=1, batch=(64, 4), prefix="ep800_")["n"] == 3
+
+    # and with NO evaluation at all, a post-hoc cell is absent rather than zero
+    log_root, _, _ = ep800_root(tmp_path / "c", ablations, with_eval=False)
+    cells, _, runs = ablations.build(log_root, ["ablation_grid_ep800.yaml"], None, "knn")
+    assert cells == {}, "no evaluation must give no post-hoc cells at all"
+
+
+def test_main_on_the_800_epoch_grid_writes_a_table_that_names_its_length_and_its_ruler(ablations, tmp_path, monkeypatch):
+    """End to end: the header must say 800 epochs and which ruler, because the same six tables are
+    produced three ways and a reader with the wrong header would compare across rulers."""
+    log_root, eval_dir, _ = ep800_root(tmp_path, ablations)
+    monkeypatch.chdir(tmp_path)
+    text = ablations.main(["--log-root", str(log_root), "--manifests", "ablation_grid_ep800.yaml",
+                           "--tag-prefix", "ep800_", "--eval-dir", str(eval_dir), "--metric", "knn",
+                           "--out", str(tmp_path / "out"), "--raw", str(tmp_path / "raw")])
+    assert "800 epochs" in text and "post-hoc k-NN@20" in text
+    assert "λ axis, fixed K" in text
+    declaration = json.loads((tmp_path / "out" / "declaration.json").read_text())
+    assert declaration["tag_prefix"] == "ep800_" and declaration["metric"] == "knn"
+    raw = json.loads(next((tmp_path / "raw").glob("ep800_fixk_b64_lam0.1_k2_x4_s0.json")).read_text())
+    assert raw["posthoc_knn_top1"] == pytest.approx(72.0) and raw["posthoc_report_k"] == 20
+
+
+def test_a_post_hoc_metric_without_an_eval_dir_is_refused_not_silently_online(ablations):
+    """`--metric knn` with no `--eval-dir` cannot be answered; it must exit, not fall back."""
+    with pytest.raises(SystemExit):
+        ablations.main(["--log-root", "/nonexistent", "--metric", "knn"])
