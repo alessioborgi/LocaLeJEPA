@@ -490,6 +490,14 @@ MUTANTS: list[Mutant] = [
     Mutant("rankme-normalisation", "src/eval/rankme.py",
            "p = sigma / sigma.sum() + eps", "p = sigma + eps",
            "the spectrum is not normalised, so RankMe stops being scale-invariant"),
+    Mutant("c19-ablation-lookup-ignores-the-tag-prefix", "scripts/make_ablation_tables.py",
+           "        if run.tag != prefix + tag:", "        if run.tag != tag:",
+           "the 800-epoch grid's ep800_ tags match nothing and all six tables render as em dashes"),
+    Mutant("c19-posthoc-cell-falls-back-to-the-online-number", "scripts/make_ablation_tables.py",
+           '    accs = [s[METRIC_KEYS[metric]] for s in summaries if s.get(METRIC_KEYS[metric]) is not None]\n'
+           "    if not accs:\n        return None",
+           '    accs = [s[METRIC_KEYS[metric]] or s["final_probe_acc"] for s in summaries]',
+           "a cell that was trained but never evaluated reports its ONLINE accuracy in a post-hoc table"),
 ]
 
 
