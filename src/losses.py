@@ -31,7 +31,9 @@ import torch.nn.functional as F
 from numpy.polynomial.legendre import leggauss
 
 
-def invariance_loss(proj: torch.Tensor, num_global: int | None = None, normalize: bool = False) -> torch.Tensor:
+def invariance_loss(
+    proj: torch.Tensor, num_global: int | None = None, normalize: bool = False, radius: float | None = None
+) -> torch.Tensor:
     """L_inv: pull every view toward the mean of the reference (global) views.
 
     Parameters
@@ -40,6 +42,9 @@ def invariance_loss(proj: torch.Tensor, num_global: int | None = None, normalize
     num_global : if given, reference is the mean of proj[:num_global];
                  if None, reference is the mean of all views
     normalize  : L2-normalize the projections first (SPHERE-JEPA convention for SUSReg)
+    radius     : BallReg radius R; the loss is divided by the target per-coordinate
+                 variance R^2 / (d + 2), so that its balance with the regularizer does not
+                 depend on R; None means R = sqrt(d + 2), where the divisor is 1
 
     Returns
     -------
@@ -48,7 +53,10 @@ def invariance_loss(proj: torch.Tensor, num_global: int | None = None, normalize
     if normalize:
         proj = F.normalize(proj, dim=-1)
     ref = proj[:num_global].mean(0) if num_global is not None else proj.mean(0)
-    return (proj - ref).square().mean()
+    loss = (proj - ref).square().mean()
+    if radius is not None:
+        loss = loss / (radius**2 / (proj.shape[-1] + 2))
+    return loss
 
 
 def _sketch_test(

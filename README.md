@@ -1,260 +1,176 @@
-# LocaLeJEPA
+# LocaLeJEPA: Maximum Entropy Representations under Geometric Priors
 
-Self-supervised pretraining in the [LeJEPA](https://arxiv.org/abs/2511.08544) family
-(invariance loss + distribution-matching regularizer, no teacher/EMA, no predictor),
-with **local regularizers**: the regularizer is applied inside k-means neighbourhoods of the
-projection space instead of on the whole batch. The proposed variant is
-**LocaLe-Reg** — a sketched uniform-ball characteristic-function test on each centred
-neighbourhood — which on ImageNet-1K (ViT-S/8, 100 epochs) lifts LeJEPA's frozen-feature
-k-NN / linear top-1 from 24.3 / 40.7 to 34.1 / 49.5 with the same backbone and schedule.
-
-Authors: Alessio Borgi, Kartik Tandon, Pavel Snopov, Inés García-Redondo, Davide D'Ascenzo,
-Sebastiano Cultrera di Montesano, Fabrizio Silvestri, Pietro Lio, Francesca Dominici,
-Randall Balestriero, Claudio Battiloro.
+A step-by-step walkthrough with a standalone implementation is in [MINIMAL.md](MINIMAL.md).
 
 ## Overview
 
-LeJEPA trains an encoder `f` and projector `g` on `V` augmented views of each image with
+LocaLeJEPA is a Lean Joint Embedding Predictive Architecture that learns embeddings and drives them toward a **locally uniform** distribution. Within each neighbourhood, the target is a uniform distribution on a Euclidean ball — the maximum-entropy distribution for that compact support. Its regularizer, **LocaLeReg**, forms $K$ neighbourhoods per batch using $K$-means on detached per-image mean projections, centres the projections within each neighbourhood, and matches them to the uniform-ball target with a sketched Epps–Pulley test.
 
-```
-loss = (1 - λ) · L_inv(z) + λ · L_reg(z),      z = g(f(view))  ∈ R^{V × N × D}
-```
+For $V$ views of $N$ images with projections $z_i^{(v)}\in\mathbb R^d$ and $\bar z_i=\frac1V\sum_v z_i^{(v)}$,
 
-`L_inv` pulls every view towards the mean of the views of the same image; `L_reg` matches the
-distribution of the projections to a fixed target through the Epps–Pulley characteristic-
-function statistic along random 1-D sketches (SIGReg: isotropic Gaussian target).
+$$\mathcal L=(1-\lambda)\,\mathcal L_{\rm pred}+\lambda\,\mathcal L_{\rm LocaLeReg},~\text{with}~~\mathcal L_{\rm pred}=\frac1{NVd}\sum_{i,v}\big\|z_i^{(v)}-\bar z_i\big\|^2,~~\text{and}~~\mathcal L_{\rm LocaLeReg}=\frac1{|Q|\,V}\sum_{q\in Q}\sum_{v=1}^V D_{q,v},$$
 
-This repository keeps that scaffold ([`src/models/lejepa_module.py`](src/models/lejepa_module.py))
-and swaps the regularizer through the `model/reg_loss` config group
-([`configs/model/reg_loss/`](configs/model/reg_loss/), functions in [`src/losses.py`](src/losses.py)):
+where $D_{q,v}$ is the sketched Epps–Pulley statistic between the centred projections of neighbourhood $q$ and $\mathrm{Unif}(\mathbb B^d_R)$. The target uniform distribution is on a $d$-dimensional ball with radius $R=\sqrt{d+2}$ so that the target distribution has identity covariance.
 
-| `model/reg_loss` | regularizer                                                                 |
-|------------------|-----------------------------------------------------------------------------|
-| `sigreg`         | SIGReg, isotropic-Gaussian target (LeJEPA baseline)                          |
-| `susreg`         | SUSReg, uniform-on-the-sphere target (SPHERE-JEPA)                          |
-| `uniform_reg`    | uniform-ball target (`ballreg_loss`)                                          |
-| `locale_sigreg`  | SIGReg computed independently in `k` k-means neighbourhoods of the batch     |
-| `localereg`      | **LocaLe-Reg (ours)**: uniform-ball target in `k` k-means neighbourhoods (centred per cluster) |
+![LocaLeJEPA pipeline](assets/LocaLeJEPA_Main_Figure.svg)
 
-The `locale_*` configs compose `local.yaml` (`local_loss`: k-means over the batch, then a test
-per neighbourhood) with the global test placed at `loss`, so the test's parameters are set
-once and are the same inside the neighbourhoods: `model.reg_loss.num_clusters=4`,
-`model.reg_loss.loss.scale_grid=true`, `model.reg_loss.loss.num_slices=1024`.
+## Results
 
-Everything else — multi-view augmentation, projector, online linear probe used for checkpoint
-selection, AdamW + linear warm-up + cosine schedule — is shared by all variants, so a
-comparison between `reg_loss` choices isolates the regularizer.
+ImageNet-1K, 100 epochs of pretraining, frozen encoder. **Bold**: best within an encoder family.
 
-Backbones used in the reported experiments: plain timm ViT-S/8 and ViT-L/14
-(`configs/model/encoder/timm_vit.yaml`), a hyperbolic (Poincaré-ball head) ViT-S/8
-(`hvit_small_p8.yaml`) and a D4-equivariant ResNet-50 (`d4resnet50.yaml`, needs the
-`equivariant` extra). Any `nn.Module` mapping `(B, C, H, W) -> (B, embedding_dim)` works.
+<table>
+<thead>
+<tr><th rowspan="2">Method</th><th colspan="2">ImageNet-1K linear (%)</th><th>k-NN (%)</th><th>Transfer (%)</th></tr>
+<tr><th>top-1 ↑</th><th>top-5 ↑</th><th>k=20 ↑</th><th>7-dataset avg ↑</th></tr>
+</thead>
+<tbody>
+<tr><th colspan="5" align="left"><i>Plain ViT-S/8 (Euclidean, 21.7M)</i></th></tr>
+<tr><td>LeJEPA</td><td align="right">40.7 ± 0.23</td><td align="right">66.9 ± 0.21</td><td align="right">24.3 ± 0.19</td><td align="right">56.7 ± 0.29</td></tr>
+<tr><td>LocaLeJEPA (λ=0.1, K=4)</td><td align="right"><b>49.6 ± 0.23</b></td><td align="right"><b>75.0 ± 0.20</b></td><td align="right"><b>34.1 ± 0.21</b></td><td align="right"><b>63.0 ± 0.32</b></td></tr>
+<tr><th colspan="5" align="left"><i>Hyperbolic ViT-S/8 (Poincaré ball, 21.7M)</i></th></tr>
+<tr><td>LeJEPA</td><td align="right">41.1 ± 0.22</td><td align="right">67.1 ± 0.21</td><td align="right">25.1 ± 0.19</td><td align="right">57.6 ± 0.60</td></tr>
+<tr><td>Rectified LpJEPA</td><td align="right">29.2 ± 0.21</td><td align="right">53.4 ± 0.23</td><td align="right">15.1 ± 0.16</td><td align="right">47.5 ± 0.28</td></tr>
+<tr><td>LocaLeJEPA (λ=0.1, K=4)</td><td align="right"><b>50.5 ± 0.23</b></td><td align="right"><b>75.8 ± 0.19</b></td><td align="right"><b>34.9 ± 0.21</b></td><td align="right"><b>63.9 ± 0.48</b></td></tr>
+<tr><td>LocaLeJEPA (λ=0.1, K=1→10)</td><td align="right">47.4 ± 0.22</td><td align="right">73.1 ± 0.20</td><td align="right">29.9 ± 0.20</td><td align="right">61.3 ± 0.29</td></tr>
+<tr><td>LocaLeJEPA-SIGReg (λ=0.1, K=4)</td><td align="right">40.7 ± 0.22</td><td align="right">66.5 ± 0.21</td><td align="right">26.0 ± 0.20</td><td align="right">57.2 ± 0.27</td></tr>
+<tr><th colspan="5" align="left"><i>D<sub>4</sub>-equivariant ResNet-50 (24.4M)</i></th></tr>
+<tr><td>LeJEPA</td><td align="right">35.7 ± 0.22</td><td align="right">63.0 ± 0.22</td><td align="right">23.3 ± 0.19</td><td align="right">48.2 ± 0.32</td></tr>
+<tr><td>Rectified LpJEPA</td><td align="right">27.9 ± 0.20</td><td align="right">54.1 ± 0.22</td><td align="right">19.7 ± 0.18</td><td align="right">42.6 ± 0.44</td></tr>
+<tr><td>LocaLeJEPA (λ=0.1, K=4)</td><td align="right"><b>42.3 ± 0.22</b></td><td align="right"><b>69.8 ± 0.21</b></td><td align="right"><b>33.0 ± 0.21</b></td><td align="right">54.0 ± 0.31</td></tr>
+<tr><td>LocaLeJEPA (λ=0.1, K=1→10)</td><td align="right">42.2 ± 0.22</td><td align="right">69.5 ± 0.21</td><td align="right">32.5 ± 0.21</td><td align="right"><b>54.3 ± 0.40</b></td></tr>
+<tr><td>LocaLeJEPA-SIGReg (λ=0.1, K=4)</td><td align="right">35.9 ± 0.21</td><td align="right">62.7 ± 0.22</td><td align="right">27.0 ± 0.20</td><td align="right">50.3 ± 0.29</td></tr>
+</tbody>
+</table>
 
-## Repository structure
+Linear transfer from frozen ImageNet-1K features, top-1 (%), mean over five probe seeds.
 
-```
-src/
-  train.py                     Hydra + Lightning entry point (pretraining)
-  eval_indomain.py             frozen-backbone k-NN + linear-probe evaluation
-  losses.py                    invariance, SIGReg, SUSReg, uniform-ball test, local_loss (k-means + any test), ...
-  models/lejepa_module.py      LeJEPAModule: encode, reg_loss + invariance, online probe, optimizer, schedule
-  models/components/           hyperbolic ViT head, D4-equivariant ResNet (escnn)
-  data/                        Imagenette / ImageNet-1K datamodules, multi-view transforms
-  eval/                        frozen-backbone loading, feature extraction, k-NN and linear probes
-  utils/                       Hydra/Lightning helpers (from lightning-hydra-template)
-configs/
-  train.yaml                   root config; `experiment=<name>` selects a full experiment
-  experiment/lejepa/           the experiments (see configs/experiment/README.md)
-  model/, data/, optimizer/,   Hydra config groups
-  model/reg_loss/              sigreg, susreg, uniform_reg; local -> locale_sigreg, localereg
-  trainer/, callbacks/, ...
-  eval/                        YAML configs for src/eval_indomain.py
-scripts/
-  stage_imagenet1k_hf.py       stage ImageNet-1K from HuggingFace into the expected layout
-```
-
-The `experiments` branch adds the baselines (Rectified LpJEPA, Sub-JEPA, SPHERE-JEPA, I-JEPA,
-nGPT-style ViTs, photonic-crystal experiments), the ablation configs, the transfer / RankMe /
-rotation-angle evaluations, the report-generating scripts, the figures and one SLURM launcher.
+<table>
+<thead>
+<tr><th>Method</th><th>DTD</th><th>Aircraft</th><th>CIFAR-10</th><th>CIFAR-100</th><th>Flowers</th><th>Food</th><th>Pets</th><th>Avg</th></tr>
+</thead>
+<tbody>
+<tr><th colspan="9" align="left"><i>Plain ViT-S/8 (Euclidean, 21.7M)</i></th></tr>
+<tr><td>LeJEPA</td><td align="right">56.4 ± 1.5</td><td align="right">26.1 ± 0.8</td><td align="right">84.4 ± 0.4</td><td align="right">61.2 ± 0.6</td><td align="right">68.4 ± 0.6</td><td align="right">48.5 ± 0.3</td><td align="right">52.0 ± 0.8</td><td align="right">56.7 ± 0.3</td></tr>
+<tr><td>LocaLeJEPA (λ=0.1, K=4)</td><td align="right"><b>63.0 ± 1.2</b></td><td align="right"><b>31.1 ± 0.9</b></td><td align="right"><b>86.0 ± 0.4</b></td><td align="right"><b>63.8 ± 0.5</b></td><td align="right"><b>77.4 ± 0.9</b></td><td align="right"><b>55.7 ± 0.3</b></td><td align="right"><b>64.2 ± 1.6</b></td><td align="right"><b>63.0 ± 0.3</b></td></tr>
+<tr><th colspan="9" align="left"><i>Hyperbolic ViT-S/8 (Poincaré ball, 21.7M)</i></th></tr>
+<tr><td>LeJEPA</td><td align="right">57.4 ± 2.0</td><td align="right">27.3 ± 0.9</td><td align="right">85.3 ± 0.4</td><td align="right">60.3 ± 0.5</td><td align="right">70.9 ± 2.6</td><td align="right">48.6 ± 0.3</td><td align="right">53.4 ± 0.8</td><td align="right">57.6 ± 0.6</td></tr>
+<tr><td>LocaLeJEPA (λ=0.1, K=4)</td><td align="right"><b>62.1 ± 1.2</b></td><td align="right"><b>32.1 ± 0.8</b></td><td align="right"><b>87.5 ± 0.3</b></td><td align="right"><b>65.0 ± 0.5</b></td><td align="right"><b>77.9 ± 3.3</b></td><td align="right"><b>56.4 ± 0.3</b></td><td align="right"><b>65.9 ± 0.9</b></td><td align="right"><b>63.9 ± 0.5</b></td></tr>
+<tr><td>LocaLeJEPA (λ=0.1, K=1→10)</td><td align="right">59.5 ± 1.4</td><td align="right">28.6 ± 1.0</td><td align="right">86.5 ± 0.3</td><td align="right">64.0 ± 0.6</td><td align="right">74.7 ± 0.6</td><td align="right">54.0 ± 0.3</td><td align="right">62.0 ± 1.0</td><td align="right">61.3 ± 0.3</td></tr>
+<tr><td>LocaLeJEPA-SIGReg (λ=0.1, K=4)</td><td align="right">55.7 ± 1.3</td><td align="right">27.0 ± 0.9</td><td align="right">83.1 ± 0.4</td><td align="right">59.0 ± 0.6</td><td align="right">70.5 ± 0.6</td><td align="right">49.0 ± 0.3</td><td align="right">56.5 ± 0.8</td><td align="right">57.2 ± 0.3</td></tr>
+<tr><th colspan="9" align="left"><i>D<sub>4</sub>-equivariant ResNet-50 (24.4M)</i></th></tr>
+<tr><td>LeJEPA</td><td align="right">51.3 ± 1.4</td><td align="right">16.4 ± 0.7</td><td align="right">83.8 ± 0.4</td><td align="right">55.8 ± 0.5</td><td align="right">52.9 ± 0.7</td><td align="right">34.3 ± 0.3</td><td align="right">42.7 ± 1.1</td><td align="right">48.2 ± 0.3</td></tr>
+<tr><td>LocaLeJEPA (λ=0.1, K=4)</td><td align="right">55.1 ± 1.2</td><td align="right">20.7 ± 1.4</td><td align="right">82.3 ± 0.5</td><td align="right">55.3 ± 0.5</td><td align="right"><b>66.4 ± 0.6</b></td><td align="right"><b>41.8 ± 0.3</b></td><td align="right"><b>56.6 ± 0.8</b></td><td align="right">54.0 ± 0.3</td></tr>
+<tr><td>LocaLeJEPA (λ=0.1, K=1→10)</td><td align="right"><b>56.7 ± 1.2</b></td><td align="right"><b>21.7 ± 1.5</b></td><td align="right"><b>84.8 ± 0.4</b></td><td align="right"><b>58.5 ± 0.5</b></td><td align="right">63.5 ± 1.7</td><td align="right">40.5 ± 0.3</td><td align="right">54.6 ± 1.0</td><td align="right"><b>54.3 ± 0.4</b></td></tr>
+<tr><td>LocaLeJEPA-SIGReg (λ=0.1, K=4)</td><td align="right">50.0 ± 1.2</td><td align="right">20.4 ± 0.9</td><td align="right">82.8 ± 0.4</td><td align="right">54.9 ± 0.5</td><td align="right">59.0 ± 0.7</td><td align="right">32.9 ± 0.3</td><td align="right">51.8 ± 0.9</td><td align="right">50.3 ± 0.3</td></tr>
+</tbody>
+</table>
 
 ## Installation
 
-Requires Python 3.12 (managed automatically by `uv`) and Linux x86_64 or macOS; a CUDA GPU for
-anything beyond smoke tests. Install [`uv`](https://docs.astral.sh/uv/) once
-(`curl -LsSf https://astral.sh/uv/install.sh | sh`), then:
+Use Python 3.12. Install the base dependencies with [uv](https://docs.astral.sh/uv/):
 
 ```bash
-git clone https://github.com/alessioborgi/BundLeJEPA.git
-cd BundLeJEPA
 uv sync
 ```
 
-`uv sync` creates `.venv/` from the committed `uv.lock` (torch 2.14 with CUDA 13 wheels,
-lightning 2.6, timm 1.0). Optional extras:
+Alternatively, without uv:
 
 ```bash
-uv sync --extra equivariant   # D4-equivariant ResNet-50 (escnn; builds py3nj from source -> needs gfortran + Python headers)
-uv sync --extra imagenet      # scripts/stage_imagenet1k_hf.py (HuggingFace datasets)
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e .
 ```
 
-On macOS the `equivariant` extra builds `lie-learn` and `py3nj` from source and needs `gcc`
-and `libomp` from Homebrew:
+After activating the environment, replace `uv run python ...` in the commands below with `python ...`. The pip resolves versions from `pyproject.toml`; `uv sync` uses the pinned `uv.lock`.
 
-```bash
-brew install gcc libomp
-export LDFLAGS="-L$(brew --prefix libomp)/lib"
-export CPPFLAGS="-I$(brew --prefix libomp)/include"
-uv sync --extra equivariant
-```
+To log runs to [Weights & Biases](https://wandb.ai), copy `.env.example` to `.env`, set `WANDB_ENTITY` and `WANDB_PROJECT` for your account, and log in once with `uv run wandb login` (or `wandb login` in an activated environment). Keep `WANDB_OFFLINE=false` for online logging, or set it to `true` to save runs locally. You can use `logger=csv` to log without W&B. Optional extras:
 
-If the venv should not live in the repository (e.g. home-directory quotas), set
-`UV_PROJECT_ENVIRONMENT=/path/to/venv` before `uv sync` / `uv run`.
-
-The experiments reported in the paper were run in a conda environment with Python 3.10,
-torch 2.8.0+cu128, lightning 2.2.4, timm 1.0.27, escnn 1.0.11 and numpy 1.26; the code is
-unchanged, but bit-exact reproduction across these library versions is not guaranteed.
+| Extra | uv | pip | Needed for |
+| --- | --- | --- | --- |
+| `equivariant` | `uv sync --extra equivariant` | `python -m pip install -e '.[equivariant]'` | $D_4$-equivariant ResNet-50 (`escnn`; needs `gfortran`) |
+| `imagenet` | `uv sync --extra imagenet` | `python -m pip install -e '.[imagenet]'` | staging ImageNet-1K from Hugging Face |
+| `experiments` | `uv sync --extra experiments` | `python -m pip install -e '.[experiments]'` | analysis and plotting scripts |
 
 ## Quick start
 
-Imagenette (160 px) is downloaded automatically into `data/imagenette/` on first use.
+LocaLeReg is a function of the projections in `(V, N, D)` layout. Run from the repository root:
 
-```bash
-# LeJEPA baseline: ViT-S/8 + SIGReg, Imagenette, 800 epochs, 1 GPU
-uv run python src/train.py experiment=lejepa/vit_imagenette_sigreg logger=csv
+```python
+import torch
+from src.losses import invariance_loss, local_ballreg_loss
 
-# Ours: ViT-S/8 + LocaLe-Reg (λ=0.1, k=4), same data / schedule
-uv run python src/train.py experiment=lejepa/vit_imagenette_localballreg_l01_k4 logger=csv
+lamb = 0.1
+proj = torch.randn(4, 256, 16, requires_grad=True)  # (V, N, D)
+
+loss = (1 - lamb) * invariance_loss(proj) + lamb * local_ballreg_loss(proj, num_clusters=4)
+loss.backward()
 ```
 
-A 30-second CPU smoke test of the whole pipeline (3 train batches, 1 epoch):
-
-```bash
-uv run python src/train.py experiment=lejepa/vit_imagenette_localballreg_l01_k4 \
-  trainer=cpu trainer.max_epochs=1 +trainer.limit_train_batches=3 +trainer.limit_val_batches=2 \
-  +trainer.limit_test_batches=2 data.batch_size=8 data.num_workers=0 logger=csv
-```
-
-Logging defaults to Weights & Biases (`configs/logger/wandb.yaml`, entity `sheaf_hypergraphs`);
-pass `logger=csv` for a local CSV log. The W&B entity, project and offline mode are read from
-`WANDB_ENTITY`, `WANDB_PROJECT` and `WANDB_OFFLINE` (copy `.env.example` to `.env`), or override
-per run with `logger.wandb.entity=<yours>`.
+All losses are in [src/losses.py](src/losses.py), the Lightning module in [src/models/lejepa_module.py](src/models/lejepa_module.py).
 
 ## Training
 
-```bash
-uv run python src/train.py experiment=<group>/<name> [hydra overrides ...]
-```
-
-An experiment config (`configs/experiment/<group>/<name>.yaml`) fixes the dataset, encoder,
-regularizer, hyper-parameters and schedule. Anything can be overridden on the command line,
-e.g. `trainer.max_epochs=100 model.lamb=0.05 optimizer.lr=1e-3 data.batch_size=128`.
-
-ImageNet-1K runs read `data/imagenet/imagenet_full_size/061417/{train,val}/<class>/*.JPEG`
-(`configs/data/imagenet1k.yaml`); `uv run python scripts/stage_imagenet1k_hf.py --dest data/imagenet`
-creates that layout from the gated HuggingFace dataset. `paths.data_dir=/elsewhere` moves the
-data root. The principal ImageNet-1K configs are
+ViT-S/8 on Imagenette (downloaded on first run), the recipe of [MINIMAL.md](MINIMAL.md):
 
 ```bash
-uv run python src/train.py experiment=lejepa/vit_in1k_sigreg                 # LeJEPA (SIGReg), 100 ep.
-uv run python src/train.py experiment=lejepa/vit_in1k_localballreg_l01_k4    # ours, 100 ep.
+uv run python src/train.py experiment=minimal
 ```
 
-Multi-GPU (the ViT-L/14 "paper setting" configs use 4 GPUs, one process per GPU):
+Every value in [configs/](configs/) can be overridden from the command line:
 
 ```bash
-uv run python src/train.py experiment=lejepa/vitl14_in1k_localballreg_l01_k4_paper trainer=ddp trainer.devices=4
+uv run python src/train.py \
+  experiment=lejepa/vit_in1k_localballreg_l01_k4 \
+  model.lamb=0.1 \
+  model.reg_loss.num_clusters=4 \
+  model.reg_loss.loss.num_slices=256 \
+  optimizer.lr=1e-3 \
+  optimizer.weight_decay=5e-2 \
+  model.probe_lr=1e-3 \
+  model.warmup_epochs=10 \
+  data.batch_size=64 \
+  trainer.accumulate_grad_batches=4 \
+  trainer.max_epochs=100 \
+  logger.wandb.entity=<ENTITY> \
+  logger.wandb.project=<PROJECT>  # logger=csv to log locally
 ```
 
-Training resumes from a Lightning checkpoint with `ckpt_path=<path>/last.ckpt`.
+| Override | Effect |
+| --- | --- |
+| `model/reg_loss=sigreg model.lamb=0.02` | LeJEPA baseline |
+| `model/reg_loss=locale_sigreg` | LocaLeJEPA-SIGReg (Gaussian target on uncentred neighbourhoods) |
+| `callbacks=dynamic_num_clusters callbacks.dynamic_num_clusters.end=10 callbacks.dynamic_num_clusters.step_epochs=10` | $K=1\to10$ schedule |
+| `trainer=ddp trainer.devices=4` | multi-GPU |
+| `ckpt_path=/path/to/last.ckpt` | resume |
+| `paths.data_dir=/your/data/root` | dataset location |
+
+## ImageNet-1K
+
+The datamodule expects `data/imagenet/imagenet_full_size/061417/{train,val}/<class>/*.JPEG`. To build it from the gated [ILSVRC/imagenet-1k](https://huggingface.co/datasets/ILSVRC/imagenet-1k):
+
+```bash
+uv sync --extra imagenet
+uv run python scripts/stage_imagenet1k_hf.py --dest data/imagenet
+```
+
+Configs for the rows of the tables above (`experiment=lejepa/<config>`):
+
+| Backbone | LeJEPA | LocaLeJEPA, K=4 | LocaLeJEPA, K=1→10 | LocaLeJEPA-SIGReg |
+| --- | --- | --- | --- | --- |
+| ViT-S/8 | `vit_in1k_sigreg` | `vit_in1k_localballreg_l01_k4` | | |
+| Hyperbolic ViT-S/8 | `hvit_in1k_sigreg` | `hvit_in1k_localballreg_l01_k4` | `hvit_in1k_localballreg_l01_dynk` | `hvit_in1k_localsigreg_l01_k4` |
+| $D_4$-equivariant ResNet-50 | `d4rn50_in1k_sigreg` | `d4rn50_in1k_localballreg_l01_k4` | `d4rn50_in1k_localballreg_l01_dynk` | `d4rn50_in1k_localsigreg_l01_k4` |
+
+Rectified LpJEPA: `experiment=rectifiedlpjepa/{hvit,d4rn50}_in1k_rdmreg`. ViT-L/14 multi-crop: `lejepa/vitl14_in1k_{sigreg,localballreg_l01_k4}_paper` with `trainer=ddp trainer.devices=4`.
 
 ## Evaluation
 
-`src/eval_indomain.py` freezes a pretrained encoder, extracts features with the deterministic
-eval transform, and reports **weighted k-NN** (cosine, `exp(sim/T)` votes, T = 0.07, k = 20)
-and a **linear probe** on standardized features (SGD, learning rate picked on a held-out slice),
-following the SPHERE-JEPA Table 3 protocol:
+Frozen-feature linear probe and k-NN on ImageNet-1K:
 
 ```bash
-uv run python src/eval_indomain.py --config configs/eval/indomain_in1k_plainvit.yaml            # all backbones in the config
-uv run python src/eval_indomain.py --config configs/eval/indomain_in1k_plainvit.yaml --only vit_sigreg
-uv run python src/eval_indomain.py --config configs/eval/indomain_in1k_plainvit.yaml --merge-only  # rebuild results.{json,csv}
+uv run python src/eval_indomain.py --config configs/eval/indomain_in1k_plainvit.yaml
 ```
 
-Each `backbones:` entry names the Hydra experiment the checkpoint was trained with (the encoder
-is rebuilt from that config) and the checkpoint path; per-backbone results are written to
-`<output_folder>/per_backbone/<name>.json` and merged into `results.json` / `results.csv`.
-`configs/eval/indomain_imagenette.yaml` is the same protocol on Imagenette.
+## License
 
-## Configurations
-
-* `configs/train.yaml` composes `data`, `model` (with `model/encoder` and `model/reg_loss`),
-  `optimizer`, `trainer`, `callbacks`, `logger`, `paths`, `extras`; `experiment=...` overrides a
-  full set of them.
-* `configs/model/lejepa.yaml` documents every `LeJEPAModule` hyper-parameter (`lamb`, the
-  invariance loss, the online probe); `configs/model/reg_loss/<name>.yaml` the regularizer's
-  (`local.yaml`: `num_clusters` = k and the k-means; `uniform_reg.yaml`: `radius`, `center`,
-  `scale_grid`, ...); `callbacks=dynamic_num_clusters` schedules k over epochs.
-* `configs/experiment/README.md` lists every experiment config, which one is the LeJEPA baseline
-  and which one is ours for each backbone / dataset, and what differs between them.
-* The experiment configs contain everything that was passed to the runs, including the per-step
-  batch (64 × `accumulate_grad_batches: 4` = 256 effective) and the gradient clipping used by the
-  local regularizers, so `experiment=<name>` alone reproduces a run.
-
-## Outputs
-
-* Hydra run directory: `logs/train/runs/<date>_<time>/` (config dump, `train.log`, logger files).
-* Checkpoints: `<run dir>/checkpoints/best.ckpt` (best `val/probe_acc` of the online linear
-  probe) and `last.ckpt`; `callbacks.model_checkpoint.dirpath=checkpoints/<name>` pins them to a
-  stable path.
-* Metrics: W&B (default) or `<run dir>/csv/` with `logger=csv`.
-* Evaluation: `logs/eval_indomain_*/` (`results.json`, `results.csv`, `per_backbone/`, feature cache).
-
-## Reproducing results
-
-The full experimental infrastructure lives on the `experiments` branch:
-
-```bash
-git checkout experiments
-uv sync --all-extras
-```
-
-It contains all ImageNet-1K / Imagenette configs (LeJEPA, ours, ablations over λ and k, dynamic k,
-local SIGReg, Rectified LpJEPA, SUSReg/SubReg, three backbones), the ViT-L/14 paper-setting
-configs, the evaluations behind every reported table (in-domain k-NN/linear, 7-dataset transfer,
-RankMe, Yoda rotation-angle probe), the scripts that regenerate the result tables in `results/`,
-the plotting scripts and the SLURM launcher `scripts/slurm_submit.sh`. See `EXPERIMENTS.md`
-there. In short:
-
-| setting | config | command |
-|---|---|---|
-| LeJEPA (SIGReg), ViT-S/8, IN1K 100 ep. | `lejepa/vit_in1k_sigreg` | `uv run python src/train.py experiment=lejepa/vit_in1k_sigreg` |
-| **Ours**, LocaLe-Reg λ0.1 k4, ViT-S/8, IN1K 100 ep. | `lejepa/vit_in1k_localballreg_l01_k4` | `uv run python src/train.py experiment=lejepa/vit_in1k_localballreg_l01_k4` |
-| LeJEPA paper setting, ViT-L/14, 2×224 + 8×98 views | `lejepa/vitl14_in1k_sigreg_paper` | `... experiment=lejepa/vitl14_in1k_sigreg_paper trainer=ddp trainer.devices=4` |
-| Ours, paper setting | `lejepa/vitl14_in1k_localballreg_l01_k4_paper` | `... experiment=lejepa/vitl14_in1k_localballreg_l01_k4_paper trainer=ddp trainer.devices=4` |
-
-## Reproducibility notes
-
-* **Seeds.** `seed` is `null` by default (no seeding); pass `seed=<int>` to call
-  `lightning.seed_everything`. The sketch directions of SIGReg/LocaLe-Reg, k-means initialisation
-  and data augmentation are random per step, and `trainer.deterministic` is `False`, so runs
-  with the same seed are close but not bit-identical on GPU.
-* **Data.** Imagenette downloads itself. ImageNet-1K must be staged (see Training). All datasets
-  are read from `paths.data_dir` (default `<repo>/data/`).
-* **Effective batch.** The single-GPU ImageNet-1K / Imagenette runs use `data.batch_size: 64`
-  with `trainer.accumulate_grad_batches: 4`. For the local regularizers the k-means clustering
-  sees the per-step batch (64 samples), so changing `batch_size` changes the method, not only
-  the memory footprint.
-* **Precision.** `trainer=gpu` / `trainer=ddp` use `bf16-mixed`; the losses upcast to fp32 internally.
-* **Hardware.** The single-GPU configs were run on one A100/H200 (per-step batch 64 × 4 views
-  at 128 px, bf16). The ViT-L/14 paper-setting configs use 4 GPUs (`trainer=ddp`, 64 samples per
-  GPU); their checkpoints are ~3.7 GB each.
-* **Checkpoint selection.** Reported "final" numbers use `last.ckpt` (epoch 99 of 100);
-  `best.ckpt` is the online-probe-selected checkpoint and is reported alongside.
-
-## Citation and acknowledgements
-
-Built on [LeJEPA](https://github.com/galilai-group/lejepa) (Balestriero & LeCun),
-[lightning-hydra-template](https://github.com/ashleve/lightning-hydra-template), the
-[hyp_metric](https://github.com/htdt/hyp_metric) hyperbolic ViT head and the
-[equivision](https://github.com/dmklee/equivision) D4-ResNet; third-party notices in `src/NOTICE`. Licensed under the
-terms in `LICENSE`.
+See [LICENSE](LICENSE) and [NOTICE](src/NOTICE).
