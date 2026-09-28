@@ -1,0 +1,66 @@
+# The 800-epoch grid again with a FOUR-dimensional projector. Decision 22, run 4.
+#
+# Why it exists: this is the only FAIR test of locality we can run. With d=16 you cannot have many
+# neighbourhoods AND enough samples in each -- at per-step batch 64, K=4 already leaves exactly 16 samples
+# for a 16-dimensional target, and every larger K is estimating a 16-D distribution from fewer points than
+# dimensions. So the grid's high-K cells were never a test of locality; they were a test of running out of
+# samples (state/10-PAPER-STATE.md, 2026-09-25 late).
+#
+# At d=4 a neighbourhood of 16 samples is FOUR TIMES the target dimension, so K up to 8 becomes properly
+# estimable at the same batch -- a 4x wider usable K range for free. And it fixes a second problem at the
+# same time: the signal the objective carries about ball-vs-Gaussian, integrated over the code's own
+# frequency range, is 3.84e-3 at d=4 against 3.86e-4 at d=16 -- **9.9x larger** (verified by direct
+# integration of the Bessel-form CF against exp(-t^2/2), 2026-09-28).
+#
+# Nothing else changes. `embedding_dim` stays 512, so the probe reads the same-width encoder output and the
+# numbers stay comparable to the d=16 grid. The ball radius, its characteristic function and the quadrature
+# all adapt automatically: `ballreg_loss` takes `d = proj.shape[-1]` and `R = _resolve_ball_radius(d, radius)`
+# with `radius: null` meaning sqrt(d+2), so the target keeps identity covariance at d=4 without any edit.
+#
+# Names carry `d4` so nothing can collide with the d=16 grid (F56).
+# Cost: 252 runs x ~4.4 h on one RTX ~= 1100 GPU-h. To halve it, drop the `256x1` batch entry.
+name: ablation_grid_ep800_d4
+seeds: [0, 1, 2]
+gpus: 1
+max_epochs: 800
+short: {model.lamb: lam, model.reg_loss.num_clusters: k, data.batch_size: b, trainer.accumulate_grad_batches: x}
+blocks:
+  - tag: d4ep800_fixk
+    experiment: ablations/base
+    axes:
+      model.lamb: [0.02, 0.05, 0.1, 0.2, 0.3]
+      model.reg_loss.num_clusters: [1, 2, 4, 8, 16, 32]
+      batch:
+      - {data.batch_size: 64, trainer.accumulate_grad_batches: 4, micro_batch: 64}
+      - {data.batch_size: 256, trainer.accumulate_grad_batches: 1, micro_batch: 256}
+    overrides: {logger: csv, trainer.max_epochs: 800, model.projection_dim: 4}
+  - tag: d4ep800_fwd
+    experiment: ablations/dynk
+    axes:
+      model.lamb: [0.02, 0.05, 0.1, 0.2, 0.3]
+      batch:
+      - {data.batch_size: 64, trainer.accumulate_grad_batches: 4, micro_batch: 64}
+      - {data.batch_size: 256, trainer.accumulate_grad_batches: 1, micro_batch: 256}
+    overrides: {logger: csv, trainer.max_epochs: 800, model.projection_dim: 4, callbacks.dynamic_num_clusters.step_epochs: 96}
+  - tag: d4ep800_rev
+    experiment: ablations/dynk_rev
+    axes:
+      model.lamb: [0.02, 0.05, 0.1, 0.2, 0.3]
+      batch:
+      - {data.batch_size: 64, trainer.accumulate_grad_batches: 4, micro_batch: 64}
+      - {data.batch_size: 256, trainer.accumulate_grad_batches: 1, micro_batch: 256}
+    overrides: {logger: csv, trainer.max_epochs: 800, model.projection_dim: 4, callbacks.dynamic_num_clusters.step_epochs: 96}
+  - tag: d4ep800_sigreg
+    experiment: lejepa/vit_imagenette_sigreg
+    axes:
+      batch:
+      - {data.batch_size: 64, trainer.accumulate_grad_batches: 4, micro_batch: 64}
+      - {data.batch_size: 256, trainer.accumulate_grad_batches: 1, micro_batch: 256}
+    overrides: {logger: csv, model.projection_dim: 4}
+  - tag: d4ep800_rdmreg
+    experiment: rectifiedlpjepa/vit_imagenette_rdmreg
+    axes:
+      batch:
+      - {data.batch_size: 64, trainer.accumulate_grad_batches: 4, micro_batch: 64}
+      - {data.batch_size: 256, trainer.accumulate_grad_batches: 1, micro_batch: 256}
+    overrides: {logger: csv, model.projection_dim: 4}
