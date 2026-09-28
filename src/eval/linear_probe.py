@@ -80,9 +80,11 @@ def _train_head(
     """SGD + cosine schedule on a single linear layer; returns (weight, bias)."""
     generator = torch.Generator(device="cpu").manual_seed(seed)
     dim = train_features.shape[1]
-    head = torch.nn.Linear(dim, num_classes).to(device)
-    torch.nn.init.trunc_normal_(head.weight, std=0.01)
+    # Avoid consuming the process-global RNG when constructing the probe.
+    head = torch.nn.utils.skip_init(torch.nn.Linear, dim, num_classes)
+    torch.nn.init.trunc_normal_(head.weight, std=0.01, generator=generator)
     torch.nn.init.zeros_(head.bias)
+    head = head.to(device)
 
     optimizer = torch.optim.SGD(head.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay)
     num_samples = train_features.shape[0]
@@ -132,7 +134,7 @@ def run_linear_probe(
         epochs, batch_size, weight_decay, momentum: SGD schedule.
         standardize: per-dimension mean/std normalisation fit on the train split.
         val_frac: fraction of the train split held out for LR selection.
-        seed: controls the held-out split and the shuffling.
+        seed: controls the held-out split, head initialization, and shuffling.
 
     Returns:
         ``{"top1", "top5", "best_lr", "search": [...], "epochs", ...}`` with

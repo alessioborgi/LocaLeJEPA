@@ -19,8 +19,8 @@ eval transform and cached to disk.
 
 Usage
 -----
-    python src/eval_indomain.py --config configs/eval/indomain_in1k.yaml
-    python src/eval_indomain.py --config configs/eval/indomain_in1k.yaml --only hvit_sigreg
+    python src/eval_indomain.py --config configs/eval/indomain_in1k_plainvit.yaml
+    python src/eval_indomain.py --config configs/eval/indomain_in1k_plainvit.yaml --only vit_sigreg
 """
 
 import argparse
@@ -37,6 +37,7 @@ import yaml
 
 rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 
+from src.eval.cache import checkpoint_sha256  # noqa: E402
 from src.eval.extract import load_backbone  # noqa: E402
 from src.eval.indomain import extract_classification_features, get_indomain_splits, subsample_per_class
 from src.eval.knn_probe import weighted_knn
@@ -128,6 +129,14 @@ def main(cfg: dict, only: list[str] | None, merge_only: bool = False) -> None:
         logger.info("Merged %d backbone result files into %s", len(merged), out_dir)
         return
 
+    selected = [entry for entry in cfg["backbones"] if not only or entry["name"] in only]
+    if not selected:
+        raise ValueError(f"No requested backbone found in the evaluation config: {only}")
+    missing = [entry for entry in selected if not os.path.isfile(entry["checkpoint"])]
+    if missing:
+        names = ", ".join(f'{entry["name"]}: {entry["checkpoint"]}' for entry in missing)
+        raise FileNotFoundError(f"Requested checkpoint(s) not found: {names}")
+
     train_ds, val_ds, num_classes = get_indomain_splits(
         dataset=dataset_name,
         data_dir=cfg["data_dir"],
@@ -162,6 +171,7 @@ def main(cfg: dict, only: list[str] | None, merge_only: bool = False) -> None:
             continue
         if not os.path.isfile(entry["checkpoint"]):
             logger.error("%s: checkpoint %s not found — skipping.", name, entry["checkpoint"])
+            failures.append(name)
             continue
 
         logger.info("=== backbone: %s (%s) ===", name, entry["checkpoint"])
@@ -181,14 +191,16 @@ def main(cfg: dict, only: list[str] | None, merge_only: bool = False) -> None:
             failures.append(name)
             continue
         epoch = torch.load(entry["checkpoint"], map_location="cpu", weights_only=False).get("epoch")
+        checkpoint_hash = checkpoint_sha256(entry["checkpoint"])
         logger.info("%s: feature dim %d, checkpoint epoch %s", name, feat_dim, epoch)
 
-        # Key the cache on the checkpoint epoch too: a backbone re-evaluated
-        # after further pretraining must not silently reuse stale features.
+        # Key caches on checkpoint content and training subset as well as
+        # epoch and crop size, so changed weights or sampling cannot reuse stale features.
         def cache(split: str, _name: str = name, _epoch=epoch) -> str | None:
             if not cache_dir:
                 return None
-            return os.path.join(cache_dir, _name, f"{dataset_name}_{split}_{crop_size}_ep{_epoch}.pt")
+            subset = (f"perclass{per_class}_seed{cfg.get('seed', 0)}" if per_class else "full") if split == "train" else "all"
+            return os.path.join(cache_dir, _name, f"{dataset_name}_{split}_{crop_size}_{subset}_ep{_epoch}_sha256{checkpoint_hash}.pt")
 
         X_val, y_val = extract_classification_features(
             extract_fn, val_ds, batch_size=cfg.get("batch_size", 256),
@@ -228,6 +240,7 @@ def main(cfg: dict, only: list[str] | None, merge_only: bool = False) -> None:
         _save_backbone(name, {
             "experiment": entry["experiment"],
             "checkpoint": entry["checkpoint"],
+            "checkpoint_sha256": checkpoint_hash,
             "epoch": epoch,
             "feat_dim": feat_dim,
             "dataset": dataset_name,
@@ -256,7 +269,7 @@ def main(cfg: dict, only: list[str] | None, merge_only: bool = False) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="LocaLeJEPA in-domain k-NN + linear evaluation")
-    parser.add_argument("--config", type=str, default="configs/eval/indomain_in1k.yaml")
+    parser.add_argument("--config", type=str, default="configs/eval/indomain_in1k_plainvit.yaml")
     parser.add_argument("--only", type=str, default=None,
                         help="Comma-separated backbone names to run (default: all in the config).")
     parser.add_argument("--merge-only", action="store_true",

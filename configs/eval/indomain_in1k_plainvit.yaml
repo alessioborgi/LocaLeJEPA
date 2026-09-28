@@ -1,15 +1,14 @@
 # In-domain ImageNet-1K k-NN (classification) + linear-probe evaluation of the
-# two plain timm ViT-S/8 100-epoch pretrains (LeJEPA SIGReg and LeJEPA + local
-# BallReg λ0.1 k4). Same SPHERE-JEPA Table 3 protocol as
-# configs/eval/indomain_in1k_ep100.yaml: frozen backbone, full 1.28M-image train
-# split as k-NN bank / probe train set, top-1 on the 50k val split.
+# two plain timm ViT-S/8 100-epoch pretrains (LeJEPA SIGReg and LeJEPA +
+# LocaLeReg λ0.1 k4). SPHERE-JEPA Table 3 protocol: frozen backbone, full
+# 1.28M-image train split as k-NN bank / probe train set, top-1 on the 50k val split.
 #
 # Headline rows = final checkpoint (epoch 99 = 100 ep., last.ckpt); *_best rows =
 # online-probe-selected checkpoint (best val/probe_acc, best.ckpt).
 #
-#   sbatch --export=ALL,CMD="python src/eval_indomain.py --config configs/eval/indomain_in1k_plainvit.yaml --only <name>" scripts/slurm_submit.sh
+#   python src/eval_indomain.py --config configs/eval/indomain_in1k_plainvit.yaml
+#   python src/eval_indomain.py --config configs/eval/indomain_in1k_plainvit.yaml --only <name>
 #   python src/eval_indomain.py --config configs/eval/indomain_in1k_plainvit.yaml --merge-only
-#   python scripts/make_plainvit_report.py
 
 device: null
 seed: 0
@@ -23,7 +22,7 @@ batch_size: 256
 num_workers: 8
 
 output_folder: logs/eval_indomain_in1k_plainvit
-cache_dir: /n/netscratch/dominici_lab/Lab/aborgi/eval_indomain_in1k_cache
+cache_dir: logs/eval_indomain_in1k_plainvit/cache
 
 train_subset_per_class: null
 

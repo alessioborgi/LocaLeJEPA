@@ -2,22 +2,22 @@
 
 This page explains a minimal implementation of **LocaLeJEPA**: Vision Transformer (ViT) backbone on the [ImageNette](https://github.com/fastai/imagenette) dataset with PyTorch Lightning.
 
-1. [Method](#method)
-2. [Installation](#installation)
-3. [Code](#code)
-4. [Case study: ViT-S/8 + Imagenette](#case-study-vit-s8--imagenette)
+1. [Method](MINIMAL.md#method)
+2. [Installation](MINIMAL.md#installation)
+3. [Code](MINIMAL.md#code)
+4. [Case study: ViT-S/8 + Imagenette](MINIMAL.md#case-study-vit-s8--imagenette)
 
 ## Method
 
 For each of the $V$ augmented views of image $i$, let $z_i^{(v)}\in\mathbb R^d$ be its projection and $\bar z_i=\frac1V\sum_v z_i^{(v)}$ the mean across views. We want to regularize nearby images together while allowing different groups to occupy different parts of the projection space.
 
-We form those groups with $K$-means on the detached $\bar z_i$. The resulting clusters $C_1,\dots,C_K$ are recomputed at every step, and all views of an image share its assignment. Clusters with $|C_q|<4$ are dropped; $Q$ denotes those retained. If none remain, we treat the whole batch as one cluster.
+We form those groups with $K\text{-means}$ on the detached $\bar z_i$. The resulting clusters $C_1,\dots,C_K$ are recomputed at every step, and all views of an image share its assignment. Clusters with $|C_q|<4$ are dropped; $Q$ denotes those retained. If none remain, we treat the whole batch as one cluster.
 
 To focus on a group's shape rather than its position, we subtract its mean separately for each view:
 
 $$r_i^{(v)}=z_i^{(v)}-\mu_q^{(v)},\qquad \mu_q^{(v)}=\frac1{|C_q|}\sum_{j\in C_q}z_j^{(v)}.$$
 
-We match these residuals to $Y\sim\mathrm{Unif}(\mathbb B^d_R)$, a uniform distribution on a $d$-dimensional ball. Choosing $R=\sqrt{d+2}$ gives the target identity covariance. Uniformity is the maximum-entropy choice for this fixed support.
+We match these residuals to $Y\sim\mathrm{Unif}(\mathbb B^d_R)$, a uniform distribution on a $d\text{-dimensional}$ ball. Choosing $R=\sqrt{d+2}$ gives the target identity covariance. Uniformity is the maximum-entropy choice for this fixed support.
 
 For each retained cluster and view, we use a **sketched Epps–Pulley test** with this uniform-ball target. It compares characteristic functions along random one-dimensional directions; $D_{q,v}$ denotes the resulting discrepancy for cluster $q$ and view $v$.
 
@@ -29,16 +29,18 @@ Here $\mathcal L_{\rm pred}$ is the mean squared deviation of each view from $\b
 
 ## Installation
 
-We prefer [uv](https://docs.astral.sh/uv/):
+From the repository root, use Python 3.12 and [uv](https://docs.astral.sh/uv/). `uv sync` creates the virtual environment (`.venv`) and installs the locked dependencies:
 
 ```bash
-uv pip install torch torchvision timm lightning numpy wandb
+uv sync --locked
 ```
 
-or with pip:
+Alternatively, create the environment explicitly and install with pip:
 
 ```bash
-pip install torch torchvision timm lightning numpy wandb
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install -e .
 ```
 
 ## Code
@@ -299,18 +301,14 @@ The same recipe in the repository pipeline, which uses `fast-pytorch-kmeans` for
 uv run python src/train.py experiment=minimal
 ```
 
-### Training curves
-
-Run `fixed_k_20260922_l0.05_k4_B256x1_seed44`, 100 epochs.
-
 | | |
 |:-------------------------:|:-------------------------:|
-| **$\mathcal L_{\rm pred}$** | **$\mathcal L_{\rm LocaLeReg}$** |
-| <img width="500" alt="Prediction loss" src="assets/minimal/inv.svg"> | <img width="500" alt="LocaLeReg loss" src="assets/minimal/localereg.svg"> |
-| **$(1-\lambda)\mathcal L_{\rm pred}+\lambda\mathcal L_{\rm LocaLeReg}$** | **Online probe loss** |
-| <img width="500" alt="Combined loss" src="assets/minimal/localejepa.svg"> | <img width="500" alt="Online probe loss" src="assets/minimal/probe.svg"> |
+| Prediction/Invariance loss | LocaLeReg Loss |
+| <img width="500" alt="Prediction loss" src="assets/minimal/inv.png"> | <img width="500" alt="LocaLeReg loss" src="assets/minimal/localereg.png"> |
+| LocaLeJEPA ((1-λ)·pred + λ·LocaLeReg) Loss | Online probe loss |
+| <img width="500" alt="Combined loss" src="assets/minimal/localejepa.png"> | <img width="500" alt="Online probe loss" src="assets/minimal/probe.png"> |
 
 | |
 |:-------------------------:|
-| **Online probe accuracy, LocaLeJEPA vs LeJEPA** |
-| <img width="1604" alt="Online probe accuracy" src="assets/minimal/acc.svg"> |
+| Online probe accuracy, LocaLeJEPA vs LeJEPA |
+| <img width="1604" alt="Online probe accuracy" src="assets/minimal/acc.png"> |

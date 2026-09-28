@@ -4,13 +4,13 @@ A step-by-step walkthrough with a standalone implementation is in [MINIMAL.md](M
 
 ## Overview
 
-LocaLeJEPA is a Lean Joint Embedding Predictive Architecture that learns embeddings and drives them toward a **locally uniform** distribution. Within each neighbourhood, the target is a uniform distribution on a Euclidean ball — the maximum-entropy distribution for that compact support. Its regularizer, **LocaLeReg**, forms $K$ neighbourhoods per batch using $K$-means on detached per-image mean projections, centres the projections within each neighbourhood, and matches them to the uniform-ball target with a sketched Epps–Pulley test.
+LocaLeJEPA is a Lean Joint Embedding Predictive Architecture that learns embeddings and drives them toward a **locally uniform** distribution. Within each neighbourhood, the target is a uniform distribution on a Euclidean ball — the maximum-entropy distribution for that compact support. Its regularizer, **LocaLeReg**, forms $K$ neighbourhoods per batch using $K\text{-means}$ on detached per-image mean projections, centres the projections within each neighbourhood, and matches them to the uniform-ball target with a sketched Epps–Pulley test.
 
 For $V$ views of $N$ images with projections $z_i^{(v)}\in\mathbb R^d$ and $\bar z_i=\frac1V\sum_v z_i^{(v)}$,
 
 $$\mathcal L=(1-\lambda)\,\mathcal L_{\rm pred}+\lambda\,\mathcal L_{\rm LocaLeReg},~\text{with}~~\mathcal L_{\rm pred}=\frac1{NVd}\sum_{i,v}\big\|z_i^{(v)}-\bar z_i\big\|^2,~~\text{and}~~\mathcal L_{\rm LocaLeReg}=\frac1{|Q|\,V}\sum_{q\in Q}\sum_{v=1}^V D_{q,v},$$
 
-where $D_{q,v}$ is the sketched Epps–Pulley statistic between the centred projections of neighbourhood $q$ and $\mathrm{Unif}(\mathbb B^d_R)$. The target uniform distribution is on a $d$-dimensional ball with radius $R=\sqrt{d+2}$ so that the target distribution has identity covariance.
+where $D_{q,v}$ is the sketched Epps–Pulley statistic between the centred projections of neighbourhood $q$ and $\mathrm{Unif}(\mathbb B^d_R)$. The target uniform distribution is on a $d\text{-dimensional}$ ball with radius $R=\sqrt{d+2}$ so that the target distribution has identity covariance.
 
 ![LocaLeJEPA pipeline](assets/LocaLeJEPA_Main_Figure.svg)
 
@@ -70,7 +70,7 @@ Linear transfer from frozen ImageNet-1K features, top-1 (%), mean over five prob
 Use Python 3.12. Install the base dependencies with [uv](https://docs.astral.sh/uv/):
 
 ```bash
-uv sync
+uv sync --locked
 ```
 
 Alternatively, without uv:
@@ -81,15 +81,15 @@ source .venv/bin/activate
 python -m pip install -e .
 ```
 
-After activating the environment, replace `uv run python ...` in the commands below with `python ...`. The pip resolves versions from `pyproject.toml`; `uv sync` uses the pinned `uv.lock`.
+After activating the environment, replace `uv run python ...` in the commands below with `python ...`. The pip resolves versions from `pyproject.toml`; `uv sync --locked` enforces the pinned `uv.lock`.
 
 To log runs to [Weights & Biases](https://wandb.ai), copy `.env.example` to `.env`, set `WANDB_ENTITY` and `WANDB_PROJECT` for your account, and log in once with `uv run wandb login` (or `wandb login` in an activated environment). Keep `WANDB_OFFLINE=false` for online logging, or set it to `true` to save runs locally. You can use `logger=csv` to log without W&B. Optional extras:
 
 | Extra | uv | pip | Needed for |
 | --- | --- | --- | --- |
-| `equivariant` | `uv sync --extra equivariant` | `python -m pip install -e '.[equivariant]'` | $D_4$-equivariant ResNet-50 (`escnn`; needs `gfortran`) |
-| `imagenet` | `uv sync --extra imagenet` | `python -m pip install -e '.[imagenet]'` | staging ImageNet-1K from Hugging Face |
-| `experiments` | `uv sync --extra experiments` | `python -m pip install -e '.[experiments]'` | analysis and plotting scripts |
+| `equivariant` | `uv sync --locked --extra equivariant` | `python -m pip install -e '.[equivariant]'` | $D_4\text{-equivariant}$ ResNet-50 (`escnn`; needs `gfortran`) |
+| `imagenet` | `uv sync --locked --extra imagenet` | `python -m pip install -e '.[imagenet]'` | staging ImageNet-1K from Hugging Face |
+| `experiments` | `uv sync --locked --extra experiments` | `python -m pip install -e '.[experiments]'` | analysis and plotting scripts |
 
 ## Quick start
 
@@ -149,7 +149,7 @@ uv run python src/train.py \
 The datamodule expects `data/imagenet/imagenet_full_size/061417/{train,val}/<class>/*.JPEG`. To build it from the gated [ILSVRC/imagenet-1k](https://huggingface.co/datasets/ILSVRC/imagenet-1k):
 
 ```bash
-uv sync --extra imagenet
+uv sync --locked --extra imagenet
 uv run python scripts/stage_imagenet1k_hf.py --dest data/imagenet
 ```
 
@@ -159,7 +159,7 @@ Configs for the rows of the tables above (`experiment=lejepa/<config>`):
 | --- | --- | --- | --- | --- |
 | ViT-S/8 | `vit_in1k_sigreg` | `vit_in1k_localballreg_l01_k4` | | |
 | Hyperbolic ViT-S/8 | `hvit_in1k_sigreg` | `hvit_in1k_localballreg_l01_k4` | `hvit_in1k_localballreg_l01_dynk` | `hvit_in1k_localsigreg_l01_k4` |
-| $D_4$-equivariant ResNet-50 | `d4rn50_in1k_sigreg` | `d4rn50_in1k_localballreg_l01_k4` | `d4rn50_in1k_localballreg_l01_dynk` | `d4rn50_in1k_localsigreg_l01_k4` |
+| $D_4\text{-equivariant}$ ResNet-50 | `d4rn50_in1k_sigreg` | `d4rn50_in1k_localballreg_l01_k4` | `d4rn50_in1k_localballreg_l01_dynk` | `d4rn50_in1k_localsigreg_l01_k4` |
 
 Rectified LpJEPA: `experiment=rectifiedlpjepa/{hvit,d4rn50}_in1k_rdmreg`. ViT-L/14 multi-crop: `lejepa/vitl14_in1k_{sigreg,localballreg_l01_k4}_paper` with `trainer=ddp trainer.devices=4`.
 
