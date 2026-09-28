@@ -22,7 +22,7 @@ EXPECTED_RUNS = {
     "ablation_grid": 252, "ablation_batch128": 24, "in1k_baselines": 6, "in1k_vitl14": 2,
     "in1k_local": 4, "torus": 11, "calibration_1gpu": 2, "calibration_4gpu": 3, "calibration_8gpu": 1,
     "smoke_1gpu": 6, "smoke_4gpu": 5, "smoke_8gpu": 2, "ablation_grid_ep800": 252,
-    "target_and_centering": 24,
+    "target_and_centering": 24, "in1k_global_ball": 3, "ablation_grid_ep800_d4": 252,
 }
 
 
@@ -218,6 +218,77 @@ def test_the_target_and_centering_grid_is_a_clean_two_by_two_with_locality_OFF()
     assert set(cells) == expected, f"the 2x2x2 is incomplete: missing {sorted(expected - set(cells))}"
     assert all(len(names) == 3 for names in cells.values()), \
         f"every cell needs its three seeds: {{k: len(v) for k, v in cells.items()}}"
+
+
+def test_the_global_ball_arms_differ_from_the_local_ones_ONLY_by_not_partitioning():
+    """Decision 22, run 3. The IN1K evaluations give the local arm +17.5 k-NN over LeJEPA, but that pair
+    differs in the regularizer AND lr AND warm-up AND clipping AND lambda AND centring. The Imagenette grid
+    says locality contributes ~0, leaving the compact TARGET as the live hypothesis -- and no global-ball run
+    exists at any scale. This manifest supplies it, and its whole value depends on being identical to the
+    corresponding `in1k_local` arm except for `num_clusters`. If anything else drifts, the comparison is dead.
+
+    Inverted twice, both verified: changing one block's lambda to 0.3 fails the test (lambda is in the
+    run name, so it fails on the pair lookup), and changing a non-name override such as data.batch_size
+    fails on the 'differ ONLY in num_clusters' assert itself, printing both differing keys.
+    """
+    ball = {r.run_name: r for r in expand(REPO / "configs" / "campaign" / "in1k_global_ball.yaml")}
+    local = {r.run_name: r for r in expand(REPO / "configs" / "campaign" / "in1k_local.yaml")}
+    assert len(ball) == 3
+    pairs = [("vit_globalball_lam0.1_k1_s0", "vit_local_lam0.1_k4_s0"),
+             ("hvit_globalball_lam0.1_k1_s0", "hvit_local_lam0.1_k4_s0"),
+             ("d4rn50_globalball_lam0.1_k1_s0", "d4rn50_local_lam0.1_k4_s0")]
+    for bname, lname in pairs:
+        b, l = ball[bname], local[lname]
+        assert b.experiment == l.experiment, f"{bname}: experiment drifted from {lname}"
+        assert b.gpus == l.gpus and b.micro_batch == l.micro_batch and b.max_epochs == l.max_epochs
+        bo, lo = b.override_map(), l.override_map()
+        assert int(bo["model.reg_loss.num_clusters"]) == 1, f"{bname}: the global arm must be K=1"
+        assert int(lo["model.reg_loss.num_clusters"]) > 1, f"{lname}: the local arm must be K>1"
+        differing = {k for k in set(bo) | set(lo) if bo.get(k) != lo.get(k)}
+        assert differing == {"model.reg_loss.num_clusters"}, \
+            f"{bname} vs {lname} must differ ONLY in num_clusters; also differ in {sorted(differing)}"
+
+
+def test_the_d4_grid_narrows_the_PROJECTOR_and_nothing_else():
+    """Decision 22, run 4. With d=16 and a per-step batch of 64, K=4 already leaves exactly 16 samples for a
+    16-dimensional target, so every larger K estimates a 16-D distribution from fewer points than dimensions
+    -- the high-K cells were never a test of locality. At d=4 a 16-sample neighbourhood is 4x the target
+    dimension, so K up to 8 becomes estimable, and the ball-vs-Gaussian signal is ~10x larger.
+
+    What must hold: the projector output narrows to 4, `embedding_dim` stays 512 so the probe reads the same
+    width and the numbers stay comparable to the d=16 grid, and the ball radius is still derived (radius
+    null -> sqrt(d+2)) rather than pinned to the old d.
+
+    Inverted by also overriding `model.embedding_dim`: this test fails on the 512 assert.
+    """
+    runs = expand(REPO / "configs" / "campaign" / "ablation_grid_ep800_d4.yaml")
+    assert len(runs) == 252
+    seen = set()
+    for run in runs:
+        key = (run.experiment, run.overrides)
+        if key in seen:
+            continue
+        seen.add(key)
+        cfg = C.compose_config(run.hydra_overrides())
+        assert int(cfg.model.projection_dim) == 4, f"{run.run_name}: projection_dim is {cfg.model.projection_dim}"
+        assert int(cfg.model.embedding_dim) == 512, \
+            f"{run.run_name}: embedding_dim must stay 512 or the probe is not comparable to the d=16 grid"
+        assert int(list(cfg.model.projector.hidden_channels)[-1]) == 4, \
+            f"{run.run_name}: the projector must actually emit 4 dimensions"
+        reg = cfg.model.reg_loss
+        if "loss" in reg and "radius" in reg.loss:
+            assert reg.loss.radius is None, \
+                f"{run.run_name}: radius must stay null so it resolves to sqrt(d+2) at the NEW d"
+
+
+def test_no_d4_run_name_can_collide_with_the_d16_grid():
+    """F56: two runs sharing a name share a checkpoint directory and resume from each other. The d=4 grid is
+    the same 252-cell design at a different projector width, so its names are one prefix away from the
+    originals."""
+    d16 = {r.run_name for r in expand(REPO / "configs" / "campaign" / "ablation_grid_ep800.yaml")}
+    d4 = {r.run_name for r in expand(REPO / "configs" / "campaign" / "ablation_grid_ep800_d4.yaml")}
+    assert not (d16 & d4), f"colliding names: {sorted(d16 & d4)[:5]}"
+    assert all(n.startswith("d4ep800_") for n in d4)
 
 
 def test_the_vitl_pair_is_identical_except_the_regularizer():
