@@ -62,3 +62,15 @@ backbones:
     experiment: lejepa/vit_in1k_sigreg_localrecipe
     family: vit
     checkpoint: checkpoints/vit_control_lam0.1_s0/last.ckpt
+  - name: vit_globalball_lam0.1_k1_s0
+    experiment: lejepa/vit_in1k_localballreg_l01_k4
+    family: vit
+    checkpoint: checkpoints/vit_globalball_lam0.1_k1_s0/last.ckpt
+  - name: hvit_globalball_lam0.1_k1_s0
+    experiment: lejepa/hvit_in1k_localballreg_l01_k4
+    family: hvit
+    checkpoint: checkpoints/hvit_globalball_lam0.1_k1_s0/last.ckpt
+  - name: d4rn50_globalball_lam0.1_k1_s0
+    experiment: lejepa/d4rn50_in1k_localballreg_l01_k4
+    family: d4rn50
+    checkpoint: checkpoints/d4rn50_globalball_lam0.1_k1_s0/last.ckpt
