@@ -14,6 +14,7 @@ Currently exposes:
   - :mod:`src.eval.linear_probe`          frozen-feature linear probe
   - :mod:`src.eval.transfer`              the seven out-of-domain transfer datasets
   - :mod:`src.eval.rankme`                RankMe effective rank, projector loading
+  - :mod:`src.eval.discrepancy`           distance from the regularizer's own target law
   - :mod:`src.eval.angle_probe`           circular (Yoda) angle recovery
   - :mod:`src.eval.patch_pca`             patch-token PCA visualisation
   - :mod:`src.eval.conformal_autoencoder` Conformal-Autoencoder dimension detection
