@@ -21,7 +21,7 @@ MANIFESTS = sorted((REPO / "configs" / "campaign").glob("*.yaml"))
 EXPECTED_RUNS = {
     "ablation_grid": 252, "ablation_batch128": 24, "in1k_baselines": 6, "in1k_vitl14": 2,
     "in1k_local": 4, "torus": 11, "calibration_1gpu": 2, "calibration_4gpu": 3, "calibration_8gpu": 1,
-    "smoke_1gpu": 6, "smoke_4gpu": 5, "smoke_8gpu": 2, "ablation_grid_ep800": 252,
+    "smoke_1gpu": 8, "smoke_4gpu": 5, "smoke_8gpu": 2, "ablation_grid_ep800": 252,
     "target_and_centering": 24, "in1k_global_ball": 3, "ablation_grid_ep800_d4": 252,
     "capacity_grid_ep800": 180,
 }
@@ -340,6 +340,44 @@ def test_the_capacity_grid_omits_depth_12_because_it_is_already_trained():
         "depth 12 is the reference grid and must not be re-trained"
     assert {r.tag for r in runs} == {"cap_fixk", "cap_fwd"}, \
         "the reverse ramp has no capacity counterpart"
+
+
+def test_the_smoke_grid_rehearses_EVERY_depth_the_capacity_grid_runs():
+    """The debug cycle exists to run a new shape through the whole lifecycle before a wave commits to
+    it (V2), and depth is the capacity grid's brand-new axis: a depth-6 encoder has to train, write
+    `last.ckpt` at `max_epochs - 1`, log `train/local/*` and pass postflight, none of which had ever
+    run at anything but depth 12.
+
+    The geometry test above cannot catch this. It compares `(batch, accumulation)`, which is identical
+    at every depth -- so a smoke cell that silently rehearsed depth 12 would pass every other check in
+    this file while rehearsing nothing new. That is the F58 shape: a debug cell that rehearses a
+    geometry the campaign never runs, or here, fails to rehearse the one it does.
+
+    Inverted once by dropping `model.encoder.depth: 6` from `smoke_capacity_dep6`: fails with 6 listed
+    as unrehearsed.
+    """
+    def depths(manifest: str) -> set[int]:
+        found = set()
+        for run in expand(REPO / "configs" / "campaign" / manifest):
+            for override in run.overrides:
+                if override.startswith("model.encoder.depth="):
+                    found.add(int(override.split("=", 1)[1]))
+        return found
+
+    wanted = depths("capacity_grid_ep800.yaml")
+    assert wanted == {6, 3}, f"the capacity grid's depths moved: {sorted(wanted)}"
+    rehearsed = depths("smoke_1gpu.yaml")
+    assert not (wanted - rehearsed), \
+        f"depth(s) {sorted(wanted - rehearsed)} are run by the capacity grid but rehearsed by no smoke cell"
+
+
+def test_the_smoke_grid_rehearses_both_of_the_capacity_experiment_configs():
+    """`cap_fixk` uses `ablations/base_depth` and `cap_fwd` uses `ablations/dynk_depth` -- two separate
+    new configs, because `ablations/dynk` derives from `base` and would have trained the ramp cells at
+    depth 12. Both need a lifecycle rehearsal, not just the one."""
+    used = {r.experiment for r in expand(REPO / "configs" / "campaign" / "capacity_grid_ep800.yaml")}
+    rehearsed = {r.experiment for r in expand(REPO / "configs" / "campaign" / "smoke_1gpu.yaml")}
+    assert not (used - rehearsed), f"unrehearsed capacity config(s): {sorted(used - rehearsed)}"
 
 
 def test_no_capacity_run_name_can_collide_with_any_other_grid():
