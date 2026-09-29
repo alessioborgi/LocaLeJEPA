@@ -1,0 +1,26 @@
+# @package _global_
+# base + an EXPLICIT `model.encoder.depth`, so the capacity grid (decision 24) can vary transformer depth
+# with an ORDINARY Hydra override instead of `+model.encoder.depth`. F58: a leading `+` is not part of the
+# key path, so every consumer that reads a key out of an override string has to strip it, and the run-name
+# builder would carry the `+` into its `short:` alias.
+#
+# Why the key is declared HERE and not in `configs/model/encoder/timm_vit.yaml`: that file is shared by 22
+# experiment configs, and adding a key there changes the composed config of all of them. Declaring it in an
+# experiment config is the established precedent -- `lejepa/vitl14_in1k_sigreg_paper.yaml:52-55` adds
+# `dynamic_img_size` and `drop_path_rate` under `model.encoder` exactly this way, neither of which is in
+# `timm_vit.yaml` either.
+#
+# depth 12 is the value `vit_small_patch8_224` already carries, so composing this config and composing
+# `ablations/base` MUST build the same encoder. That equivalence is what licenses comparing the capacity
+# grid's depth-6 and depth-3 cells against the existing 800-epoch grid's depth-12 cells, which were trained
+# through `ablations/base` -- so it is pinned by a test, not assumed. Not run on its own.
+
+defaults:
+  - /experiment/ablations/base
+  - _self_
+
+tags: ["lejepa", "imagenette", "vit-small-p8", "localereg", "ablation", "capacity"]
+
+model:
+  encoder:
+    depth: 12
