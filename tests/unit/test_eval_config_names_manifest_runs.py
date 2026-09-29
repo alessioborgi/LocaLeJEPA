@@ -89,3 +89,90 @@ def test_check_mode_reports_a_stale_file(tmp_path, monkeypatch, capsys):
     assert "STALE" in capsys.readouterr().out
     assert SYNC.main([]) == 0
     assert SYNC.main(["--check"]) == 0
+
+
+# ----- F71's guard: no manifest may be silently unevaluated -----
+#
+# F71 (2026-09-28): `configs/campaign/in1k_global_ball.yaml` was added and the suite stayed green at
+# 3173 tests, yet its three runs would have trained for ~24 h each and finished with no eval config
+# naming them -- the F35 silently-dropped-row failure this generator exists to prevent. The reason no
+# test caught it is that `test_every_rendered_config_matches_the_manifests` compares configs against
+# the manifests IN sync_eval_configs' lists, so a manifest absent from those lists is invisible to
+# the staleness check rather than flagged by it.
+#
+# The fix cannot be "every manifest must be in the lists": Imagenette-scale grids are deliberately
+# NOT there (sync_eval_configs.py:43-47) -- they are evaluated through
+# `make_ablation_eval_config.py` from their own grid JSON, at run time, because they only include
+# cells that already carry a `.verified` marker. And calibration/smoke manifests are never evaluated
+# at all.
+#
+# So the guard forces a DECISION instead of inferring intent: every manifest must appear in exactly
+# one bucket below. Adding a manifest without classifying it fails the test and makes you answer the
+# question F71 went unasked -- "when these runs finish, what will evaluate them?"
+
+GRID_EVALUATED = {
+    # Imagenette-scale. Evaluated by `make_ablation_eval_config.py --grid <grid>.json`, which is run
+    # on the cluster against the checkpoint root and includes only verified cells.
+    "ablation_grid", "ablation_batch128", "ablation_grid_ep800", "ablation_grid_ep800_d4",
+    "target_and_centering", "capacity_grid_ep800",
+}
+
+NOT_EVALUATED = {
+    # Throwaway checkpoints: calibration measures throughput, the smoke grids rehearse a geometry
+    # before a wave. Neither produces a number that reaches a table.
+    "calibration_1gpu", "calibration_4gpu", "calibration_8gpu",
+    "smoke_1gpu", "smoke_4gpu", "smoke_8gpu",
+}
+
+
+def test_every_manifest_is_classified_as_synced_grid_evaluated_or_not_evaluated():
+    """F71's guard. A manifest in no bucket is a manifest nothing will evaluate.
+
+    The synced set is READ from `sync_eval_configs.py`'s own lists rather than duplicated here, so
+    drift in either direction fails: removing a manifest from the generator's lists without
+    reclassifying it here, or adding one here without adding it there.
+
+    INVERTED once: deleting "capacity_grid_ep800" from GRID_EVALUATED fails with that name in the
+    unclassified set, which is exactly the report F71 should have produced.
+    """
+    on_disk = {p.stem for p in (REPO / "configs" / "campaign").glob("*.yaml")}
+    assert on_disk, "the manifest glob matched nothing"
+
+    synced = {Path(name).stem for name in (*SYNC.IN1K_128, *SYNC.VITL, *SYNC.TORUS)}
+
+    overlaps = (synced & GRID_EVALUATED) | (synced & NOT_EVALUATED) | (GRID_EVALUATED & NOT_EVALUATED)
+    assert not overlaps, f"a manifest is in two buckets: {sorted(overlaps)}"
+
+    classified = synced | GRID_EVALUATED | NOT_EVALUATED
+    unclassified = on_disk - classified
+    assert not unclassified, (
+        f"unclassified manifest(s): {sorted(unclassified)}. Ask what will evaluate their runs: add "
+        f"IN1K-scale ones to sync_eval_configs.py's lists, Imagenette-scale ones to GRID_EVALUATED, "
+        f"and throwaway ones to NOT_EVALUATED."
+    )
+    stale = classified - on_disk
+    assert not stale, f"classified but no longer on disk: {sorted(stale)}"
+
+
+def test_the_imagenette_grids_are_deliberately_absent_from_the_generator_lists():
+    """The other half of F71, and the reason the guard above is not simply 'list everything'.
+
+    An Imagenette grid in `sync_eval_configs.py`'s lists would render a campaign eval config naming
+    every one of its cells whether verified or not, defeating the `.verified` gate that
+    `make_ablation_eval_config.py` applies.
+
+    HOW MUCH OF THAT THIS TEST ACTUALLY CATCHES, measured by inverting it: adding
+    `capacity_grid_ep800.yaml` to `IN1K_128` does NOT reach this assertion. It raises
+    `ValueError: no backbone family for tag 'cap_fixk'` inside `family()` during module import, when
+    `RENDERED = SYNC.render_all()` runs, so the whole file errors at collection instead. That is a
+    perfectly good failure and it is louder than an assertion -- but it is `family()`'s, not this
+    test's.
+
+    What this test adds is the case `family()` cannot see: a grid-evaluated manifest whose block
+    tags happen to start with a known backbone prefix (`vit`, `hvit`, `d4rn50`, `svit`, `nvit`,
+    `vitl14`). Such a manifest would render cleanly and silently produce a config naming unverified
+    cells. That is the subtler and more dangerous leak, and it is the one this assertion covers.
+    """
+    synced = {Path(name).stem for name in (*SYNC.IN1K_128, *SYNC.VITL, *SYNC.TORUS)}
+    assert not (GRID_EVALUATED & synced), \
+        f"grid-evaluated manifest(s) leaked into the generator's lists: {sorted(GRID_EVALUATED & synced)}"

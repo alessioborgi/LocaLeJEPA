@@ -1,0 +1,74 @@
+# The CAPACITY grid at 800 epochs -- does locality pay once the encoder cannot flatten globally?
+# Decision 24, from Kartik's suggestion (state/11-COAUTHOR-COMMS.md C-21).
+#
+# Why it exists: on the complete 800-epoch grid, read two independent ways, locality is
+# indistinguishable from zero (+0.14 online / +0.09 post-hoc at b=64, -0.36 / -0.20 at b=256, K=2 vs
+# K=1 with each arm at its own best lambda). The effective-strength law explains why -- once
+# lambda x samples-per-neighbourhood is fixed, K is largely a reparameterisation. The one
+# explanation that does NOT require abandoning the locality narrative is that ViT-S/8 is expressive
+# enough that the GLOBAL constraint never binds: a 22 M-parameter transformer can flatten its
+# embedding onto a ball without giving up downstream structure, so relaxing the demand to "locally
+# flat" buys nothing because nothing was being paid. That predicts something falsifiable -- reduce
+# capacity until the constraint bites and locality should start to pay.
+#
+# Capacity is varied by transformer DEPTH, which holds width, patch size, token count and the 512-d
+# embedding fixed, so the collapse cliff at ~16 samples per neighbourhood (= the projected
+# dimension) does not move underneath the experiment. `vit_tiny_patch8_224` does not exist in timm
+# 1.0.29, so a width sweep at patch 8 would need a patch_size override AND would move head count
+# with width; depth needs neither. Measured in the pinned env: depth 12/6/3 -> 21.66M / 11.02M /
+# 5.69M parameters, 512-d output in every case.
+#
+# DEPTH 12 IS NOT HERE AND IS NOT RE-RUN. It is the existing `ablation_grid_ep800` at b=256:
+# 75 fixed-K cells (5 lambda x 5 K x 3 seeds) + 15 forward-ramp cells, already trained and verified.
+# The comparison is legitimate only because composing `ablations/base_depth` at depth 12 builds a
+# state_dict identical in keys, shapes and parameter count to `ablations/base`, which carries no
+# depth key -- pinned by tests/integration/test_capacity_depth.py.
+#
+# Lambda is swept and each cell is read at ITS OWN best lambda. At fixed lambda a K sweep only
+# re-measures the strength law; matched-strength was rejected because the law's constants were
+# fitted at ViT-S/8 and have never been checked at another capacity, so matching would assume the
+# very transfer this grid is testing.
+#
+# b = 256 only. The cliff caps usable K at N/16, which is 16 here and only 4 at b=64 -- five trend
+# points instead of three. The REVERSE ramp has no counterpart: it collapsed in the reference grid,
+# so mirroring it would buy a second question rather than evidence.
+#
+# Cost: 180 runs. At the measured Imagenette rate (F48: 30-33 min per 100 epochs at depth 12, and
+# these runs are compute-bound at data-wait 0.15) that is ~2.2 h per depth-6 cell and ~1.2 h per
+# depth-3 cell, so ~310 GPU-h. Submit depth 3 first at --time 02:30:00, then depth 6 at 04:00:00:
+# right-sized walls backfill, which matters because F69 puts us last on fairshare.
+#
+# MEMORY: submit at --mem-per-gpu-gb 280 until F72's loader cap is confirmed. At 120 GB, 124 of the
+# reference grid's 252 cells were OOM-killed -- see the F72 AMENDMENT in 07-CLUSTER-FINDINGS.md.
+#
+# Names carry `dep` so the two depths cannot collide, and `cap_` prefixes both tags so
+# `make_ablation_tables.py --tag-prefix cap_` reaches them the way `d4ep800_` does.
+name: capacity_grid_ep800
+seeds: [0, 1, 2]
+gpus: 1
+micro_batch: 256
+max_epochs: 800
+short: {model.encoder.depth: dep, model.lamb: lam, model.reg_loss.num_clusters: k}
+blocks:
+  - tag: cap_fixk                     # 2 x 5 x 5 x 3 = 150 cells; K=1 is the locality-off control
+    experiment: ablations/base_depth
+    axes:
+      model.encoder.depth: [6, 3]
+      model.lamb: [0.02, 0.05, 0.1, 0.2, 0.3]
+      model.reg_loss.num_clusters: [1, 2, 4, 8, 16]
+    overrides:
+      logger: csv
+      trainer.max_epochs: 800
+      data.batch_size: 256
+      trainer.accumulate_grad_batches: 1
+  - tag: cap_fwd                      # 2 x 5 x 3 = 30 cells; K 2 -> 16, arriving at 672/800 = 84%
+    experiment: ablations/dynk_depth
+    axes:
+      model.encoder.depth: [6, 3]
+      model.lamb: [0.02, 0.05, 0.1, 0.2, 0.3]
+    overrides:
+      logger: csv
+      trainer.max_epochs: 800
+      data.batch_size: 256
+      trainer.accumulate_grad_batches: 1
+      callbacks.dynamic_num_clusters.step_epochs: 96

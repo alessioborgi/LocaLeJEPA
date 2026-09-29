@@ -23,6 +23,7 @@ EXPECTED_RUNS = {
     "in1k_local": 4, "torus": 11, "calibration_1gpu": 2, "calibration_4gpu": 3, "calibration_8gpu": 1,
     "smoke_1gpu": 6, "smoke_4gpu": 5, "smoke_8gpu": 2, "ablation_grid_ep800": 252,
     "target_and_centering": 24, "in1k_global_ball": 3, "ablation_grid_ep800_d4": 252,
+    "capacity_grid_ep800": 180,
 }
 
 
@@ -289,6 +290,72 @@ def test_no_d4_run_name_can_collide_with_the_d16_grid():
     d4 = {r.run_name for r in expand(REPO / "configs" / "campaign" / "ablation_grid_ep800_d4.yaml")}
     assert not (d16 & d4), f"colliding names: {sorted(d16 & d4)[:5]}"
     assert all(n.startswith("d4ep800_") for n in d4)
+
+
+def test_the_capacity_grid_varies_DEPTH_and_nothing_else():
+    """Decision 24. The whole experiment rests on depth being the only axis that moves.
+
+    `embedding_dim` must stay 512 so the probe reads the same width as every other grid, and
+    `projection_dim` must stay 16 so the collapse cliff -- which sits at roughly `d` samples per
+    neighbourhood -- stays where the reference grid put it. A capacity change that also moved the
+    projected dimension would shift the cliff underneath the axis being measured, which is exactly
+    the confound the d=4 grid was built to create deliberately and this grid must avoid.
+
+    Batch geometry is checked here too: b=256 with accumulate 1 gives N=256 per shard, so K=16
+    leaves 16 samples per neighbourhood -- at the cliff, not past it. At b=64 only K<=4 would
+    survive, which is why this grid has one batch and the reference grid has two.
+
+    Inverted by adding `model.projection_dim: 4` to the manifest's overrides: fails the 16 assert.
+    """
+    runs = expand(REPO / "configs" / "campaign" / "capacity_grid_ep800.yaml")
+    assert len(runs) == 180
+    depths = set()
+    seen = set()
+    for run in runs:
+        key = (run.experiment, run.overrides)
+        if key in seen:
+            continue
+        seen.add(key)
+        cfg = C.compose_config(run.hydra_overrides())
+        depths.add(int(cfg.model.encoder.depth))
+        assert int(cfg.model.embedding_dim) == 512, \
+            f"{run.run_name}: embedding_dim must stay 512 or the probe is not comparable"
+        assert int(cfg.model.projection_dim) == 16, \
+            f"{run.run_name}: projection_dim sets the collapse cliff; depth must not move it"
+        assert int(cfg.data.batch_size) == 256 and int(cfg.trainer.accumulate_grad_batches) == 1, \
+            f"{run.run_name}: one batch geometry only, N=256 per shard"
+    assert depths == {6, 3}, f"the capacity axis must be depth 6 and 3, got {sorted(depths)}"
+
+
+def test_the_capacity_grid_omits_depth_12_because_it_is_already_trained():
+    """Depth 12 is the existing `ablation_grid_ep800` at b=256 -- 75 fixed-K cells plus 15
+    forward-ramp cells, verified. Re-running it would cost ~150 GPU-h to reproduce numbers we hold,
+    and would introduce a second set of depth-12 results that could disagree with the first.
+
+    Also pins the REVERSE ramp out: it collapsed in the reference grid, so a capacity counterpart
+    would buy a second question rather than evidence (decision 24).
+    """
+    runs = expand(REPO / "configs" / "campaign" / "capacity_grid_ep800.yaml")
+    assert not any("depth=12" in o for r in runs for o in r.overrides), \
+        "depth 12 is the reference grid and must not be re-trained"
+    assert {r.tag for r in runs} == {"cap_fixk", "cap_fwd"}, \
+        "the reverse ramp has no capacity counterpart"
+
+
+def test_no_capacity_run_name_can_collide_with_any_other_grid():
+    """F56: two runs sharing a name share a checkpoint directory and resume from each other, which
+    cost four runs on 2026-09-23. Depth must therefore appear in the name -- without it, the depth-6
+    and depth-3 cells of one (lambda, K, seed) would be the same string.
+    """
+    capacity = {r.run_name for r in expand(REPO / "configs" / "campaign" / "capacity_grid_ep800.yaml")}
+    assert len(capacity) == 180
+    for other in ("ablation_grid_ep800.yaml", "ablation_grid_ep800_d4.yaml", "ablation_grid.yaml"):
+        names = {r.run_name for r in expand(REPO / "configs" / "campaign" / other)}
+        assert not (capacity & names), f"collides with {other}: {sorted(capacity & names)[:5]}"
+    assert all(n.startswith("cap_") for n in capacity), \
+        "the cap_ prefix is what make_ablation_tables.py --tag-prefix reaches"
+    assert sum("dep6" in n for n in capacity) == 90
+    assert sum("dep3" in n for n in capacity) == 90
 
 
 def test_the_vitl_pair_is_identical_except_the_regularizer():

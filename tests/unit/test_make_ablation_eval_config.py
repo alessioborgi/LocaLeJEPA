@@ -134,3 +134,90 @@ def test_best_checkpoints_can_be_read_too(gen, tmp_path):
     assert gen.select_cells(runs, root, "last")[0] == []
     entries, _ = gen.select_cells(runs, root, "best")
     assert entries[0]["checkpoint"].endswith("best.ckpt")
+
+
+# ----- shape-bearing overrides (decision 24: the capacity grid varies model.encoder.depth) -----
+
+
+def shape_grid(tmp_path: Path, overrides: list[str]) -> list[dict]:
+    """One run carrying ``overrides``, in the grid-JSON shape `campaign.py expand` writes."""
+    payload = {"manifest": "capacity_grid_ep800", "commit": "deadbeef",
+               "runs": [{"run_name": "cap_fixk_dep6_lam0.1_k4_s0",
+                         "experiment": "ablations/base_depth", "tag": "cap_fixk", "seed": 0,
+                         "overrides": overrides, "gpus": 1, "micro_batch": 256, "max_epochs": 800}]}
+    path = tmp_path / "shape_grid.json"
+    path.write_text(json.dumps(payload))
+    return json.loads(path.read_text())["runs"]
+
+
+def test_a_depth_override_is_forwarded_so_the_checkpoint_meets_its_own_architecture(gen, tmp_path):
+    """THE defect this generator used to guarantee, once the capacity grid existed.
+
+    `load_backbone` composes `experiment=<name>` and instantiates `model.encoder` from that alone.
+    `ablations/base_depth` declares depth 12, and the capacity grid's depth comes from a MANIFEST
+    override -- so without forwarding it, every depth-6 checkpoint would be loaded into a depth-12
+    module. `src/eval/extract.py:134-140` raises on the strict key check, so it fails loudly rather
+    than silently; but the same mismatch reaches `load_projector`, and 180 evals would fail one by
+    one at the end of a queue we are last in.
+
+    INVERTED once: dropping `entry["overrides"] = shape` from `select_cells` leaves the key absent
+    and fails.
+    """
+    root = tmp_path / "ckpt"
+    cell(root, "cap_fixk_dep6_lam0.1_k4_s0")
+    runs = shape_grid(tmp_path, ["logger=csv", "model.encoder.depth=6", "model.lamb=0.1",
+                                "model.reg_loss.num_clusters=4", "trainer.max_epochs=800"])
+    entries, _ = gen.select_cells(runs, root, "last")
+    assert entries[0]["overrides"] == ["model.encoder.depth=6"], entries[0]
+
+
+def test_training_only_overrides_are_NOT_forwarded(gen, tmp_path):
+    """lambda, K, the batch, the logger and the epoch count cannot reach an instantiated encoder or
+    projector, and forwarding them would put training state into an eval config -- where
+    `logger=csv` is a config-group selection that would compose a logger the eval never uses, and a
+    changed `trainer.max_epochs` would make the emitted config differ from run to run for no reason.
+    """
+    root = tmp_path / "ckpt"
+    cell(root, "cap_fixk_dep6_lam0.1_k4_s0")
+    runs = shape_grid(tmp_path, ["logger=csv", "model.lamb=0.1", "model.reg_loss.num_clusters=4",
+                                "data.batch_size=256", "trainer.accumulate_grad_batches=1",
+                                "trainer.max_epochs=800"])
+    entries, _ = gen.select_cells(runs, root, "last")
+    assert "overrides" not in entries[0], entries[0]
+
+
+@pytest.mark.parametrize(
+    "override",
+    ["model.encoder.depth=6", "model.embedding_dim=512", "model.projection_dim=4",
+     "model.projector.hidden_channels=[4]", "model.rectify=true"],
+)
+def test_every_shape_bearing_key_is_recognised(gen, tmp_path, override: str):
+    """Each of these changes the module a checkpoint loads into.
+
+    `model.projection_dim` is the one the d=4 grid moves; its evals happened to survive because
+    `load_backbone` builds only the encoder, but `load_projector` -- which the new discrepancy metric
+    needs -- rebuilds the projector from the same config and would have been silently wrong.
+    """
+    root = tmp_path / "ckpt"
+    cell(root, "cap_fixk_dep6_lam0.1_k4_s0")
+    entries, _ = gen.select_cells(shape_grid(tmp_path, ["logger=csv", override]), root, "last")
+    assert entries[0]["overrides"] == [override]
+
+
+def test_data_crop_size_is_deliberately_not_forwarded(gen, tmp_path):
+    """`load_backbone` and `load_projector` take `crop_size` as their own argument and pass it as a
+    Hydra override themselves, so emitting it here would send the same key twice."""
+    root = tmp_path / "ckpt"
+    cell(root, "cap_fixk_dep6_lam0.1_k4_s0")
+    entries, _ = gen.select_cells(shape_grid(tmp_path, ["data.crop_size=128"]), root, "last")
+    assert "overrides" not in entries[0], entries[0]
+
+
+def test_a_run_without_an_overrides_key_at_all_is_tolerated(gen, tmp_path):
+    """Older grid JSONs on scratch predate this field's use; a missing key must not crash the
+    generator that re-reads them."""
+    root = tmp_path / "ckpt"
+    cell(root, "old")
+    runs = [{"run_name": "old", "experiment": "ablations/base"}]
+    entries, _ = gen.select_cells(runs, root, "last")
+    assert entries[0]["name"] == "old" and "overrides" not in entries[0]
