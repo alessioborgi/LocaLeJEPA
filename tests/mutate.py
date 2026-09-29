@@ -286,6 +286,11 @@ MUTANTS: list[Mutant] = [
            '    name = ".verified" if verdict.ok else ".failed"',
            '    name = ".verified"',
            "a failed run gets the marker the eval preflight requires"),
+    Mutant("f74-nested-config-group-unhandled", "scripts/aicr/campaign.py",
+           '        if "/" in key:',
+           "        if False:",
+           "a nested config group (model/reg_loss=locale_sigreg) fails its config check as "
+           "'<absent>' on a run whose artifact is perfect -- this cost twelve 800-epoch cells"),
     # --- calibration callbacks and the data/eval gates (campaign plan C2b, C2c) ---
     Mutant("c2bc-wait-not-counted", "src/callbacks/throughput.py",
            "            self.wait_seconds += now - self._last_batch_end",
