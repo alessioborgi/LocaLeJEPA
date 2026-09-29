@@ -17,9 +17,17 @@ GPU-hours instead of the ~1100 a longer rerun would cost.
 The generated config is DATA: one ``backbones`` entry per ablation cell, pointing at an absolute
 checkpoint path, in the grid's own order. A cell is included only when its checkpoint exists and
 the launcher's ``.verified`` marker is beside it (plan G5/V4), so an eval can never run on a
-half-trained cell. No override is emitted: ``load_backbone`` composes ``train`` with
-``experiment=<name>`` and instantiates ONLY ``model.encoder``, which is the same ViT-S/8 for every
-cell of the grid -- lambda, K, the batch and the logger do not reach it.
+half-trained cell.
+
+**Shape-bearing overrides ARE emitted.** This used to say "no override is emitted, the encoder is the
+same ViT-S/8 for every cell of the grid". That was true of the lambda/K/batch grids and became false
+with the capacity grid (decision 24), which varies ``model.encoder.depth`` through a manifest
+override: composing ``experiment=ablations/base_depth`` alone rebuilds the DEFAULT depth 12, so a
+depth-6 checkpoint would meet a depth-12 architecture. `src/eval/extract.py:134-140` would catch that
+loudly on the strict key check -- but only because that check exists, and the same mismatch would
+silently mis-evaluate the projector, which `load_projector` rebuilds from the same config. So every
+override that changes the instantiated encoder or projector is forwarded per entry, and
+``src/eval_indomain.py:195`` already passes them through to ``load_backbone``.
 
     python scripts/aicr/make_ablation_eval_config.py \
         --grid $SCR/grids/ablation_grid.json --ckpt-root $SCR/checkpoints_ablations \
@@ -43,6 +51,37 @@ LINEAR = {"lr_grid": [0.01, 0.03, 0.1, 0.3, 1.0, 3.0, 10.0], "epochs": 100, "bat
           "weight_decay": 0.0, "momentum": 0.9, "standardize": True, "val_frac": 0.1}
 
 
+# Override keys that change the MODULE a checkpoint must be loaded into. Anything else -- lambda, K,
+# the batch, the logger, the epoch count -- affects training and cannot reach `load_backbone` or
+# `load_projector`, both of which instantiate from the composed config alone.
+#
+#   model.encoder.*     the encoder's own timm kwargs: depth, model_name, drop_path_rate, ...
+#   model.embedding_dim `timm_vit.yaml:5` interpolates it into `num_classes`, so it sets the head width
+#   model.projection_dim the projector's output width (the d=4 grid moves exactly this)
+#   model.projector.*   the projector's own kwargs, e.g. hidden_channels
+#   model.rectify       read by `load_projector` to decide whether the loss saw ReLU(projector(.))
+#
+# `data.crop_size` is deliberately absent: `load_backbone` and `load_projector` take it as their own
+# argument, so emitting it here would pass the same Hydra key twice.
+MODEL_SHAPE_KEYS = (
+    "model.encoder.",
+    "model.embedding_dim=",
+    "model.projection_dim=",
+    "model.projector.",
+    "model.rectify=",
+)
+
+
+def shape_overrides(run: dict) -> list[str]:
+    """The subset of a run's overrides that must be replayed to rebuild its architecture.
+
+    Order is preserved from the grid so the emitted config is byte-stable across regenerations --
+    `tests/unit/test_eval_config_names_manifest_runs.py` compares generated files to their
+    regeneration, and an unstable order would make every run look stale.
+    """
+    return [o for o in run.get("overrides", ()) if o.startswith(MODEL_SHAPE_KEYS)]
+
+
 def select_cells(runs, ckpt_root: Path, kind: str, require_verified: bool = True):
     """``(entries, skipped)`` in the grid's order. A cell enters only with BOTH its checkpoint and,
     unless explicitly waived, the ``.verified`` marker the launcher writes after its postflight."""
@@ -57,7 +96,11 @@ def select_cells(runs, ckpt_root: Path, kind: str, require_verified: bool = True
         if require_verified and not (run_dir / ".verified").is_file():
             skipped.append(f"{name}: not verified")
             continue
-        entries.append({"name": name, "experiment": run["experiment"], "checkpoint": str(ckpt)})
+        entry = {"name": name, "experiment": run["experiment"], "checkpoint": str(ckpt)}
+        shape = shape_overrides(run)
+        if shape:
+            entry["overrides"] = shape
+        entries.append(entry)
     return entries, skipped
 
 

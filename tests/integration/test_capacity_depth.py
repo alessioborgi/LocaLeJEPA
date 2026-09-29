@@ -158,3 +158,46 @@ def test_the_capacity_ramp_config_carries_both_the_depth_key_and_the_forward_ram
     ramp = cfg.callbacks.dynamic_num_clusters
     assert (int(ramp.start), int(ramp.end)) == (2, 16), "cap_fwd must ramp UP, 2 -> 16"
     assert int(ramp.step) == 2
+
+
+def test_a_capacity_cell_round_trips_from_its_manifest_to_a_matching_encoder():
+    """The end-to-end guard on decision 24's most dangerous silent failure.
+
+    Three things have to line up or a depth-6 checkpoint meets a depth-12 module: the manifest has to
+    carry the depth override, `make_ablation_eval_config.shape_overrides` has to recognise it as
+    shape-bearing, and `load_backbone` has to replay it on top of the experiment. This test walks
+    that whole path -- manifest -> grid entry -> the composition `load_backbone` performs -- and
+    asserts the encoder it would build has the depth the checkpoint was trained at.
+
+    It composes rather than instantiating from a real checkpoint, because the failure mode is the
+    CONFIG disagreeing with the artifact; `src/eval/extract.py:134-140` already covers the strict
+    key check that catches the disagreement at load time.
+
+    INVERTED once: removing `model.encoder.` from `MODEL_SHAPE_KEYS` leaves the override unforwarded
+    and the composed depth falls back to 12.
+    """
+    import importlib.util
+    import sys
+
+    import scripts.aicr.campaign as C
+
+    path = REPO / "scripts" / "aicr" / "make_ablation_eval_config.py"
+    spec = importlib.util.spec_from_file_location("make_ablation_eval_config_rt", path)
+    gen = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = gen
+    spec.loader.exec_module(gen)
+
+    runs = C.expand(C.load_manifest(REPO / "configs" / "campaign" / "capacity_grid_ep800.yaml"))
+    by_depth = {}
+    for run in runs:
+        depth = next(int(o.split("=")[1]) for o in run.overrides if o.startswith("model.encoder.depth="))
+        by_depth.setdefault(depth, run)
+    assert set(by_depth) == {6, 3}
+
+    for depth, run in by_depth.items():
+        forwarded = gen.shape_overrides({"overrides": list(run.overrides)})
+        assert forwarded == [f"model.encoder.depth={depth}"], (depth, forwarded)
+        # Exactly what load_backbone composes: the experiment, the crop size, then the entry's overrides.
+        cfg = compose_experiment(run.experiment, ("data.crop_size=128", *forwarded))
+        assert int(cfg.model.encoder.depth) == depth, \
+            f"{run.run_name}: eval would rebuild depth {cfg.model.encoder.depth}, not {depth}"
