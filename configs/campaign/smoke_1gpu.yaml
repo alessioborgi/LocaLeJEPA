@@ -30,5 +30,12 @@ blocks:
   - {tag: smoke_vit_imagenette_rdmreg, experiment: rectifiedlpjepa/vit_imagenette_rdmreg, micro_batch: 64, overrides: {logger: csv, trainer.max_epochs: 2, +trainer.limit_train_batches: 20}}
   - {tag: smoke_ablation_local,        experiment: ablations/base,                        overrides: {logger: csv, trainer.max_epochs: 2, +trainer.limit_train_batches: 20}}
   - {tag: smoke_ablation_dynk,         experiment: ablations/dynk,                        overrides: {logger: csv, trainer.max_epochs: 2, +trainer.limit_train_batches: 20}}
+  # The capacity grid's two NEW experiment configs and both NEW depths (decision 24). These inherit the
+  # manifest's `micro_batch: 256`, which is the geometry `capacity_grid_ep800` actually runs (b=256,
+  # accumulate 1) -- the ablation rows' shape, not the 800-epoch rows' 64 x 4. Rehearsed because depth is
+  # a brand-new axis: a depth-6 encoder has to train, write `last.ckpt` at `max_epochs - 1`, log
+  # `train/local/*`, and pass postflight, and none of that had ever run at anything but depth 12.
+  - {tag: smoke_capacity_dep6,         experiment: ablations/base_depth,                  overrides: {logger: csv, trainer.max_epochs: 2, +trainer.limit_train_batches: 20, model.encoder.depth: 6}}
+  - {tag: smoke_capacity_dep3_dynk,    experiment: ablations/dynk_depth,                  overrides: {logger: csv, trainer.max_epochs: 2, +trainer.limit_train_batches: 20, model.encoder.depth: 3}}
   - {tag: smoke_svit_susreg,           experiment: lejepa/svit_imagenette_susreg,         micro_batch: 64, overrides: {logger: csv, trainer.max_epochs: 2, +trainer.limit_train_batches: 20}}
   - {tag: smoke_nvit_sigreg,           experiment: lejepa/nvit_imagenette_sigreg,         micro_batch: 64, overrides: {logger: csv, trainer.max_epochs: 2, +trainer.limit_train_batches: 20}}

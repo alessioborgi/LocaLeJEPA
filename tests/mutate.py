@@ -286,6 +286,11 @@ MUTANTS: list[Mutant] = [
            '    name = ".verified" if verdict.ok else ".failed"',
            '    name = ".verified"',
            "a failed run gets the marker the eval preflight requires"),
+    Mutant("c24-smoke-skips-the-new-depth", "configs/campaign/smoke_1gpu.yaml",
+           "+trainer.limit_train_batches: 20, model.encoder.depth: 6}}",
+           "+trainer.limit_train_batches: 20}}",
+           "the debug cycle rehearses depth 12 while the capacity grid runs 6 and 3, so the wave's one "
+           "new axis reaches the cluster unexercised -- and the geometry check cannot see it"),
     Mutant("f74-nested-config-group-unhandled", "scripts/aicr/campaign.py",
            '        if "/" in key:',
            "        if False:",
