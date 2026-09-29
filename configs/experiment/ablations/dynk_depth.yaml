@@ -1,0 +1,22 @@
+# @package _global_
+# base_depth + the FORWARD k ramp (2 -> 16, +2 every 12 epochs). This is the capacity grid's `cap_fwd`
+# block; it is `ablations/dynk` with the explicit depth key, and nothing else.
+#
+# `step_epochs: 12` is the 100-epoch spacing, as in `ablations/dynk`. The capacity manifest overrides it to
+# 96 so the ramp arrives at 672/800 = 84% of the run, the same fraction 12/100 reaches at 100 epochs -- the
+# reference grid does the same, and a test pins the arrival fraction into [0.80, 0.90]. Not run on its own.
+#
+# The REVERSE ramp deliberately has no capacity counterpart: it collapsed in the 800-epoch reference grid,
+# so mirroring it here would buy a second question rather than evidence (decision 24).
+
+defaults:
+  - /experiment/ablations/base_depth
+  - override /callbacks: dynamic_num_clusters
+  - _self_
+
+callbacks:
+  dynamic_num_clusters:
+    start: 2
+    end: 16
+    step_epochs: 12
+    step: 2
