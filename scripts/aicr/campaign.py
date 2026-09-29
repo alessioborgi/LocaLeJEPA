@@ -410,10 +410,21 @@ def config_matches_spec(run_dir: Path, spec: RunSpec) -> list[str]:
     elif f"experiment={spec.experiment}" not in given:
         problems.append(f"experiment={spec.experiment} not among the run's overrides {sorted(given)}")
     for key, text in spec.override_map().items():
+        if "/" in key:
+            # A NESTED config-group selection (`model/reg_loss=locale_sigreg`). Hydra spells group
+            # PATHS with slashes, so such a key is never a dotted path in the composed config and
+            # `_select` below can only ever return its default -- which the value comparison then
+            # reports as `run used '<absent>'` on a run whose artifact is perfect. F74 (2026-09-29):
+            # that is exactly what failed all twelve `tc_gauss` cells of the target/centring 2x2,
+            # after 800 epochs each. The Mapping branch below catches TOP-LEVEL groups (`logger=csv`),
+            # whose key has no slash and does resolve; it structurally cannot catch these.
+            if given is not None and f"{key}={text}" not in given:
+                problems.append(f"{key}={text} (a nested config group) not among the run's overrides")
+            continue
         actual = _select(cfg, key, default="<absent>")
         if isinstance(actual, Mapping):
-            # A config-group selection (logger=csv, trainer=ddp): the composed value is the
-            # whole group, so it is checked against the command line that was given instead.
+            # A top-level config-group selection (logger=csv, trainer=ddp): the composed value is
+            # the whole group, so it is checked against the command line that was given instead.
             if given is not None and f"{key}={text}" not in given:
                 problems.append(f"{key}={text} (a config group) not among the run's overrides")
             continue

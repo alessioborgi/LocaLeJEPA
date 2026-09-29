@@ -895,3 +895,41 @@ def test_the_live_environment_is_read_with_pip_list_freeze_format(monkeypatch):
     monkeypatch.setattr(C.subprocess, "run", fake_run)
     assert C.current_env_hash("python") == C.env_hash(PIP_HALF)
     assert seen["argv"][1:] == ["-m", "pip", "list", "--format=freeze"]
+
+
+def test_a_NESTED_config_group_is_checked_through_the_command_line(tmp_path):
+    """F74 (2026-09-29): this cost twelve 800-epoch runs their verification, and it is F58's shape.
+
+    `configs/campaign/target_and_centering.yaml:59` sets `model/reg_loss: locale_sigreg` -- a Hydra
+    config-group selection, spelled with a SLASH because the group is nested under `model/`. The old
+    check detected config groups by whether `_select(cfg, key)` returned a Mapping, which requires the
+    key to resolve as a DOTTED path in the composed config. `model/reg_loss` never can, so `_select`
+    returned its default and the value comparison reported
+
+        model/reg_loss: manifest 'locale_sigreg', run used '<absent>'
+
+    on twelve cells that had trained to epoch 799 with `test/probe_acc` 0.914. `logger=csv` was
+    unaffected only because that group is top-level, so its key has no slash and does resolve.
+
+    Inverted once by removing the `"/" in key` branch: this test reports the `<absent>` mismatch and
+    `test_a_nested_group_mismatch_is_still_caught` stops distinguishing a real mismatch from it.
+    """
+    spec_group = spec(overrides=("logger=csv", "model.lamb=0.02", "model/reg_loss=locale_sigreg"))
+    assert spec_group.override_map()["model/reg_loss"] == "locale_sigreg"
+    root = run_dir(tmp_path, overrides=["experiment=ablations/base", "logger=csv", "seed=1",
+                                       "model/reg_loss=locale_sigreg"])
+    assert C.config_matches_spec(root, spec_group) == []
+
+
+def test_a_nested_group_mismatch_is_still_caught(tmp_path):
+    """The fix must not turn the check into a pass-through: a run launched WITHOUT the nested group,
+    or with a different one, is still a mismatch. Without this, F74's fix would silently stop
+    verifying the one axis the target/centring 2x2 exists to vary."""
+    spec_group = spec(overrides=("logger=csv", "model.lamb=0.02", "model/reg_loss=locale_sigreg"))
+
+    absent = run_dir(tmp_path / "absent", overrides=["experiment=ablations/base", "logger=csv", "seed=1"])
+    assert any("model/reg_loss=locale_sigreg" in p for p in C.config_matches_spec(absent, spec_group))
+
+    other = run_dir(tmp_path / "other", overrides=["experiment=ablations/base", "logger=csv", "seed=1",
+                                                  "model/reg_loss=localereg"])
+    assert any("model/reg_loss=locale_sigreg" in p for p in C.config_matches_spec(other, spec_group))
