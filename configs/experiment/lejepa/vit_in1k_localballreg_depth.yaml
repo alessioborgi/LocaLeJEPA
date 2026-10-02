@@ -1,0 +1,32 @@
+# @package _global_
+# `vit_in1k_localballreg_l01_k4` with an EXPLICIT `model.encoder.depth`, so the ImageNet capacity
+# grid (decision 25) can vary transformer depth with an ORDINARY Hydra override instead of
+# `+model.encoder.depth`. F58: a leading `+` is not part of the key path, so every consumer that
+# reads a key out of an override string has to strip it, and the run-name builder resolves its
+# `short:` alias on the raw key.
+#
+# Why the key is declared here and NOT in `configs/model/encoder/timm_vit.yaml`: that file is shared
+# by 22 experiment configs and adding a key there changes the composed config of every one of them,
+# including the ImageNet arms already trained. Same reasoning, and the same shape, as
+# `ablations/base_depth.yaml` on the Imagenette side; the precedent for adding keys under
+# `model.encoder` in an experiment config is `vitl14_in1k_sigreg_paper.yaml:52-55`.
+#
+# depth 12 is what `vit_small_patch8_224` already carries, so composing this and composing
+# `vit_in1k_localballreg_l01_k4` must build the SAME encoder. That equivalence is what licenses
+# comparing the capacity grid's depth-6 and depth-3 cells against the depth-12 cells we already own
+# (`vit_globalball_lam0.1_k1_s0` at K=1 and `vit_local_lam0.1_k4_s0` at K=4), which are NOT re-run.
+# It is pinned by a test, not assumed.
+#
+# Everything else is inherited unchanged: lambda 0.1, the stabilized recipe (lr 1e-3, warm-up 10,
+# grad-clip 1.0, cosine to peak/1000), embedding_dim 512, projection_dim 16, 100 epochs. The
+# manifest supplies depth, K, and the batch geometry. Not run on its own.
+
+defaults:
+  - /experiment/lejepa/vit_in1k_localballreg_l01_k4
+  - _self_
+
+tags: ["lejepa", "imagenet1k", "vit-small-p8", "local-ballreg", "capacity"]
+
+model:
+  encoder:
+    depth: 12

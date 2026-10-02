@@ -176,3 +176,59 @@ def test_the_imagenette_grids_are_deliberately_absent_from_the_generator_lists()
     synced = {Path(name).stem for name in (*SYNC.IN1K_128, *SYNC.VITL, *SYNC.TORUS)}
     assert not (GRID_EVALUATED & synced), \
         f"grid-evaluated manifest(s) leaked into the generator's lists: {sorted(GRID_EVALUATED & synced)}"
+
+
+# ----- shape-bearing overrides must survive into the GENERATED configs -----
+
+
+def test_a_generated_entry_replays_the_overrides_that_rebuild_its_architecture():
+    """CAUGHT BEFORE LAUNCH, 2026-10-02, and it would have failed all eight capacity evaluations.
+
+    `load_backbone` and `load_projector` instantiate from the composed config ALONE -- experiment
+    plus crop size. `capacity_in1k` trains at `model.encoder.depth` 6 and 3, supplied as a MANIFEST
+    override, while `lejepa/vit_in1k_localballreg_depth` composes to its default 12. So without the
+    override replayed in the entry, every capacity checkpoint would be loaded into a 12-layer module
+    and `src/eval/extract.py:134-140` would raise on the strict key check -- loudly, but only after
+    the eval had queued, staged and started.
+
+    The same gap had already been fixed in `make_ablation_eval_config.py` for the Imagenette grids;
+    this generator is a SECOND one and still had it. The keys now live once, in
+    `campaign.MODEL_SHAPE_KEYS`, and both generators call `campaign.shape_overrides`.
+
+    INVERTED once by deleting `{_shape(run)}` from `backbone_entries`: the entries lose their
+    overrides and this fails for all eight.
+    """
+    wanted = {}
+    for run in C.expand(C.load_manifest(REPO / "configs" / "campaign" / "capacity_in1k.yaml")):
+        depth = next(o for o in run.overrides if o.startswith("model.encoder.depth="))
+        wanted[run.run_name] = [depth]
+    assert len(wanted) == 4
+
+    seen = 0
+    for rel, text in RENDERED.items():
+        cfg = yaml.safe_load(text)
+        for entry in cfg.get("backbones", []):
+            base = entry["name"][:-5] if entry["name"].endswith("_best") else entry["name"]
+            if base not in wanted:
+                continue
+            seen += 1
+            assert entry.get("overrides") == wanted[base], f"{rel}:{entry['name']} -> {entry.get('overrides')}"
+    assert seen >= 8, f"expected the capacity cells in several generated configs, saw {seen}"
+
+
+def test_only_runs_that_NEED_an_override_carry_one():
+    """The converse, so the fix cannot degrade into "emit everything". lambda, K, the batch, the
+    logger and the epoch count cannot reach an instantiated encoder or projector, and putting them
+    in an eval config would compose a logger the eval never uses and make the file churn whenever a
+    training detail changed.
+
+    Every reference arm -- the baselines, the control, the global ball, the local arms -- takes its
+    architecture entirely from its experiment config, so none of them should carry overrides.
+    """
+    offenders = []
+    for rel, text in RENDERED.items():
+        cfg = yaml.safe_load(text)
+        for entry in cfg.get("backbones", []):
+            if entry.get("overrides") and not entry["name"].startswith("vit_capdep_"):
+                offenders.append((rel, entry["name"], entry["overrides"]))
+    assert not offenders, f"non-capacity entries carrying overrides: {offenders}"

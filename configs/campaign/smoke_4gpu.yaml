@@ -12,3 +12,9 @@ blocks:
   - {tag: smoke_d4rn50_in1k_sigreg, experiment: lejepa/d4rn50_in1k_sigreg,             overrides: {logger: csv, trainer.max_epochs: 2, data.batch_size: 256, trainer.accumulate_grad_batches: 1, +trainer.limit_train_batches: 20}}
   - {tag: smoke_vit_in1k_local,    experiment: lejepa/vit_in1k_localballreg_l01_k4,    overrides: {logger: csv, trainer.max_epochs: 2, data.batch_size: 256, trainer.accumulate_grad_batches: 1, +trainer.limit_train_batches: 20}}
   - {tag: smoke_vit_in1k_control,  experiment: lejepa/vit_in1k_sigreg_localrecipe,     overrides: {logger: csv, trainer.max_epochs: 2, data.batch_size: 256, trainer.accumulate_grad_batches: 1, +trainer.limit_train_batches: 20}}
+  # The capacity grid's new shape (decision 25): a REDUCED-DEPTH encoder on the ImageNet data path,
+  # under 4-GPU DDP. Depth alone is rehearsed at 1 GPU on Imagenette (smoke_1gpu), and 4-GPU DDP on
+  # ImageNet is rehearsed by the cells above -- but the COMBINATION has never run, and a 180-cell
+  # Imagenette wave's worth of GPU time now rides on it. Depth 3 is the extreme case; depth 6 is the
+  # same code path with more layers.
+  - {tag: smoke_vit_in1k_capdep,   experiment: lejepa/vit_in1k_localballreg_depth,     overrides: {logger: csv, trainer.max_epochs: 2, data.batch_size: 256, trainer.accumulate_grad_batches: 1, +trainer.limit_train_batches: 20, model.encoder.depth: 3}}
