@@ -21,7 +21,7 @@ MANIFESTS = sorted((REPO / "configs" / "campaign").glob("*.yaml"))
 EXPECTED_RUNS = {
     "ablation_grid": 252, "ablation_batch128": 24, "in1k_baselines": 6, "in1k_vitl14": 2,
     "in1k_local": 4, "torus": 11, "calibration_1gpu": 2, "calibration_4gpu": 3, "calibration_8gpu": 1,
-    "smoke_1gpu": 8, "smoke_4gpu": 6, "smoke_8gpu": 2, "ablation_grid_ep800": 252,
+    "smoke_1gpu": 8, "smoke_4gpu": 8, "smoke_8gpu": 2, "ablation_grid_ep800": 252,
     "target_and_centering": 24, "in1k_global_ball": 3, "ablation_grid_ep800_d4": 252,
     "capacity_grid_ep800": 180, "capacity_in1k": 4,
     "in1k_attribution": 2, "in1k_vitl14_globalball": 1,
@@ -343,6 +343,12 @@ def test_the_capacity_grid_omits_depth_12_because_it_is_already_trained():
         "the reverse ramp has no capacity counterpart"
 
 
+# Manifests added by decisions 24-26, i.e. every wave not yet run. The debug cycle (V2) gates all of
+# them, so each one's depths and experiment configs must be rehearsed somewhere in the smoke grids.
+# This is deliberately NOT "every manifest ever": several older ones use experiment configs with no
+# smoke cell, which is a gap worth closing separately rather than by failing this test on day one.
+NEW_WAVE_MANIFESTS = ("capacity_grid_ep800.yaml", "capacity_in1k.yaml",
+                      "in1k_attribution.yaml", "in1k_vitl14_globalball.yaml")
 CAPACITY_MANIFESTS = ("capacity_grid_ep800.yaml", "capacity_in1k.yaml")
 SMOKE_MANIFESTS = ("smoke_1gpu.yaml", "smoke_4gpu.yaml", "smoke_8gpu.yaml")
 
@@ -381,11 +387,16 @@ def test_the_smoke_grids_rehearse_EVERY_depth_a_capacity_grid_runs(manifest: str
         f"{manifest}: depth(s) {sorted(wanted - rehearsed)} are run but rehearsed by no smoke cell"
 
 
-@pytest.mark.parametrize("manifest", CAPACITY_MANIFESTS)
-def test_the_smoke_grids_rehearse_EVERY_capacity_experiment_config(manifest: str):
-    """Each capacity grid uses experiment configs that exist only for it -- `ablations/base_depth`
-    and `ablations/dynk_depth` on Imagenette, `lejepa/vit_in1k_localballreg_depth` on ImageNet. Every
-    one needs a lifecycle rehearsal.
+@pytest.mark.parametrize("manifest", NEW_WAVE_MANIFESTS)
+def test_the_smoke_grids_rehearse_EVERY_new_wave_experiment_config(manifest: str):
+    """Every wave not yet run must have each of its experiment configs rehearsed through the full
+    lifecycle before it is submitted -- preflight, staging, training to max_epochs, the callbacks,
+    postflight, the marker.
+
+    The capacity grids introduce `ablations/base_depth`, `ablations/dynk_depth` and
+    `lejepa/vit_in1k_localballreg_depth`; decision 26 adds the two attribution controls. The ViT-L
+    global ball needs no new cell because `vitl14_in1k_localballreg_paper` is already rehearsed by
+    `smoke_8gpu` -- it is an existing config with an override, not a new one.
 
     This is what forces an IN1K smoke cell to exist at all: the depths themselves are already
     rehearsed on Imagenette at 1 GPU, so a depth-only check would pass with no ImageNet cell, and the

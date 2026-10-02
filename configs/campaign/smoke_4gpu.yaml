@@ -18,3 +18,10 @@ blocks:
   # Imagenette wave's worth of GPU time now rides on it. Depth 3 is the extreme case; depth 6 is the
   # same code path with more layers.
   - {tag: smoke_vit_in1k_capdep,   experiment: lejepa/vit_in1k_localballreg_depth,     overrides: {logger: csv, trainer.max_epochs: 2, data.batch_size: 256, trainer.accumulate_grad_batches: 1, +trainer.limit_train_batches: 20, model.encoder.depth: 3}}
+  # The two attribution controls (decision 26). Their encoder/regularizer pairings are already
+  # rehearsed above at LeJEPA's published recipe, so what is new is only the optimiser settings -- but
+  # both run through experiment configs that have never produced a job, and together they are 153
+  # GPU-h with the D4 row needing two walls. D4 has form: F48 has it failing at model build under DDP,
+  # F62 has the pair running out of wall with its successor budget spent. ~1.3 GPU-h each against that.
+  - {tag: smoke_hvit_in1k_control,   experiment: lejepa/hvit_in1k_sigreg_localrecipe,   overrides: {logger: csv, trainer.max_epochs: 2, data.batch_size: 256, trainer.accumulate_grad_batches: 1, +trainer.limit_train_batches: 20}}
+  - {tag: smoke_d4rn50_in1k_control, experiment: lejepa/d4rn50_in1k_sigreg_localrecipe, overrides: {logger: csv, trainer.max_epochs: 2, data.batch_size: 256, trainer.accumulate_grad_batches: 1, +trainer.limit_train_batches: 20}}
