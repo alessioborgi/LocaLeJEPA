@@ -24,6 +24,7 @@ EXPECTED_RUNS = {
     "smoke_1gpu": 8, "smoke_4gpu": 6, "smoke_8gpu": 2, "ablation_grid_ep800": 252,
     "target_and_centering": 24, "in1k_global_ball": 3, "ablation_grid_ep800_d4": 252,
     "capacity_grid_ep800": 180, "capacity_in1k": 4,
+    "in1k_attribution": 2, "in1k_vitl14_globalball": 1,
 }
 
 
@@ -397,6 +398,81 @@ def test_the_smoke_grids_rehearse_EVERY_capacity_experiment_config(manifest: str
     used = _experiments(manifest)
     rehearsed = set().union(*(_experiments(s) for s in SMOKE_MANIFESTS))
     assert not (used - rehearsed), f"{manifest}: unrehearsed config(s) {sorted(used - rehearsed)}"
+
+
+@pytest.mark.parametrize("manifest", MANIFESTS, ids=[m.stem for m in MANIFESTS])
+def test_every_manifest_is_submittable_as_ONE_array(manifest):
+    """`submit_command` builds one homogeneous job array per grid and RAISES on a mixed GPU count,
+    because an array gives every task the same resources -- an 8-GPU run in a 4-GPU array would get
+    half of what it needs and fail at Lightning's device check.
+
+    This was written after decision 26 nearly shipped one manifest holding the two 4-GPU controls and
+    the 8-GPU ViT-L global ball. Nothing in the suite would have caught it; the first symptom would
+    have been `campaign.py submit` refusing, after the configs and tests were written.
+
+    Inverted by putting the ViT-L block back into `in1k_attribution`: this fails on that manifest.
+    """
+    runs = expand(manifest)
+    counts = {r.gpus for r in runs}
+    assert len(counts) == 1, f"{manifest.stem} mixes GPU counts {sorted(counts)}; split it per count"
+    C.submit_command(manifest, runs, partition="b200-batch", account="a", time="24:00:00",
+                     script="s.sh", log_dir="/tmp", exports={})
+
+
+def test_the_two_controls_differ_from_their_own_local_arm_ONLY_in_the_regularizer():
+    """Decision 26. A control is only a control if the recipe is held exactly.
+
+    The hyperbolic and equivariant rows each have a Gaussian arm already, but it runs LeJEPA's
+    published recipe and differs from the local arm in FIVE settings (lr 2e-3 -> 1e-3, lambda
+    0.02 -> 0.1, warm-up 1 -> 10, lr_eta_min_ratio 0.5 -> 0.001, clipping none -> 1.0). That is why
+    their recipe and target contributions are still bundled. These two runs hold all five at the local
+    arm's values, so the only thing left moving is the regularizer.
+
+    The regularizer must also be `sigreg_loss` with NO `num_clusters` key -- the absence is what makes
+    it a control rather than a K=1 local run: there is no clustering code path at all.
+
+    Inverted by setting `model.lamb: 0.02` on either block: fails naming lamb.
+    """
+    pairs = {"hvit_control": "lejepa/hvit_in1k_localballreg_l01_k4",
+             "d4rn50_control": "lejepa/d4rn50_in1k_localballreg_l01_k4"}
+    keys = ["optimizer.lr", "optimizer.weight_decay", "model.lamb", "model.warmup_epochs",
+            "model.lr_eta_min_ratio", "trainer.gradient_clip_val", "data.crop_size",
+            "model.embedding_dim", "model.projection_dim"]
+    runs = expand(REPO / "configs" / "campaign" / "in1k_attribution.yaml")
+    assert {r.tag for r in runs} == set(pairs)
+    for run in runs:
+        cfg = C.compose_config(run.hydra_overrides())
+        ref = C.compose_config([f"experiment={pairs[run.tag]}"])
+        diffs = [(k, OmegaConf.select(ref, k), OmegaConf.select(cfg, k))
+                 for k in keys if OmegaConf.select(ref, k) != OmegaConf.select(cfg, k)]
+        assert not diffs, f"{run.run_name}: recipe differs from its local arm: {diffs}"
+        assert OmegaConf.select(cfg, "model.reg_loss._target_") == "src.losses.sigreg_loss"
+        assert OmegaConf.select(cfg, "model.reg_loss.num_clusters") is None, \
+            f"{run.run_name}: a control must have NO num_clusters, not a K of 1"
+
+
+def test_the_vitl_trio_shares_one_recipe_so_its_two_steps_are_clean():
+    """Decision 26. ViT-L needs no control because its pair is already recipe-matched (decision 13),
+    so the global ball turns one number into two clean steps: sigreg -> ball K=1 is the TARGET, and
+    ball K=1 -> ball K=4 is LOCALITY. That only holds if all three share every optimiser setting.
+
+    lambda is 0.05 here, not the 0.1 the 128 px rows use -- LeJEPA's own value, carried by decision 13.
+    Asserting it stops someone 'fixing' the global ball to 0.1 and silently breaking the comparison.
+
+    Inverted by overriding `model.lamb: 0.1` on the global-ball block: fails naming lamb.
+    """
+    gb = expand(REPO / "configs" / "campaign" / "in1k_vitl14_globalball.yaml")
+    assert len(gb) == 1 and gb[0].gpus == 8
+    cfgs = [C.compose_config(["experiment=lejepa/vitl14_in1k_sigreg_paper"]),
+            C.compose_config(gb[0].hydra_overrides()),
+            C.compose_config(["experiment=lejepa/vitl14_in1k_localballreg_paper",
+                              "model.reg_loss.num_clusters=4"])]
+    for key in ("optimizer.lr", "optimizer.weight_decay", "model.lamb", "model.warmup_epochs",
+                "model.lr_eta_min_ratio", "data.crop_size", "model.projection_dim"):
+        vals = {OmegaConf.select(c, key) for c in cfgs}
+        assert len(vals) == 1, f"the ViT-L trio disagrees on {key}: {vals}"
+    assert float(OmegaConf.select(cfgs[1], "model.lamb")) == 0.05, "ViT-L keeps LeJEPA's lambda"
+    assert int(OmegaConf.select(cfgs[1], "model.reg_loss.num_clusters")) == 1
 
 
 def test_the_in1k_capacity_grid_matches_the_geometry_of_the_cells_it_compares_against():

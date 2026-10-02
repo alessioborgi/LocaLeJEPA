@@ -1,0 +1,63 @@
+# The two 128 px CONTROLS that finish the attribution table. Decision 26.
+#
+# The third run of decision 26, the ViT-L global ball, is `in1k_vitl14_globalball.yaml` and NOT here:
+# `submit_command` builds ONE homogeneous array per grid and raises if a grid mixes GPU counts (these
+# are 4, ViT-L is 8), and `sync_eval_configs.py` renders IN1K_128 at crop 128 and VITL at 238, so a
+# mixed manifest could not be classified for evaluation either. `in1k_local` and `in1k_vitl14` are
+# already split for the same two reasons.
+#
+# WHERE THE TABLE STANDS. The ImageNet gain splits into recipe, target and locality, but only one
+# backbone has all three separated:
+#
+#   encoder      Gaussian@theirs  Gaussian@ours   ball K=1        ball K=4     what is separable
+#   ViT-S/8          have            have           have            have       ALL THREE
+#   H-ViT-S/8        have            MISSING        have            have       locality only
+#   D4-RN50          have            MISSING        have            have       locality only
+#   ViT-L/14         have             n/a          MISSING          have       nothing yet
+#
+# WHY VIT-L NEEDS NO CONTROL, which is why this is three runs and not four. Decision 13 pinned the
+# ViT-L pair to be identical except the regularizer, and composing both configs confirms it: same lr,
+# weight decay, lambda, warm-up, LR floor, clipping, crop, projector. So ViT-L has NO recipe
+# component -- its +1.34 kNN / +6.32 linear is target+locality at a matched recipe, and one global
+# ball splits it. The other three encoders differ from their Gaussian arm in FIVE settings (lr
+# 2e-3 -> 1e-3, lambda 0.02 -> 0.1, warm-up 1 -> 10, lr_eta_min_ratio 0.5 -> 0.001, clipping none ->
+# 1.0), so they need a matched-recipe Gaussian run.
+#
+# WHAT EACH BUYS.
+#   hvit_control    splits recipe from target on the hyperbolic row (locality already +4.92/+2.38)
+#   d4rn50_control  splits recipe from target on the equivariant row (locality already +3.60/+2.88)
+#   (the ViT-L global ball is in its own manifest; see above)
+#
+# COST, from F48's MEASURED rates on B200, not arithmetic:
+#   hvit_control     4 GPUs x  9.02 h/100ep =  36 GPU-h, one 14 h wall
+#   d4rn50_control   4 GPUs x 29.30 h/100ep = 117 GPU-h, TWO 24 h walls (REQUEUE_LEFT=1) -- F62 is
+#                    the D4 pair running out of wall with its successor budget spent; budget the
+#                    successor from the start
+#   these two total ~153 GPU-h; with the ViT-L global ball's 146 the decision-26 set is ~300 GPU-h,
+#   16 GPUs concurrent (under the 32-GPU cap), ~2 days of calendar set by the D4 row's two walls
+#
+# GEOMETRY. Both mirror `in1k_local` exactly -- 4 GPUs, batch 256, accumulate 1, so the per-shard
+# regularizer sees N=64, the same as every row they are compared against. A test pins this against
+# the reference manifest.
+#
+# Both controls are their own local arm with the regularizer left at `lejepa`'s default -- `sigreg`,
+# which has no `num_clusters` key at all. That ABSENCE is what makes it a control rather than a K=1
+# local run: there is no clustering code path, not merely one cluster.
+#
+# Tags begin with a backbone family prefix because `sync_eval_configs.family()` matches
+# `tag == prefix or tag.startswith(prefix + "_")` and RAISES at module import otherwise.
+name: in1k_attribution
+seeds: [0]
+gpus: 4
+micro_batch: 64
+max_epochs: 100
+short: {model.lamb: lam, model.reg_loss.num_clusters: k}
+blocks:
+  - tag: hvit_control
+    experiment: lejepa/hvit_in1k_sigreg_localrecipe
+    axes: {model.lamb: [0.1]}
+    overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1}
+  - tag: d4rn50_control
+    experiment: lejepa/d4rn50_in1k_sigreg_localrecipe
+    axes: {model.lamb: [0.1]}
+    overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1}

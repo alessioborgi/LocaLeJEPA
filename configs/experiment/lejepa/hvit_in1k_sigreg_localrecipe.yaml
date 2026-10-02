@@ -1,0 +1,56 @@
+# @package _global_
+# THE HYPERBOLIC CONTROL (decision 26): LeJEPA's SIGReg under the LOCAL arm's recipe -- lr 1e-3,
+# 10 warm-up epochs, grad-clip 1.0, cosine to peak/1000, lambda 0.1 -- on the hyperbolic ViT-S/8,
+# ImageNet-1K, 100 epochs.
+#
+# Why it exists: the hyperbolic row currently has its LOCALITY step measured (global ball -> local,
+# +4.92/+2.38) but its recipe and target contributions are still bundled into one +13.00/+15.52,
+# because its only Gaussian arm (`hvit_in1k_sigreg`) runs LeJEPA's published recipe and differs from
+# the local arm in five settings: lr 2e-3 -> 1e-3, lambda 0.02 -> 0.1, warm-up 1 -> 10,
+# `lr_eta_min_ratio` 0.5 -> 0.001, and gradient clipping none -> 1.0. This run holds all five at the
+# local arm's values and changes only the regularizer, exactly as `vit_in1k_sigreg_localrecipe` does
+# for the Euclidean row.
+#
+# It is that file with the encoder swapped, and nothing else: `hvit_in1k_localballreg_l01_k4` is
+# byte-identical to its Euclidean counterpart apart from the encoder override and the tags, so the
+# control must be too. A test asserts this config matches the H-ViT local arm on every recipe key.
+#
+# `model/reg_loss` is deliberately ABSENT so the group falls through to `lejepa`'s default, `sigreg`
+# -- which has no `num_clusters` key at all. That absence is what makes it a control rather than a
+# K=1 local run: there is no clustering code path, not merely one cluster.
+defaults:
+  - override /data: imagenet1k
+  - override /model: lejepa
+  - override /model/encoder: hvit_small_p8
+  - override /optimizer: adamw
+  - override /trainer: gpu
+  - _self_
+tags: ["lejepa", "imagenet1k", "hvit", "hyperbolic", "sigreg", "control", "local-recipe"]
+trainer:
+  max_epochs: 100
+  accumulate_grad_batches: 4
+  gradient_clip_val: 1.0
+data:
+  batch_size: 64
+  num_workers: 8
+  crop_size: 128
+  copy_data: false
+model:
+  lr_eta_min_ratio: 0.001
+  embedding_dim: 512
+  projection_dim: 16
+  num_classes: 1000
+  use_online_probe: true
+  num_global_crops: null
+  probe_lr: 1e-3
+  probe_weight_decay: 1e-7
+  warmup_epochs: 10
+  lamb: 0.1
+  projector:
+    hidden_channels:
+      - 2048
+      - 2048
+      - ${model.projection_dim}
+optimizer:
+  lr: 1e-3
+  weight_decay: 5e-2

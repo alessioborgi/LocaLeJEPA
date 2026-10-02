@@ -91,6 +91,12 @@ backbones:
     experiment: lejepa/vit_in1k_localballreg_depth
     overrides: ['model.encoder.depth=3']
     checkpoint: checkpoints/vit_capdep_dep3_lam0.1_k4_s0/last.ckpt
+  - name: hvit_control_lam0.1_s0
+    experiment: lejepa/hvit_in1k_sigreg_localrecipe
+    checkpoint: checkpoints/hvit_control_lam0.1_s0/last.ckpt
+  - name: d4rn50_control_lam0.1_s0
+    experiment: lejepa/d4rn50_in1k_sigreg_localrecipe
+    checkpoint: checkpoints/d4rn50_control_lam0.1_s0/last.ckpt
   # ---- the online probe's checkpoint (best val/probe_acc): the labelled secondary column ----
   - name: vit_sigreg_s0_best
     experiment: lejepa/vit_in1k_sigreg
@@ -147,3 +153,9 @@ backbones:
     experiment: lejepa/vit_in1k_localballreg_depth
     overrides: ['model.encoder.depth=3']
     checkpoint: checkpoints/vit_capdep_dep3_lam0.1_k4_s0/best.ckpt
+  - name: hvit_control_lam0.1_s0_best
+    experiment: lejepa/hvit_in1k_sigreg_localrecipe
+    checkpoint: checkpoints/hvit_control_lam0.1_s0/best.ckpt
+  - name: d4rn50_control_lam0.1_s0_best
+    experiment: lejepa/d4rn50_in1k_sigreg_localrecipe
+    checkpoint: checkpoints/d4rn50_control_lam0.1_s0/best.ckpt
