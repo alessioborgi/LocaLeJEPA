@@ -51,35 +51,20 @@ LINEAR = {"lr_grid": [0.01, 0.03, 0.1, 0.3, 1.0, 3.0, 10.0], "epochs": 100, "bat
           "weight_decay": 0.0, "momentum": 0.9, "standardize": True, "val_frac": 0.1}
 
 
-# Override keys that change the MODULE a checkpoint must be loaded into. Anything else -- lambda, K,
-# the batch, the logger, the epoch count -- affects training and cannot reach `load_backbone` or
-# `load_projector`, both of which instantiate from the composed config alone.
-#
-#   model.encoder.*     the encoder's own timm kwargs: depth, model_name, drop_path_rate, ...
-#   model.embedding_dim `timm_vit.yaml:5` interpolates it into `num_classes`, so it sets the head width
-#   model.projection_dim the projector's output width (the d=4 grid moves exactly this)
-#   model.projector.*   the projector's own kwargs, e.g. hidden_channels
-#   model.rectify       read by `load_projector` to decide whether the loss saw ReLU(projector(.))
-#
-# `data.crop_size` is deliberately absent: `load_backbone` and `load_projector` take it as their own
-# argument, so emitting it here would pass the same Hydra key twice.
-MODEL_SHAPE_KEYS = (
-    "model.encoder.",
-    "model.embedding_dim=",
-    "model.projection_dim=",
-    "model.projector.",
-    "model.rectify=",
-)
+# The shape-bearing override keys live in `campaign.py` as `MODEL_SHAPE_KEYS`, because BOTH eval
+# generators need them: this one for the Imagenette grids and `sync_eval_configs.py` for the IN1K
+# ones. They were first written here alone (2026-09-29); the IN1K capacity grid showed the other
+# generator had the same gap, and two copies would have drifted apart.
+import sys as _sys
+_sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import scripts.aicr.campaign as _C  # noqa: E402
+
+MODEL_SHAPE_KEYS = _C.MODEL_SHAPE_KEYS
 
 
 def shape_overrides(run: dict) -> list[str]:
-    """The subset of a run's overrides that must be replayed to rebuild its architecture.
-
-    Order is preserved from the grid so the emitted config is byte-stable across regenerations --
-    `tests/unit/test_eval_config_names_manifest_runs.py` compares generated files to their
-    regeneration, and an unstable order would make every run look stale.
-    """
-    return [o for o in run.get("overrides", ()) if o.startswith(MODEL_SHAPE_KEYS)]
+    """The subset of a run's overrides that must be replayed to rebuild its architecture."""
+    return _C.shape_overrides(run.get("overrides", ()))
 
 
 def select_cells(runs, ckpt_root: Path, kind: str, require_verified: bool = True):

@@ -21,9 +21,9 @@ MANIFESTS = sorted((REPO / "configs" / "campaign").glob("*.yaml"))
 EXPECTED_RUNS = {
     "ablation_grid": 252, "ablation_batch128": 24, "in1k_baselines": 6, "in1k_vitl14": 2,
     "in1k_local": 4, "torus": 11, "calibration_1gpu": 2, "calibration_4gpu": 3, "calibration_8gpu": 1,
-    "smoke_1gpu": 8, "smoke_4gpu": 5, "smoke_8gpu": 2, "ablation_grid_ep800": 252,
+    "smoke_1gpu": 8, "smoke_4gpu": 6, "smoke_8gpu": 2, "ablation_grid_ep800": 252,
     "target_and_centering": 24, "in1k_global_ball": 3, "ablation_grid_ep800_d4": 252,
-    "capacity_grid_ep800": 180,
+    "capacity_grid_ep800": 180, "capacity_in1k": 4,
 }
 
 
@@ -342,42 +342,125 @@ def test_the_capacity_grid_omits_depth_12_because_it_is_already_trained():
         "the reverse ramp has no capacity counterpart"
 
 
-def test_the_smoke_grid_rehearses_EVERY_depth_the_capacity_grid_runs():
-    """The debug cycle exists to run a new shape through the whole lifecycle before a wave commits to
-    it (V2), and depth is the capacity grid's brand-new axis: a depth-6 encoder has to train, write
-    `last.ckpt` at `max_epochs - 1`, log `train/local/*` and pass postflight, none of which had ever
-    run at anything but depth 12.
+CAPACITY_MANIFESTS = ("capacity_grid_ep800.yaml", "capacity_in1k.yaml")
+SMOKE_MANIFESTS = ("smoke_1gpu.yaml", "smoke_4gpu.yaml", "smoke_8gpu.yaml")
 
-    The geometry test above cannot catch this. It compares `(batch, accumulation)`, which is identical
-    at every depth -- so a smoke cell that silently rehearsed depth 12 would pass every other check in
-    this file while rehearsing nothing new. That is the F58 shape: a debug cell that rehearses a
-    geometry the campaign never runs, or here, fails to rehearse the one it does.
 
-    Inverted once by dropping `model.encoder.depth: 6` from `smoke_capacity_dep6`: fails with 6 listed
-    as unrehearsed.
+def _depths(manifest: str) -> set[int]:
+    found = set()
+    for run in expand(REPO / "configs" / "campaign" / manifest):
+        for override in run.overrides:
+            if override.startswith("model.encoder.depth="):
+                found.add(int(override.split("=", 1)[1]))
+    return found
+
+
+def _experiments(manifest: str) -> set[str]:
+    return {r.experiment for r in expand(REPO / "configs" / "campaign" / manifest)}
+
+
+@pytest.mark.parametrize("manifest", CAPACITY_MANIFESTS)
+def test_the_smoke_grids_rehearse_EVERY_depth_a_capacity_grid_runs(manifest: str):
+    """The debug cycle (V2) exists to run a new shape through the whole lifecycle -- preflight,
+    staging, training to max_epochs, the callbacks, postflight, the .verified marker -- before a wave
+    commits GPU time to it. Depth is the capacity grids' new axis, and nothing had ever trained at
+    anything but depth 12.
+
+    The geometry test above structurally cannot catch an unrehearsed depth: it compares
+    (batch, accumulation), which is identical at every depth, so a smoke cell that silently rehearsed
+    depth 12 would pass every other assertion in this file while rehearsing nothing new.
+
+    Inverted once by dropping `model.encoder.depth: 6` from `smoke_capacity_dep6`: fails with 6
+    listed as unrehearsed.
     """
-    def depths(manifest: str) -> set[int]:
-        found = set()
-        for run in expand(REPO / "configs" / "campaign" / manifest):
-            for override in run.overrides:
-                if override.startswith("model.encoder.depth="):
-                    found.add(int(override.split("=", 1)[1]))
-        return found
-
-    wanted = depths("capacity_grid_ep800.yaml")
-    assert wanted == {6, 3}, f"the capacity grid's depths moved: {sorted(wanted)}"
-    rehearsed = depths("smoke_1gpu.yaml")
+    wanted = _depths(manifest)
+    assert wanted, f"{manifest} declares no depth axis -- has the capacity grid changed shape?"
+    rehearsed = set().union(*(_depths(s) for s in SMOKE_MANIFESTS))
     assert not (wanted - rehearsed), \
-        f"depth(s) {sorted(wanted - rehearsed)} are run by the capacity grid but rehearsed by no smoke cell"
+        f"{manifest}: depth(s) {sorted(wanted - rehearsed)} are run but rehearsed by no smoke cell"
 
 
-def test_the_smoke_grid_rehearses_both_of_the_capacity_experiment_configs():
-    """`cap_fixk` uses `ablations/base_depth` and `cap_fwd` uses `ablations/dynk_depth` -- two separate
-    new configs, because `ablations/dynk` derives from `base` and would have trained the ramp cells at
-    depth 12. Both need a lifecycle rehearsal, not just the one."""
-    used = {r.experiment for r in expand(REPO / "configs" / "campaign" / "capacity_grid_ep800.yaml")}
-    rehearsed = {r.experiment for r in expand(REPO / "configs" / "campaign" / "smoke_1gpu.yaml")}
-    assert not (used - rehearsed), f"unrehearsed capacity config(s): {sorted(used - rehearsed)}"
+@pytest.mark.parametrize("manifest", CAPACITY_MANIFESTS)
+def test_the_smoke_grids_rehearse_EVERY_capacity_experiment_config(manifest: str):
+    """Each capacity grid uses experiment configs that exist only for it -- `ablations/base_depth`
+    and `ablations/dynk_depth` on Imagenette, `lejepa/vit_in1k_localballreg_depth` on ImageNet. Every
+    one needs a lifecycle rehearsal.
+
+    This is what forces an IN1K smoke cell to exist at all: the depths themselves are already
+    rehearsed on Imagenette at 1 GPU, so a depth-only check would pass with no ImageNet cell, and the
+    combination of a reduced-depth encoder with the ImageNet data path under 4-GPU DDP would reach
+    the cluster unexercised.
+
+    Inverted once by removing `smoke_vit_in1k_capdep` from smoke_4gpu: fails naming
+    `lejepa/vit_in1k_localballreg_depth`.
+    """
+    used = _experiments(manifest)
+    rehearsed = set().union(*(_experiments(s) for s in SMOKE_MANIFESTS))
+    assert not (used - rehearsed), f"{manifest}: unrehearsed config(s) {sorted(used - rehearsed)}"
+
+
+def test_the_in1k_capacity_grid_matches_the_geometry_of_the_cells_it_compares_against():
+    """Decision 25. The four new cells are read AGAINST two we already own --
+    `vit_globalball_lam0.1_k1_s0` (depth 12, K=1) and `vit_local_lam0.1_k4_s0` (depth 12, K=4) -- so
+    any difference in geometry would make the comparison meaningless rather than merely noisy.
+
+    Both reference arms run `data.batch_size: 256` with `accumulate_grad_batches: 1` on 4 GPUs. The
+    regularizer is computed PER SHARD (there is no all_gather in src/losses.py), so it sees N=64.
+    That N is what sets the collapse cliff relative to the 16-d projector, and it must be identical.
+    lambda is 0.1 on both references, so depth and K are the only things allowed to move.
+
+    Inverted by setting `gpus: 2` in the manifest: the per-shard N becomes 128 and this fails.
+    """
+    runs = expand(REPO / "configs" / "campaign" / "capacity_in1k.yaml")
+    assert len(runs) == 4
+    refs = [r for m in ("in1k_local.yaml", "in1k_global_ball.yaml")
+            for r in expand(REPO / "configs" / "campaign" / m)]
+    ref_geo = {(r.gpus, r.micro_batch) for r in refs}
+    assert ref_geo == {(4, 64)}, f"the reference arms' geometry moved: {ref_geo}"
+
+    depths, ks = set(), set()
+    for run in runs:
+        geo = C.geometry(run, world_size=run.gpus)
+        assert (run.gpus, geo["micro_batch_per_gpu"]) == (4, 64), f"{run.run_name}: {geo}"
+        assert geo["effective_batch"] == 256, f"{run.run_name}: {geo}"
+        cfg = C.compose_config(run.hydra_overrides())
+        assert float(cfg.model.lamb) == 0.1, f"{run.run_name}: lambda must match both references"
+        assert int(cfg.model.embedding_dim) == 512, f"{run.run_name}: the probe width must not move"
+        assert int(cfg.model.projection_dim) == 16, \
+            f"{run.run_name}: the projected dim sets the collapse cliff; depth must not move it"
+        assert int(cfg.trainer.max_epochs) == 100, f"{run.run_name}: the references are 100 epochs"
+        depths.add(int(cfg.model.encoder.depth))
+        ks.add(int(cfg.model.reg_loss.num_clusters))
+    assert depths == {6, 3}, f"depths {sorted(depths)}"
+    assert ks == {1, 4}, f"K values {sorted(ks)} -- must match the two reference arms"
+
+
+def test_the_in1k_capacity_grid_omits_depth_12_because_it_is_already_trained():
+    """depth 12 at K=1 and K=4 are `vit_globalball_lam0.1_k1_s0` and `vit_local_lam0.1_k4_s0`, both
+    trained and evaluated. Re-running them would cost ~73 GPU-h to reproduce numbers we hold and
+    would create a second depth-12 result that could disagree with the first."""
+    runs = expand(REPO / "configs" / "campaign" / "capacity_in1k.yaml")
+    assert not any("depth=12" in o for r in runs for o in r.overrides)
+    assert {r.tag for r in runs} == {"vit_capdep"}
+
+
+def test_the_in1k_capacity_tag_begins_with_a_backbone_family_prefix():
+    """`sync_eval_configs.py:family()` matches `tag == prefix or tag.startswith(prefix + '_')` over
+    ("vitl14","d4rn50","hvit","vit","svit","nvit") and RAISES otherwise -- at MODULE IMPORT, where
+    `RENDERED = SYNC.render_all()` runs, so an unmatched tag errors collection of the whole
+    eval-config test file rather than failing one assertion. A tag like `cap1k_vit` would do exactly
+    that; `vit_capdep` resolves to family `vit`.
+    """
+    import importlib.util
+    import sys
+
+    spec = importlib.util.spec_from_file_location(
+        "_sync_for_family", REPO / "scripts/aicr/sync_eval_configs.py")
+    sync = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = sync
+    spec.loader.exec_module(sync)
+    for run in expand(REPO / "configs" / "campaign" / "capacity_in1k.yaml"):
+        assert sync.family(run) == "vit", run.tag
 
 
 def test_no_capacity_run_name_can_collide_with_any_other_grid():

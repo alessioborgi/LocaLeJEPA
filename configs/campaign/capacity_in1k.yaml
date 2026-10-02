@@ -1,0 +1,69 @@
+# The CAPACITY experiment, at IMAGENET scale. Decision 25, replacing decision 24's Imagenette wave.
+#
+# THE QUESTION (Kartik's, C-21): does locality matter more when the encoder cannot satisfy the
+# global constraint? A large model may flatten its whole batch onto a ball without difficulty, so
+# splitting into K groups asks nothing extra; a smaller one may not, and then the groups should pay.
+#
+# WHY NOT ON IMAGENETTE. Decision 24 planned 180 Imagenette cells (~310 GPU-h). On 2026-09-29 the
+# global-ball evaluation split the ImageNet gain three ways -- recipe +6.37/+7.49, TARGET
+# +6.71/+8.02, LOCALITY +4.43/+2.22 -- and the SAME locality effect reads +0.09/+0.14 on Imagenette,
+# a compression of roughly thirty. Imagenette's healthy band spans ~5 points (86.2-91.6) against
+# ImageNet's 32-50: it separates collapse from non-collapse superbly and cannot rank two WORKING
+# configurations. A capacity effect ON TOP of a +4.4 effect would be far below its ~0.2 noise floor.
+# So the Imagenette wave would have measured noise, and this grid asks the same question where the
+# answer is visible.
+#
+# THE DESIGN. depth {12, 6, 3} x K {1, 4}, everything else fixed. DEPTH 12 IS NOT HERE AND IS NOT
+# RE-RUN -- it is `vit_globalball_lam0.1_k1_s0` (45.67/59.89) and `vit_local_lam0.1_k4_s0`
+# (50.11/62.11), already trained and evaluated. So this manifest is the four missing cells:
+#
+#            |  K=1 (no grouping)        |  K=4 (grouping)
+#   depth 12 |  45.67 / 59.89  HAVE      |  50.11 / 62.11  HAVE     -> locality +4.43 / +2.22
+#   depth  6 |  new                      |  new                     -> ?
+#   depth  3 |  new                      |  new                     -> ?
+#
+# Depth moves capacity while holding width, patch size, token count and the 512-d embedding fixed,
+# so the collapse cliff (~`d` samples per neighbourhood, with d the PROJECTED dimension, 16 here)
+# does not move underneath the experiment. Measured in the pinned env: depth 12/6/3 -> 21.66M /
+# 11.02M / 5.69M parameters, 512-d output in every case.
+#
+# GEOMETRY, and it must match the cells we compare against. `in1k_local` and `in1k_global_ball` both
+# run `data.batch_size: 256` with `accumulate_grad_batches: 1` on **4 GPUs**, so the regularizer --
+# which is computed per shard, there is no all_gather in src/losses.py -- sees **N = 64**. Identical
+# here. lambda is 0.1 on every cell, as on both existing arms, so the ONLY things that move are
+# depth and K.
+#
+# COST, from the MEASURED rate and not from arithmetic. F48: IN1K ViT-S/8 at 128 px on 4 x B200 is
+# **9.15 h per 100 epochs** with the GPU idle **33-39%** waiting on data, and decode is capped at
+# ~3900 samples/s per node-quarter REGARDLESS of worker count (doubling workers bought 18%, not the
+# 40% the arithmetic promised). **These runs are decode-bound, so a shallower model does NOT run
+# faster**: at depth 6 the compute halves and the wall is still set by decode. Budget every cell at
+# the depth-12 rate: **4 x 4 GPUs x ~9.15 h ~= 146 GPU-h**, ~9 h of wall if all four run at once
+# (16 GPUs, under the 32-GPU cap). `--time 14:00:00` is 9.15 x 1.5.
+#
+# ONE SEED PER CELL, deliberately. Three seeds would cost ~440 GPU-h and remove the whole advantage
+# over the Imagenette wave. The evidence is therefore the **trend across three depths**, never a
+# single gap -- the rule decision 24 already set, now load-bearing. Seeds follow only if the trend
+# is marginal.
+#
+# The tag must begin with a backbone family prefix: `sync_eval_configs.py:52-56 family()` matches
+# `tag == prefix or tag.startswith(prefix + "_")` over ("vitl14","d4rn50","hvit","vit","svit","nvit")
+# and RAISES otherwise -- at module import, which breaks collection of the eval-config test file.
+# Hence `vit_capdep`, not `cap1k_vit`.
+name: capacity_in1k
+seeds: [0]
+gpus: 4
+micro_batch: 64
+max_epochs: 100
+short: {model.encoder.depth: dep, model.lamb: lam, model.reg_loss.num_clusters: k}
+blocks:
+  - tag: vit_capdep                   # 2 depths x 1 lambda x 2 K x 1 seed = 4 runs
+    experiment: lejepa/vit_in1k_localballreg_depth
+    axes:
+      model.encoder.depth: [6, 3]
+      model.lamb: [0.1]
+      model.reg_loss.num_clusters: [1, 4]
+    overrides:
+      logger: csv
+      data.batch_size: 256
+      trainer.accumulate_grad_batches: 1

@@ -74,3 +74,23 @@ backbones:
     experiment: lejepa/d4rn50_in1k_localballreg_l01_k4
     family: d4rn50
     checkpoint: checkpoints/d4rn50_globalball_lam0.1_k1_s0/last.ckpt
+  - name: vit_capdep_dep6_lam0.1_k1_s0
+    experiment: lejepa/vit_in1k_localballreg_depth
+    family: vit
+    overrides: ['model.encoder.depth=6']
+    checkpoint: checkpoints/vit_capdep_dep6_lam0.1_k1_s0/last.ckpt
+  - name: vit_capdep_dep6_lam0.1_k4_s0
+    experiment: lejepa/vit_in1k_localballreg_depth
+    family: vit
+    overrides: ['model.encoder.depth=6']
+    checkpoint: checkpoints/vit_capdep_dep6_lam0.1_k4_s0/last.ckpt
+  - name: vit_capdep_dep3_lam0.1_k1_s0
+    experiment: lejepa/vit_in1k_localballreg_depth
+    family: vit
+    overrides: ['model.encoder.depth=3']
+    checkpoint: checkpoints/vit_capdep_dep3_lam0.1_k1_s0/last.ckpt
+  - name: vit_capdep_dep3_lam0.1_k4_s0
+    experiment: lejepa/vit_in1k_localballreg_depth
+    family: vit
+    overrides: ['model.encoder.depth=3']
+    checkpoint: checkpoints/vit_capdep_dep3_lam0.1_k4_s0/last.ckpt

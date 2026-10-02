@@ -62,6 +62,41 @@ RUN_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 # is appended by the expansion; the rest are whatever overrides the cell carries.
 CHECKPOINT_HPARAMS = ("lamb", "lr_eta_min_ratio", "warmup_epochs")
 
+# Override keys that change the MODULE a checkpoint must be loaded into, and which an eval config
+# therefore has to replay. `load_backbone` and `load_projector` both instantiate from the composed
+# config ALONE -- experiment plus crop size -- so a run whose architecture came from a manifest
+# override would be rebuilt at the experiment's default and meet the wrong checkpoint.
+#
+#   model.encoder.*      the encoder's own timm kwargs: depth, model_name, drop_path_rate, ...
+#   model.embedding_dim  `timm_vit.yaml:5` interpolates it into `num_classes`, so it sets head width
+#   model.projection_dim the projector's output width (the d=4 grid moves exactly this)
+#   model.projector.*    the projector's own kwargs, e.g. hidden_channels
+#   model.rectify        read by `load_projector` to decide whether the loss saw ReLU(projector(.))
+#
+# `data.crop_size` is deliberately absent: both loaders take it as their own argument and pass it as
+# a Hydra override themselves, so emitting it here would send the same key twice.
+#
+# Lives here because BOTH eval-config generators need it -- `make_ablation_eval_config.py` for the
+# Imagenette grids and `sync_eval_configs.py` for the IN1K ones. It was first written in the former
+# alone (F74-adjacent, 2026-09-29); the capacity grid at IN1K scale showed the latter needed it too,
+# and two copies would have drifted.
+MODEL_SHAPE_KEYS = (
+    "model.encoder.",
+    "model.embedding_dim=",
+    "model.projection_dim=",
+    "model.projector.",
+    "model.rectify=",
+)
+
+
+def shape_overrides(overrides: Iterable[str]) -> list[str]:
+    """The subset of a run's overrides that must be replayed to rebuild its architecture.
+
+    Order is preserved so a regenerated eval config is byte-stable; the sync check compares
+    generated files to their regeneration and an unstable order would make every run look stale.
+    """
+    return [o for o in overrides if o.startswith(MODEL_SHAPE_KEYS)]
+
 
 # ======================================================================================
 # manifest -> runs
