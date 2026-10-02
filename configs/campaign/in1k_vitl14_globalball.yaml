@@ -1,0 +1,48 @@
+# The ViT-L/14 GLOBAL BALL -- the third run of decision 26, and the most interesting of the three.
+#
+# It is separate from `in1k_attribution.yaml` for two independent reasons, both of which would have
+# bitten: `submit_command` builds ONE homogeneous array per grid and raises if a grid mixes GPU counts
+# (the controls are 4, this is 8), and `sync_eval_configs.py` renders `IN1K_128` at crop 128 while
+# `VITL` renders at 238 -- a mixed manifest could not be classified for evaluation either.
+# `in1k_local` and `in1k_vitl14` are already split for exactly these reasons.
+#
+# WHAT IT ANSWERS. ViT-L is the row where the method looks weakest: 46.03/54.68 -> 47.37/61.00, so
+# **+1.34 k-NN against +6.32 linear**, and it is the only row where the two rulers disagree. Crucially
+# that gap is NOT confounded by the recipe: decision 13 pinned the ViT-L pair to differ only in the
+# regularizer, and composing both configs confirms it (same lr, wd, lambda, warm-up, LR floor,
+# clipping, crop, projector). So +1.34/+6.32 is **target + locality at a matched recipe** -- the same
+# quantity ViT-S measures at +11.15/+10.24. This run splits it:
+#
+#     sigreg (Gaussian, K=1)  ->  THIS (ball, K=1)   = the TARGET step
+#     THIS (ball, K=1)        ->  local (ball, K=4)  = the LOCALITY step
+#
+# If locality is near zero here while it is +4.43 on ViT-S, +4.92 on H-ViT and +3.60 on D4, that is the
+# capacity hypothesis appearing in a run we want for the table anyway. If it is ~+4 like the others,
+# the ViT-L weakness lives in the target step instead, and that is a different paper sentence.
+# **Either answer is worth 146 GPU-h; "we do not know" is not.**
+#
+# WHAT IT IS. `vitl14_in1k_localballreg_paper` with `num_clusters: 1` -- no new experiment config,
+# exactly as `in1k_global_ball` does for the 128 px rows. Everything else is inherited: LeJEPA's own
+# settings in our protocol (decision 13) -- 238 px, 2+6 crops, batch 512, lr 5e-4, wd 5e-2,
+# lambda 0.05, 1024 slices, t_max 5.0, projector 512 -- so it is comparable to both ViT-L arms and to
+# neither 128 px row. lambda stays 0.05 here, NOT the 0.1 the 128 px rows use.
+#
+# COST, from F48's MEASURED rate: 8 GPUs x 18.30 h/100ep = **146 GPU-h**. `T_VITL` = 18.3 x 1.5 =
+# 27.5 h, which does not fit one wall: **24:00:00 with REQUEUE_LEFT=1**, one successor, b200-batch
+# (8 GPUs fill a node and the 238 px pipeline needs the memory). F57 is the ViT-L arm dying of HOST
+# RAM, so keep `--mem-per-gpu-gb 120` as `in1k_vitl14` uses.
+#
+# GEOMETRY: 8 GPUs at 64 per GPU, batch 512 taken from the config itself -- no batch override, exactly
+# as `in1k_vitl14` does. A test pins it against that manifest.
+name: in1k_vitl14_globalball
+seeds: [0]
+gpus: 8
+micro_batch: 64
+max_epochs: 100
+short: {model.reg_loss.num_clusters: k}
+blocks:
+  - tag: vitl14_globalball
+    experiment: lejepa/vitl14_in1k_localballreg_paper
+    axes:
+      model.reg_loss.num_clusters: [1]
+    overrides: {logger: csv}
