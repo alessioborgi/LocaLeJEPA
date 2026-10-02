@@ -173,7 +173,10 @@ MUTANTS: list[Mutant] = [
            'stem = f"{dataset}_{split}"',
            "128px and 224px evaluations share one cache entry"),
     Mutant("indomain-hand-built-key", "src/eval_indomain.py",
-           "            return feature_cache_path(cache_dir, _name, dataset_name, split, crop_size,\n                                      _epoch, _ckpt)",
+           # Anchor repaired 2026-10-02: `4dc116a` (decision 16) added `feature=feature` to this call
+           # and the mutant was not updated, so its anchor matched nothing and `plant()` reported it
+           # INVALID -- which makes `tests/mutate.py` exit 1 before testing anything.
+           "            return feature_cache_path(cache_dir, _name, dataset_name, split, crop_size,\n                                      _epoch, _ckpt, feature=feature)",
            '            return os.path.join(cache_dir, _name, f"{dataset_name}_{split}_{crop_size}_ep{_epoch}.pt")',
            "the writer stops agreeing with the readers that reconstruct its filenames"),
     Mutant("rankme-reader-diverges", "src/eval_rankme.py",
@@ -286,6 +289,16 @@ MUTANTS: list[Mutant] = [
            '    name = ".verified" if verdict.ok else ".failed"',
            '    name = ".verified"',
            "a failed run gets the marker the eval preflight requires"),
+    Mutant("c25-sync-generator-drops-shape-overrides", "scripts/aicr/sync_eval_configs.py",
+           '    return f"    overrides: [{\', \'.join(repr(k) for k in keys)}]\\n" if keys else ""',
+           '    return ""',
+           "every capacity checkpoint is evaluated against its experiment's DEFAULT depth 12 -- the "
+           "same gap make_ablation_eval_config.py had, in the second generator"),
+    Mutant("c25-capacity-in1k-wrong-shard-size", "configs/campaign/capacity_in1k.yaml",
+           "gpus: 4",
+           "gpus: 2",
+           "the per-shard regularizer sees N=128 instead of 64, moving the collapse cliff relative "
+           "to the depth-12 cells the grid is compared against"),
     Mutant("c24-smoke-skips-the-new-depth", "configs/campaign/smoke_1gpu.yaml",
            "+trainer.limit_train_batches: 20, model.encoder.depth: 6}}",
            "+trainer.limit_train_batches: 20}}",
@@ -350,8 +363,12 @@ MUTANTS: list[Mutant] = [
            "        if scores and max(scores) >= best:",
            "a tie between two lambdas is resolved towards the larger one, against the written rule"),
     Mutant("c5b-audit-skips-the-grep", "scripts/audit_tables.py",
-           "        if not any(rendered in row for row in rows):",
-           "        if False:",
+           # Anchor repaired 2026-10-02: `689de92` renamed `rows` -> `candidates` and made this an
+           # `elif`, and the mutant was not updated. The replacement stays an `elif` so the mutated
+           # source still parses -- a SyntaxError would fail the suite for the wrong reason and look
+           # like a killed mutant.
+           "        elif not any(rendered in row for row in candidates):",
+           "        elif False:",
            "a hand-edited table passes the audit as long as the archive agrees with cells.json"),
     Mutant("c5b-fallback-marker-dropped", "scripts/make_ablation_tables.py",
            '    if agg["fallback_epochs"]:\n        text += f" ⚠fallback×{agg[\'fallback_epochs\']}"',
