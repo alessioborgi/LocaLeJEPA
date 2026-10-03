@@ -880,7 +880,42 @@ def parse_slurm_time_left(text: str | None) -> float | None:
     return float(days * 86400 + seconds)
 
 
-WALL_SIGNAL_WINDOW_S = 300.0     # --signal=TERM@120 plus the postflight's own time; a cancel has far more left
+SIGNAL_LEAD_S = 600              # seconds before the wall that Slurm SIGTERMs the job STEPS.
+# F80 (2026-10-03): at 120 s this was far too short. A 4-GPU ImageNet run has four ranks, each with
+# 16 persistent loader workers, and a ~200 MB checkpoint to write; `capacity_in1k` task 0 was still
+# shutting down 149 s after the signal when the wall killed it, so `srun` had not returned, the
+# launcher never reached its postflight, and the successor branch was never evaluated at all --
+# `TIME_LIMIT` and `REQUEUE_LEFT=2` went unread. Every 4-GPU IN1K run that reached a wall has been
+# lost this way; F62 saw the identical signature ("killed before their postflight could write a
+# marker") and read it as a spent requeue budget, which was a second, independent problem. The 64
+# successors F63 counted were all 1-GPU Imagenette, where shutdown costs seconds.
+# 600 s is 0.7% of a 24 h wall. The asymmetry is the whole argument: too small loses the wall's
+# entire successor, too large loses ten minutes.
+
+WALL_SIGNAL_WINDOW_S = float(SIGNAL_LEAD_S + 120)
+# DERIVED from the lead, never set independently. `successor_allowed` calls a signal "the wall" only
+# when little time is left; if this did not exceed the lead, raising the lead would make every real
+# wall look like a cancel and SUPPRESS the successor -- the exact failure the lead was raised to fix.
+# The +120 covers Slurm rounding the signal up to a minute boundary plus the `squeue` that reads %L.
+
+
+def check_signal_lead(signal_s: int, time: str) -> None:
+    """Refuse a grace window that is not a minority of the wall.
+
+    A lead is dead time for any job that reaches the wall, so it must stay small next to it. The
+    bound is deliberately loose (half) rather than tight: the calibration grids run 40-minute walls
+    where the default 600 s is 25%, and that is harmless because a `max_steps` run finishes long
+    before the signal would fire. What this catches is nonsense -- a lead at or past the wall, which
+    would signal a job before it had done any work.
+    """
+    if signal_s <= 0:
+        raise ValueError(f"signal lead {signal_s}s must be positive")
+    wall = parse_slurm_time_left(time)
+    if wall is None:
+        raise ValueError(f"--time={time!r} is not a Slurm duration, so the signal lead cannot be checked")
+    if signal_s * 2 >= wall:
+        raise ValueError(f"signal lead {signal_s}s is at least half of --time={time} ({wall:.0f}s): "
+                         "the job would be signalled before it had done useful work")
 
 
 def successor_allowed(*, signalled: bool, time_left: str | None) -> tuple[bool, str]:
@@ -906,6 +941,10 @@ def successor_argv(env: Mapping[str, str], *, script: str, requeue_left: int, ti
     """
     if requeue_left <= 0:
         return None
+    # the grace window and the node request come from THIS job's environment, like its resources:
+    # `submit_command` exported them, so a chain keeps whatever the first submission chose
+    signal_s = int(env.get("SIGNAL_S") or SIGNAL_LEAD_S)
+    exclusive = (env.get("EXCLUSIVE") or "0") not in ("0", "", "false", "False")
     required = ("SLURM_JOB_ID", "SLURM_JOB_PARTITION", "SLURM_JOB_ACCOUNT", "SLURM_JOB_NAME")
     missing = [key for key in required if not env.get(key)]
     if missing:
@@ -923,10 +962,12 @@ def successor_argv(env: Mapping[str, str], *, script: str, requeue_left: int, ti
         f"--ntasks-per-node={tasks}",
         f"--cpus-per-task={cpus}",
         f"--time={time}",
-        "--signal=TERM@120",
+        f"--signal=TERM@{signal_s}",
         f"--job-name={env['SLURM_JOB_NAME']}",
         f"--dependency=afterany:{env['SLURM_JOB_ID']}",
     ]
+    if exclusive:
+        argv.append("--exclusive")
     if mem_mb:
         argv.append(f"--mem={mem_mb}M")
     # F50: without --output Slurm writes slurm-<id>.out into the submitting directory -- the clone --
@@ -934,7 +975,11 @@ def successor_argv(env: Mapping[str, str], *, script: str, requeue_left: int, ti
     argv.append(f"--output={log_dir or '.'}/{env['SLURM_JOB_NAME']}-successor-%j.out")
     if env.get("SLURM_JOB_GRES"):
         argv.append(f"--gres={env['SLURM_JOB_GRES']}")
-    export = ",".join([f"{k}={v}" for k, v in exports.items()] + [f"REQUEUE_LEFT={requeue_left - 1}"])
+    # SIGNAL_S and EXCLUSIVE are re-exported, not just consumed: the launcher passes only GRID,
+    # REPO, GRID_INDEX and TIME_LIMIT, so without this the SECOND successor in a chain would
+    # silently revert to the default lead and to a shared node.
+    chain = {**exports, "SIGNAL_S": str(signal_s), **({"EXCLUSIVE": "1"} if exclusive else {})}
+    export = ",".join([f"{k}={v}" for k, v in chain.items()] + [f"REQUEUE_LEFT={requeue_left - 1}"])
     argv.append(f"--export=NONE,{export}")
     argv.append(script)
     return argv
@@ -1066,13 +1111,15 @@ def describe_cells(runs: list[RunSpec], indices: list[int] | None) -> str:
 def submit_command(grid_path: Path, runs: list[RunSpec], *, partition: str, account: str, time: str,
                    script: str, log_dir: str, exports: Mapping[str, str], throttle: int | None = None,
                    cpus_per_gpu: int = 16, mem_per_gpu_gb: int = 60, gpu_type: str | None = None,
-                   indices: list[int] | None = None) -> list[str]:
+                   indices: list[int] | None = None, signal_s: int = SIGNAL_LEAD_S,
+                   exclusive: bool = False) -> list[str]:
     """One homogeneous job array per grid: every run needs the same GPU count, or the array
     would silently give the wrong resources to some of its tasks."""
     gpus = {run.gpus for run in runs}
     if len(gpus) != 1:
         raise ValueError(f"the grid mixes GPU counts {sorted(gpus)}; split it into one array per count")
     (g,) = gpus
+    check_signal_lead(signal_s, time)
     if indices is None:
         array = f"0-{len(runs) - 1}"
     else:
@@ -1088,17 +1135,26 @@ def submit_command(grid_path: Path, runs: list[RunSpec], *, partition: str, acco
         f"--cpus-per-task={cpus_per_gpu}",
         f"--mem={mem_per_gpu_gb * g}G",
         f"--time={time}",
-        "--signal=TERM@120",
+        f"--signal=TERM@{signal_s}",
         f"--job-name={grid_path.stem}",
         f"--output={log_dir}/%x-%A_%a.out",
     ]
+    if exclusive:
+        # F79 EXTENDED (2026-10-03): a 4-GPU job holds 64 of a node's 128 SMT threads -- half of its
+        # 64 PHYSICAL cores (F72 amendment) -- and shares that silicon with whatever else lands.
+        # Measured per node: beside a 64-thread neighbour the decode-bound IN1K runs held
+        # 25.7 min/epoch against F48's 5.5, while the one compute-bound run, on a quiet node, held
+        # 17.7 against a predicted 17.6. Holding four idle GPUs for 3.4 h costs less than feeding
+        # four starved ones for 19.3, so exclusivity SAVES GPU-hours rather than spending them.
+        argv.append("--exclusive")
     if partition == "preemptable":
         if not gpu_type:
             raise ValueError("preemptable spans both GPU types: pass --gpu-type rtx_pro_6000 or b200")
         argv.append(f"--gres=gpu:{gpu_type}:{g}")
     else:
         argv.append(f"--gpus-per-node={g}")
-    export = ",".join(f"{k}={v}" for k, v in {**exports, "GRID": str(grid_path)}.items())
+    extra = {"SIGNAL_S": str(signal_s), **({"EXCLUSIVE": "1"} if exclusive else {})}
+    export = ",".join(f"{k}={v}" for k, v in {**exports, "GRID": str(grid_path), **extra}.items())
     argv.append(f"--export=NONE,{export}")
     argv.append(script)
     return argv
@@ -1150,6 +1206,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--export", action="append", default=[]); p.add_argument("--throttle", type=int)
     p.add_argument("--gpu-type"); p.add_argument("--cpus-per-gpu", type=int, default=16)
     p.add_argument("--mem-per-gpu-gb", type=int, default=60); p.add_argument("--indices", help="e.g. 0-9,20")
+    p.add_argument("--signal-s", type=int, default=SIGNAL_LEAD_S,
+                   help=f"seconds of grace before the wall (default {SIGNAL_LEAD_S}; F80)")
+    p.add_argument("--exclusive", action="store_true",
+                   help="request the whole node: for decode-bound runs sharing a node costs 3-5x (F81)")
     p = sub.add_parser("env-hash"); p.add_argument("freeze", type=Path, nargs="?")
     for name in ("eval-preflight", "eval-postflight"):
         p = sub.add_parser(name); p.add_argument("--config", type=Path, required=True)
@@ -1292,7 +1352,8 @@ def main(argv: list[str] | None = None) -> int:
         argv_out = submit_command(args.grid.resolve(), runs, partition=args.partition, account=args.account,
                                   time=args.time, script=args.script, log_dir=args.log_dir, exports=exports,
                                   throttle=args.throttle, cpus_per_gpu=args.cpus_per_gpu,
-                                  mem_per_gpu_gb=args.mem_per_gpu_gb, gpu_type=args.gpu_type, indices=indices)
+                                  mem_per_gpu_gb=args.mem_per_gpu_gb, gpu_type=args.gpu_type, indices=indices,
+                                  signal_s=args.signal_s, exclusive=args.exclusive)
         import shlex
         print(f"# cells: {describe_cells(runs, indices)}", file=sys.stderr)   # F51: verify by name, not by position
         print(" ".join(shlex.quote(a) for a in argv_out))

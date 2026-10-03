@@ -45,6 +45,20 @@ class Mutant:
 # Defects of the shape that actually occurs: a sign, a boundary, a dropped call, a swapped
 # constant. Each names the property it is meant to destroy.
 MUTANTS: list[Mutant] = [
+    Mutant("wall-window-independent-of-lead", "scripts/aicr/campaign.py",
+           "WALL_SIGNAL_WINDOW_S = float(SIGNAL_LEAD_S + 120)",
+           "WALL_SIGNAL_WINDOW_S = 300.0",
+           "F80: the cancel/wall threshold stops covering the signal lead, so a real wall is "
+           "read as a cancel and the successor is suppressed"),
+    Mutant("successor-drops-the-chain-exports", "scripts/aicr/campaign.py",
+           'chain = {**exports, "SIGNAL_S": str(signal_s), **({"EXCLUSIVE": "1"} if exclusive else {})}',
+           "chain = {**exports}",
+           "F81: the second successor in a chain reverts to a shared node and the default lead"),
+    Mutant("shared-submit-claims-exclusive", "scripts/aicr/campaign.py",
+           'extra = {"SIGNAL_S": str(signal_s), **({"EXCLUSIVE": "1"} if exclusive else {})}',
+           'extra = {"SIGNAL_S": str(signal_s), "EXCLUSIVE": "1"}',
+           "a SHARED submission exports EXCLUSIVE=1, so every successor in its chain silently asks "
+           "for a whole node -- anchored on the code, not on a comment (F76)"),
     Mutant("ball-radius-sqrt-d", "src/losses.py",
            "R = float((d + 2) ** 0.5 if radius is None else radius)",
            "R = float((d) ** 0.5 if radius is None else radius)",
