@@ -451,7 +451,8 @@ FAKE_ENV = {"SLURM_JOB_ID": "12345", "SLURM_JOB_PARTITION": "b200-batch", "SLURM
 def test_successor_inherits_this_jobs_resources_and_counts_down():
     argv = C.successor_argv(FAKE_ENV, script="s.sh", requeue_left=2, time="06:00:00", exports={"GRID": "g.json"})
     assert "--gpus-per-node=4" in argv and "--ntasks-per-node=4" in argv and "--partition=b200-batch" in argv
-    assert "--mem=245760M" in argv and "--dependency=afterany:12345" in argv and "--signal=TERM@120" in argv
+    assert "--mem=245760M" in argv and "--dependency=afterany:12345" in argv
+    assert f"--signal=TERM@{C.SIGNAL_LEAD_S}" in argv
     assert argv[-2].startswith("--export=NONE,") and "REQUEUE_LEFT=1" in argv[-2] and "GRID=g.json" in argv[-2]
     assert argv[-1] == "s.sh"
 
@@ -471,7 +472,8 @@ def test_submit_builds_one_homogeneous_array(tmp_path):
     argv = C.submit_command(tmp_path / "grid.json", runs, partition="rtx-batch", account="acct", time="00:45:00",
                             script="scripts/aicr/slurm_train.sh", log_dir="/logs", exports={"REPO": "/r"}, throttle=8)
     assert "--array=0-15%8" in argv and "--gpus-per-node=1" in argv and "--ntasks-per-node=1" in argv
-    assert "--cpus-per-task=16" in argv and "--mem=60G" in argv and "--signal=TERM@120" in argv
+    assert "--cpus-per-task=16" in argv and "--mem=60G" in argv
+    assert f"--signal=TERM@{C.SIGNAL_LEAD_S}" in argv and "--exclusive" not in argv
     assert any(a.startswith("--export=NONE,") and "GRID=" in a and "REPO=/r" in a for a in argv)
     assert "--export=ALL" not in " ".join(argv)
 
@@ -531,6 +533,83 @@ def test_submit_names_the_gpu_type_on_preemptable_and_refuses_mixed_gpu_counts(t
     with pytest.raises(ValueError, match="mixes GPU counts"):
         C.submit_command(tmp_path / "g.json", mixed, partition="rtx-batch", account="a", time="1:00:00",
                          script="s", log_dir="/l", exports={})
+
+
+# --------------------------------------------------------------------------------------
+# F80 -- the grace window before the wall, and F81 -- the whole-node request
+# --------------------------------------------------------------------------------------
+
+def test_the_wall_window_is_derived_from_the_signal_lead_so_a_wall_is_never_read_as_a_cancel():
+    """F80's trap, and the reason the two constants cannot be set independently.
+
+    `successor_allowed` calls a SIGTERM "the wall" only when little time is left. Raising the lead
+    from 120 s to 600 s WITHOUT raising that threshold would make every real wall look like a cancel
+    and suppress the successor -- the exact failure the lead was raised to fix, reintroduced at the
+    other end. Inverted once by pinning the window back to its old 300.0: the second assertion then
+    fails, because a wall signal arrives with ~600 s left and is refused as a cancel.
+    """
+    assert C.WALL_SIGNAL_WINDOW_S > C.SIGNAL_LEAD_S, "the window must cover the lead it reacts to"
+    at_the_wall = f"{C.SIGNAL_LEAD_S // 60}:00"
+    allowed, why = C.successor_allowed(signalled=True, time_left=at_the_wall)
+    assert allowed, f"a signal {at_the_wall} before the wall must BE the wall, got: {why}"
+    # Slurm rounds the signal up to a minute boundary, so the real arrival can be a minute early
+    assert C.successor_allowed(signalled=True, time_left=f"{C.SIGNAL_LEAD_S // 60 + 1}:00")[0]
+    # and a cancel, with the wall still far off, is still refused
+    assert not C.successor_allowed(signalled=True, time_left="2:00:00")[0]
+
+
+def test_a_signal_lead_must_be_a_minority_of_the_wall(tmp_path):
+    """Every wall the campaign actually submits accepts the default lead; nonsense is refused."""
+    for wall in ("00:40:00", "00:50:00", "01:00:00", "02:00:00", "07:00:00", "14:00:00",
+                 "24:00:00", "1-00:00:00"):
+        C.check_signal_lead(C.SIGNAL_LEAD_S, wall)
+    for lead, wall in ((C.SIGNAL_LEAD_S, "00:10:00"), (0, "24:00:00"), (-1, "24:00:00")):
+        with pytest.raises(ValueError):
+            C.check_signal_lead(lead, wall)
+    with pytest.raises(ValueError, match="not a Slurm duration"):
+        C.check_signal_lead(C.SIGNAL_LEAD_S, "soon")
+    runs = C.expand(MANIFEST)
+    with pytest.raises(ValueError, match="at least half"):
+        C.submit_command(tmp_path / "g.json", runs, partition="rtx-batch", account="a", time="00:10:00",
+                         script="s", log_dir="/l", exports={})
+
+
+def test_submit_and_the_whole_successor_chain_carry_the_lead_and_the_exclusive_request(tmp_path):
+    """F79 EXTENDED: a 4-GPU job holds half a node's physical cores, and beside a 64-thread
+    neighbour the decode-bound IN1K runs held 25.7 min/epoch against F48's 5.5. `--exclusive` is
+    the fix, and it has to survive
+    the requeue chain: the launcher passes only GRID, REPO, GRID_INDEX and TIME_LIMIT onward, so
+    without the re-export the SECOND successor would quietly revert to a shared node and the short
+    lead. Inverted once by dropping SIGNAL_S/EXCLUSIVE from the successor's export dict: the chain
+    assertion below fails while the first-hop ones all still pass -- which is what makes it worth
+    asserting separately.
+    """
+    runs = C.expand(MANIFEST)
+    argv = C.submit_command(tmp_path / "g.json", runs, partition="b200-batch", account="a",
+                            time="24:00:00", script="s", log_dir="/l", exports={"REPO": "/r"},
+                            signal_s=900, exclusive=True)
+    assert "--exclusive" in argv and "--signal=TERM@900" in argv
+    export = next(a for a in argv if a.startswith("--export=NONE,"))
+    assert "SIGNAL_S=900" in export and "EXCLUSIVE=1" in export
+
+    # hop 1: the launcher re-reads them from the environment sbatch gave it, never from a header
+    env = {**FAKE_ENV, "SIGNAL_S": "900", "EXCLUSIVE": "1"}
+    hop1 = C.successor_argv(env, script="s", requeue_left=2, time="24:00:00",
+                            exports={"GRID": "g.json", "GRID_INDEX": "3"})
+    assert "--exclusive" in hop1 and "--signal=TERM@900" in hop1
+    # hop 2: and the chain keeps them, which only the re-export can achieve
+    assert "SIGNAL_S=900" in hop1[-2] and "EXCLUSIVE=1" in hop1[-2], "the chain drops them after one hop"
+
+    # a bare environment is the shared-node default, not an accidental exclusive request
+    bare = C.successor_argv(FAKE_ENV, script="s", requeue_left=1, time="24:00:00", exports={})
+    assert "--exclusive" not in bare and f"--signal=TERM@{C.SIGNAL_LEAD_S}" in bare
+
+    # and a SHARED submission must not export EXCLUSIVE at all: it would be read by every successor
+    # in the chain, turning a shared wave into whole-node requests nobody asked for
+    shared = C.submit_command(tmp_path / "g.json", runs, partition="b200-batch", account="a",
+                              time="24:00:00", script="s", log_dir="/l", exports={})
+    shared_export = next(a for a in shared if a.startswith("--export=NONE,"))
+    assert "EXCLUSIVE" not in shared_export and "--exclusive" not in shared
 
 
 def test_realised_k_reads_the_epoch_series_only(tmp_path):
@@ -701,7 +780,7 @@ def test_a_successor_follows_the_wall_and_never_a_cancel(capsys):
     postflight found a resumable checkpoint. A SIGTERM that reaches the batch script with more than
     the signal window left is a cancel (or a preemption, which Slurm requeues itself)."""
     assert C.successor_allowed(signalled=False, time_left=None)[0], "a crash or an OOM: resumable"
-    assert C.successor_allowed(signalled=True, time_left="1:58")[0], "the wall's --signal=TERM@120"
+    assert C.successor_allowed(signalled=True, time_left="1:58")[0], "the wall's SIGNAL_LEAD_S grace"
     ok, why = C.successor_allowed(signalled=True, time_left="23:41:07")
     assert not ok and "cancel" in why
     ok, why = C.successor_allowed(signalled=True, time_left="unknown")

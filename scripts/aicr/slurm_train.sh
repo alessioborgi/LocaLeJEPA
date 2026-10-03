@@ -19,7 +19,11 @@
 #   REQUEUE_LEFT  how many successors may still be submitted (default 2)
 #   TIME_LIMIT    the --time this job was given, so a successor asks for the same
 #   GRID_INDEX    only on a successor: the array task it continues
+#   SIGNAL_S      the --signal lead this job was given, so the successor asks for the same (F80)
+#   EXCLUSIVE     set to 1 when this submission asked for the whole node, so the chain keeps it (F81)
 #   CKPT_ROOT_OVERRIDE  optional: this submission's checkpoint root (ablation waves -> /scratch)
+# SIGNAL_S and EXCLUSIVE are read by `campaign.py successor` straight out of the environment, so
+# this script neither reads nor forwards them by hand -- there is nothing here to keep in step.
 # Site roots come from $REPO/scripts/aicr/roots.env (git-ignored; template beside it).
 #
 # Sequence, and what each step refuses on:
@@ -101,9 +105,16 @@ TMP="/tmp/localejepa_${SLURM_JOB_ID:-$$}"
 cleanup() { rm -rf "$TMP"; }
 trap cleanup EXIT
 # A SIGTERM that reaches THIS script is a cancel (scancel signals the batch step too) or a
-# preemption (which Slurm requeues by itself); the wall's --signal=TERM@120 goes to the srun
-# tasks only. So a signalled script must not submit a successor -- the first wave's cancel spawned
-# eighteen of them (F50). Bash runs the trap after the foreground srun returns.
+# preemption (which Slurm requeues by itself); the wall's --signal=TERM@<SIGNAL_LEAD_S> goes to the
+# srun tasks only. So a signalled script must not submit a successor -- the first wave's cancel
+# spawned eighteen of them (F50). Bash runs the trap after the foreground srun returns.
+#
+# F80 (2026-10-03): that lead was 120 s, and a 4-GPU ImageNet run never finished shutting down
+# inside it -- four ranks, 16 persistent loader workers each, a 200 MB checkpoint -- so the
+# foreground srun below had NOT returned when the wall killed this script. Everything from the
+# `train.py exit code` echo onwards was therefore never reached: no postflight, no verdict, no
+# successor, with REQUEUE_LEFT=2 unspent. The lead is now campaign.py's SIGNAL_LEAD_S, exported by
+# `submit` as SIGNAL_S so the whole requeue chain keeps it.
 SIGNALLED=0; TIME_LEFT=unknown
 on_term() { SIGNALLED=1; TIME_LEFT=$(squeue -h -j "${SLURM_JOB_ID:-0}" -o %L 2>/dev/null || echo unknown); }
 trap on_term TERM
