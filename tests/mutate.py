@@ -45,6 +45,16 @@ class Mutant:
 # Defects of the shape that actually occurs: a sign, a boundary, a dropped call, a swapped
 # constant. Each names the property it is meant to destroy.
 MUTANTS: list[Mutant] = [
+    Mutant("strength-control-lambda-harmonised", "configs/campaign/strength_matched_in1k.yaml",
+           "axes:\n      model.lamb: [0.025]\n      model.reg_loss.num_clusters: [1]",
+           "axes:\n      model.lamb: [0.1]\n      model.reg_loss.num_clusters: [1]",
+           "decision 28: the depth-12 control 'harmonised' to lambda 0.1 is the existing global ball again, "
+           "at 4x its K=4 arm's strength -- the confound it exists to remove"),
+    Mutant("strength-control-grouped", "configs/campaign/strength_matched_in1k.yaml",
+           "model.encoder.depth: [6, 3]\n      model.lamb: [0.025]\n      model.reg_loss.num_clusters: [1]",
+           "model.encoder.depth: [6, 3]\n      model.lamb: [0.025]\n      model.reg_loss.num_clusters: [4]",
+           "decision 28: the depth-6/3 controls at K=4 are no longer K=1 runs, and sit at a quarter of "
+           "their reference's strength"),
     Mutant("wall-window-independent-of-lead", "scripts/aicr/campaign.py",
            "WALL_SIGNAL_WINDOW_S = float(SIGNAL_LEAD_S + 120)",
            "WALL_SIGNAL_WINDOW_S = 300.0",
