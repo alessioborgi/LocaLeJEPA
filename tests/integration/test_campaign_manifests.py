@@ -8,6 +8,7 @@ the workstation, before anything is submitted.
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 import pytest
@@ -24,7 +25,7 @@ EXPECTED_RUNS = {
     "smoke_1gpu": 8, "smoke_4gpu": 8, "smoke_8gpu": 2, "ablation_grid_ep800": 252,
     "target_and_centering": 24, "in1k_global_ball": 3, "ablation_grid_ep800_d4": 252,
     "capacity_grid_ep800": 180, "capacity_in1k": 4,
-    "in1k_attribution": 2, "in1k_vitl14_globalball": 1,
+    "in1k_attribution": 2, "in1k_vitl14_globalball": 1, "strength_matched_in1k": 3,
 }
 
 
@@ -348,8 +349,12 @@ def test_the_capacity_grid_omits_depth_12_because_it_is_already_trained():
 # This is deliberately NOT "every manifest ever": several older ones use experiment configs with no
 # smoke cell, which is a gap worth closing separately rather than by failing this test on day one.
 NEW_WAVE_MANIFESTS = ("capacity_grid_ep800.yaml", "capacity_in1k.yaml",
-                      "in1k_attribution.yaml", "in1k_vitl14_globalball.yaml")
-CAPACITY_MANIFESTS = ("capacity_grid_ep800.yaml", "capacity_in1k.yaml")
+                      "in1k_attribution.yaml", "in1k_vitl14_globalball.yaml",
+                      "strength_matched_in1k.yaml")
+# strength_matched_in1k (decision 28) runs depths 6 and 3 through the depth config, so it belongs to the
+# depth guard too. Its depth-12 run takes the BASE config with no depth override, exactly as the K=4 arm
+# it is compared against does -- so no unrehearsed depth enters, and neither guard needs weakening.
+CAPACITY_MANIFESTS = ("capacity_grid_ep800.yaml", "capacity_in1k.yaml", "strength_matched_in1k.yaml")
 SMOKE_MANIFESTS = ("smoke_1gpu.yaml", "smoke_4gpu.yaml", "smoke_8gpu.yaml")
 
 
@@ -547,6 +552,109 @@ def test_the_in1k_capacity_tag_begins_with_a_backbone_family_prefix():
     sys.modules[spec.name] = sync
     spec.loader.exec_module(sync)
     for run in expand(REPO / "configs" / "campaign" / "capacity_in1k.yaml"):
+        assert sync.family(run) == "vit", run.tag
+
+
+STRENGTH_MATCHED = REPO / "configs" / "campaign" / "strength_matched_in1k.yaml"
+# each strength-matched K=1 control -> the K=4 arm it is read against: (manifest, run name)
+STRENGTH_PAIRS = {
+    "vit_strmatch_lam0.025_k1_s0": ("in1k_local.yaml", "vit_local_lam0.1_k4_s0"),
+    "vit_strmatch_dep6_lam0.025_k1_s0": ("capacity_in1k.yaml", "vit_capdep_dep6_lam0.1_k4_s0"),
+    "vit_strmatch_dep3_lam0.025_k1_s0": ("capacity_in1k.yaml", "vit_capdep_dep3_lam0.1_k4_s0"),
+}
+
+
+def _named(manifest: str, run_name: str) -> C.RunSpec:
+    found = [r for r in expand(REPO / "configs" / "campaign" / manifest) if r.run_name == run_name]
+    assert len(found) == 1, f"{run_name} is not in {manifest} exactly once"
+    return found[0]
+
+
+def _effective_strength(run: C.RunSpec) -> float:
+    """lambda x samples per neighbourhood, N being the PER-SHARD batch the regularizer actually sees
+    (it is computed per shard; there is no all_gather in src/losses.py)."""
+    cfg = C.compose_config(run.hydra_overrides())
+    per_shard = C.geometry(run, world_size=run.gpus)["micro_batch_per_gpu"]
+    return float(cfg.model.lamb) * per_shard / int(cfg.model.reg_loss.num_clusters)
+
+
+def _configured(run: C.RunSpec) -> dict:
+    """Every configured value, flattened and UNRESOLVED -- so a diff shows which settings were set
+    differently, not values derived from them, and needs no PROJECT_ROOT."""
+    out: dict = {}
+
+    def walk(prefix, value):
+        if isinstance(value, dict):
+            for key, inner in value.items():
+                walk(f"{prefix}.{key}" if prefix else key, inner)
+        else:
+            out[prefix] = value
+
+    walk("", OmegaConf.to_container(C.compose_config(run.hydra_overrides()), resolve=False))
+    return out
+
+
+def test_the_strength_matched_control_differs_from_each_K4_arm_in_lambda_and_K_ONLY():
+    """Decision 28. Every locality step we report compares K=1 with K=4 at the SAME lambda, which under
+    the effective-strength law (lambda x N/K) also cuts the regularizer's weight 4x: 6.4 -> 1.6 at N=64.
+    This manifest exists to remove that confound -- K=1 at lambda 0.025 has effective strength
+    0.025 x 64 / 1 = 1.6, exactly its K=4 arm's -- so each run must (1) match that arm's effective
+    strength and (2) differ from it in NOTHING but lambda and K. A third difference would make the
+    comparison move two things again and answer nothing. (2) diffs the composed configs over every
+    configured key, unresolved, rather than over a hand-picked list that could miss the one that moved.
+
+    Inverted three ways, each failing at the assertion it targets: the depth-12 block's lambda to 0.05
+    (the run is renamed, so the pairing assertion fails); an extra `trainer.gradient_clip_val: 0.5` on
+    that block (the diff assertion names it); and the manifest at micro_batch 32 / batch 128 (the
+    strength assertion reads 0.800 against 1.600).
+    """
+    runs = {r.run_name: r for r in expand(STRENGTH_MATCHED)}
+    assert set(runs) == set(STRENGTH_PAIRS), f"the manifest's runs moved: {sorted(runs)}"
+    for name, (manifest, ref_name) in STRENGTH_PAIRS.items():
+        run, ref = runs[name], _named(manifest, ref_name)
+        assert math.isclose(_effective_strength(ref), 1.6), f"{ref_name}: the K=4 reference moved"
+        assert math.isclose(_effective_strength(run), _effective_strength(ref)), (
+            f"{name}: effective strength {_effective_strength(run):.3f} "
+            f"against its K=4 arm's {_effective_strength(ref):.3f}")
+        a, b = _configured(ref), _configured(run)
+        differing = {k for k in a.keys() | b.keys() if a.get(k, "<absent>") != b.get(k, "<absent>")}
+        assert differing == {"model.lamb", "model.reg_loss.num_clusters"}, \
+            f"{name} vs {ref_name} differ in {sorted(differing)} -- must be lambda and K only"
+
+
+def test_every_EXISTING_locality_step_puts_K1_at_4x_the_strength_of_K4():
+    """The premise of decision 28, pinned: each K=1 arm we have read a locality step against sits at the
+    SAME lambda as its K=4 arm and therefore at four times its effective strength (6.4 against 1.6).
+    That is the confound the strength-matched control removes. If a reference arm's lambda ever
+    changed, this fails before anyone reads the control against a reference it no longer matches.
+
+    Within `capacity_in1k` the K=1 and K=4 arms share ONE lambda axis, so the 4x relation holds there by
+    construction; the pair that can actually drift is depth 12, whose arms live in two manifests
+    (`in1k_global_ball`, `in1k_local`). Inverted once by setting `in1k_global_ball`'s ViT lambda to
+    0.025: fails, the depth-12 K=1 reference no longer existing under its name.
+    """
+    for k1_manifest, k1, k4_manifest, k4 in [
+        ("in1k_global_ball.yaml", "vit_globalball_lam0.1_k1_s0", "in1k_local.yaml", "vit_local_lam0.1_k4_s0"),
+        ("capacity_in1k.yaml", "vit_capdep_dep6_lam0.1_k1_s0", "capacity_in1k.yaml", "vit_capdep_dep6_lam0.1_k4_s0"),
+        ("capacity_in1k.yaml", "vit_capdep_dep3_lam0.1_k1_s0", "capacity_in1k.yaml", "vit_capdep_dep3_lam0.1_k4_s0"),
+    ]:
+        s1 = _effective_strength(_named(k1_manifest, k1))
+        s4 = _effective_strength(_named(k4_manifest, k4))
+        assert math.isclose(s1, 4 * s4), f"{k1} vs {k4}: {s1:.2f} against {s4:.2f}"
+
+
+def test_the_strength_matched_tag_resolves_to_a_backbone_family():
+    """`sync_eval_configs.family()` raises at MODULE IMPORT on an unmatched tag, which would error
+    collection of the whole eval-config test file rather than fail one assertion."""
+    import importlib.util
+    import sys
+
+    spec = importlib.util.spec_from_file_location(
+        "_sync_for_strength_family", REPO / "scripts/aicr/sync_eval_configs.py")
+    sync = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = sync
+    spec.loader.exec_module(sync)
+    for run in expand(STRENGTH_MATCHED):
         assert sync.family(run) == "vit", run.tag
 
 

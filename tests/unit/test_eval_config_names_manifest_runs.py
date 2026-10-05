@@ -181,6 +181,20 @@ def test_the_imagenette_grids_are_deliberately_absent_from_the_generator_lists()
 # ----- shape-bearing overrides must survive into the GENERATED configs -----
 
 
+def _depth_runs() -> dict[str, list[str]]:
+    """Every run in a SYNCED manifest trained at a non-default encoder depth, mapped to the override that
+    rebuilds it. Derived from the MANIFESTS -- the ground truth -- not from run names, and deliberately
+    not from `campaign.shape_overrides`, which is what the generator itself calls (assert against the
+    source of truth, never against the implementation's own output)."""
+    wanted: dict[str, list[str]] = {}
+    for name in (*SYNC.IN1K_128, *SYNC.VITL, *SYNC.TORUS):
+        for run in C.expand(C.load_manifest(REPO / "configs" / "campaign" / name)):
+            depth = [o for o in run.overrides if o.startswith("model.encoder.depth=")]
+            if depth:
+                wanted[run.run_name] = depth
+    return wanted
+
+
 def test_a_generated_entry_replays_the_overrides_that_rebuild_its_architecture():
     """CAUGHT BEFORE LAUNCH, 2026-10-02, and it would have failed all eight capacity evaluations.
 
@@ -197,12 +211,16 @@ def test_a_generated_entry_replays_the_overrides_that_rebuild_its_architecture()
 
     INVERTED once by deleting `{_shape(run)}` from `backbone_entries`: the entries lose their
     overrides and this fails for all eight.
+
+    GENERALISED 2026-10-05 (decision 28). It read only `capacity_in1k`, so when
+    `strength_matched_in1k` added two more reduced-depth runs their overrides were checked by NOTHING:
+    the generator could have dropped them and this would still pass. `wanted` now comes from every
+    SYNCED manifest, by the property itself -- a run trained at a non-default depth -- and the count is
+    a deliberate tripwire, like `EXPECTED_RUNS`: a new depth manifest must be counted in here.
     """
-    wanted = {}
-    for run in C.expand(C.load_manifest(REPO / "configs" / "campaign" / "capacity_in1k.yaml")):
-        depth = next(o for o in run.overrides if o.startswith("model.encoder.depth="))
-        wanted[run.run_name] = [depth]
-    assert len(wanted) == 4
+    wanted = _depth_runs()
+    assert len(wanted) == 6, (
+        f"capacity_in1k's 4 reduced-depth cells and strength_matched_in1k's 2 -- got {sorted(wanted)}")
 
     seen = 0
     for rel, text in RENDERED.items():
@@ -213,7 +231,7 @@ def test_a_generated_entry_replays_the_overrides_that_rebuild_its_architecture()
                 continue
             seen += 1
             assert entry.get("overrides") == wanted[base], f"{rel}:{entry['name']} -> {entry.get('overrides')}"
-    assert seen >= 8, f"expected the capacity cells in several generated configs, saw {seen}"
+    assert seen >= 2 * len(wanted), f"expected each reduced-depth run in several generated configs, saw {seen}"
 
 
 def test_only_runs_that_NEED_an_override_carry_one():
@@ -224,11 +242,20 @@ def test_only_runs_that_NEED_an_override_carry_one():
 
     Every reference arm -- the baselines, the control, the global ball, the local arms -- takes its
     architecture entirely from its experiment config, so none of them should carry overrides.
+
+    CORRECTED 2026-10-05 (decision 28): this allowed overrides only on names starting `vit_capdep_`, a
+    proxy for "trained at a reduced depth" that held only while the capacity grid was the one manifest
+    doing so. `strength_matched_in1k`'s depth-6 and depth-3 controls NEED their depth override, and the
+    proxy failed them -- the test was wrong where the generator was right. It now asks the property
+    directly: an entry may carry overrides only if its run is one `_depth_runs()` derives from the
+    manifests.
     """
+    wanted = _depth_runs()
     offenders = []
     for rel, text in RENDERED.items():
         cfg = yaml.safe_load(text)
         for entry in cfg.get("backbones", []):
-            if entry.get("overrides") and not entry["name"].startswith("vit_capdep_"):
+            base = entry["name"][:-5] if entry["name"].endswith("_best") else entry["name"]
+            if entry.get("overrides") and base not in wanted:
                 offenders.append((rel, entry["name"], entry["overrides"]))
-    assert not offenders, f"non-capacity entries carrying overrides: {offenders}"
+    assert not offenders, f"entries carrying overrides their run does not need: {offenders}"

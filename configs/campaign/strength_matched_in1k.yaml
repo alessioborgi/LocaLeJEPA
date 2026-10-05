@@ -1,0 +1,70 @@
+# The STRENGTH-MATCHED K=1 control. Decision 28 (2026-10-05).
+#
+# THE QUESTION. Every locality step we report compares K=1 against K=4 at the SAME lambda. Under the
+# effective-strength law the local regularizer's weight is lambda x (samples per neighbourhood) -- the
+# Epps-Pulley statistic is multiplied by its sample count and the per-cluster statistics are averaged
+# unweighted -- so at N=64 per shard that step ALSO cuts the effective weight 4x, from
+# 0.1 x 64 = 6.4 to 0.1 x 16 = 1.6. "Grouping helps" and "a 4x weaker regularizer helps" are therefore
+# confounded in every locality number we hold: +4.43 / +4.92 / +3.60 kNN on the 128 px encoders, the
+# capacity margins, and ViT-L's +0.84 / +6.17. On Imagenette the law organised all 252 grid cells and
+# made K largely a reparameterisation of strength; whether it explains the ImageNet step is open.
+#
+# THE CONTROL. K=1 at lambda 0.025, so lambda N / K = 0.025 x 64 / 1 = 1.6 -- the SAME effective weight
+# as the K=4 arm at 0.1. K=1@0.025 against K=4@0.1 then differs in the grouping ONLY. Every outcome is
+# a result:
+#   K=1@0.025 ~= K=4@0.1   at ImageNet scale too, locality is a reparameterisation of strength
+#   K=4@0.1   >  K=1@0.025 the grouping helps beyond what the strength change explains
+#   K=1@0.025 >  K=4@0.1   at matched strength the grouping COSTS accuracy
+#
+# THREE DEPTHS, because decision 25's capacity result is the same comparison (+4.43/+2.22, +2.80/+2.15,
+# +1.26/+0.87 at depth 12/6/3), so it carries the same confound. Each run is paired with its depth's
+# K=4 arm:
+#   depth 12  vit_strmatch_lam0.025_k1_s0       vs  vit_local_lam0.1_k4_s0        (in1k_local)
+#   depth  6  vit_strmatch_dep6_lam0.025_k1_s0  vs  vit_capdep_dep6_lam0.1_k4_s0  (capacity_in1k)
+#   depth  3  vit_strmatch_dep3_lam0.025_k1_s0  vs  vit_capdep_dep3_lam0.1_k4_s0  (capacity_in1k)
+#
+# WHY TWO BLOCKS. Each run uses its reference arm's OWN experiment config, so that it differs from that
+# arm in exactly two keys -- model.lamb and model.reg_loss.num_clusters -- and nothing else, which was
+# measured by diffing the composed configs on 2026-10-05 and is pinned by a test. Depth 12 therefore
+# takes the base config with no depth override, as vit_local_lam0.1_k4_s0 does; depths 6 and 3 take
+# the depth config, as the capacity arms do. This also keeps every smoke-grid guard applicable
+# unmodified: both experiment configs are rehearsed (smoke_vit_in1k_local, smoke_vit_in1k_capdep) and
+# no depth is run that the smoke grids do not already rehearse. No new smoke cell is needed -- lambda
+# is a value, not a new geometry.
+#
+# GEOMETRY identical to every arm it is compared against: 4 GPUs, batch 256, accumulate 1, so N=64 per
+# shard (the regularizer is computed per shard; there is no all_gather in src/losses.py).
+#
+# COST, measured rather than computed. ~9 h per 100 epochs at spec on a quiet node; 25+ min per epoch
+# beside a heavy neighbour (F79 EXTENDED), i.e. up to ~42 h. Submit with --time 24:00:00 and a MATCHING
+# TIME_LIMIT=24:00:00 (F83), the default REQUEUE_LEFT=2, and the 600 s signal lead that makes walls
+# survivable (F80). Three runs x 4 GPUs: ~110 GPU-h at spec, ~500 at the worst rate we have measured.
+#
+# ONE SEED, like every ImageNet cell. The tag begins with the backbone family prefix `vit`, because
+# sync_eval_configs.family() raises at import on an unmatched tag.
+name: strength_matched_in1k
+seeds: [0]
+gpus: 4
+micro_batch: 64
+max_epochs: 100
+short: {model.encoder.depth: dep, model.lamb: lam, model.reg_loss.num_clusters: k}
+blocks:
+  - tag: vit_strmatch               # depth 12: the base config, exactly as vit_local_lam0.1_k4_s0
+    experiment: lejepa/vit_in1k_localballreg_l01_k4
+    axes:
+      model.lamb: [0.025]
+      model.reg_loss.num_clusters: [1]
+    overrides:
+      logger: csv
+      data.batch_size: 256
+      trainer.accumulate_grad_batches: 1
+  - tag: vit_strmatch               # depths 6 and 3: the depth config, exactly as the capacity arms
+    experiment: lejepa/vit_in1k_localballreg_depth
+    axes:
+      model.encoder.depth: [6, 3]
+      model.lamb: [0.025]
+      model.reg_loss.num_clusters: [1]
+    overrides:
+      logger: csv
+      data.batch_size: 256
+      trainer.accumulate_grad_batches: 1
