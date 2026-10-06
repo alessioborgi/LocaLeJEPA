@@ -42,6 +42,9 @@ backbones:
   - name: vitl14_globalball_k1_s0
     experiment: lejepa/vitl14_in1k_localballreg_paper
     checkpoint: checkpoints/vitl14_globalball_k1_s0/last.ckpt
+  - name: vitl14_strmatch_lam0.0125_k1_s0
+    experiment: lejepa/vitl14_in1k_localballreg_paper
+    checkpoint: checkpoints/vitl14_strmatch_lam0.0125_k1_s0/last.ckpt
   # ---- the online probe's checkpoint (best val/probe_acc): the labelled secondary column ----
   - name: vitl14_sigreg_s0_best
     experiment: lejepa/vitl14_in1k_sigreg_paper
@@ -52,3 +55,6 @@ backbones:
   - name: vitl14_globalball_k1_s0_best
     experiment: lejepa/vitl14_in1k_localballreg_paper
     checkpoint: checkpoints/vitl14_globalball_k1_s0/best.ckpt
+  - name: vitl14_strmatch_lam0.0125_k1_s0_best
+    experiment: lejepa/vitl14_in1k_localballreg_paper
+    checkpoint: checkpoints/vitl14_strmatch_lam0.0125_k1_s0/best.ckpt

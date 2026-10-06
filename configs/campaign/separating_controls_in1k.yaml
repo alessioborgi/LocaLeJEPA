@@ -1,0 +1,60 @@
+# The SEPARATING CONTROLS for the 128 px encoders. Decision 29 (2026-10-06).
+#
+# Decision 28 split ViT-S's locality step at matched strength: the grouping helps beyond strength (+2.19/
+# +2.08 at depth 12), but half the kNN step was the 4x effective-strength change. Two questions are left on
+# the 128 px rows, and this manifest answers both in one 4-GPU array.
+#
+# 1. STRENGTH-MATCHED K=1 ON H-ViT AND D4 -- decision 28 generalised. Each K=1 -> K=4 locality step at fixed
+#    lambda also cuts the effective weight (lambda N/K) 4x, 6.4 -> 1.6 at N=64. K=1 at lambda 0.025 has
+#    effective weight 0.025 x 64 / 1 = 1.6, the K=4 arm's own. Each run takes its K=4 arm's experiment
+#    config, so it differs from that arm in exactly model.lamb and model.reg_loss.num_clusters (pinned by a
+#    test). Read-out: locality = grouping (K4@0.1 - K1@0.025) + strength (K1@0.025 - K1@0.1).
+#      hvit_strmatch_lam0.025_k1_s0    vs  hvit_local_lam0.1_k4_s0    and  hvit_globalball_lam0.1_k1_s0
+#      d4rn50_strmatch_lam0.025_k1_s0  vs  d4rn50_local_lam0.1_k4_s0  and  d4rn50_globalball_lam0.1_k1_s0
+#
+# 2. CENTRED SIGReg ON ALL THREE -- separating "the ball". The method's largest piece compares SIGReg at
+#    center=False (configs/model/reg_loss/sigreg.yaml) with the global ball, whose inner ballreg_loss runs
+#    center=True (src/losses.py:437). So "the ball" step changes the target AND switches on mean-subtraction.
+#    A centred SIGReg is the control's own config plus model.reg_loss.center: true -- differing from the
+#    control in that one key (pinned by a test). Read-out: ball = target (global ball - centred SIGReg) +
+#    centring (centred SIGReg - control). On Imagenette the 2x2 put centring at +0.14, inside noise --
+#    uninformative at a scale where the whole healthy band spans ~5 points.
+#      vit_centred_lam0.1_s0     vs  vit_control_lam0.1_s0     and  vit_globalball_lam0.1_k1_s0
+#      hvit_centred_lam0.1_s0    vs  hvit_control_lam0.1_s0    and  hvit_globalball_lam0.1_k1_s0
+#      d4rn50_centred_lam0.1_s0  vs  d4rn50_control_lam0.1_s0  and  d4rn50_globalball_lam0.1_k1_s0
+#    Not ViT-L: its ball step is +0.50/+0.15, so there is nothing to split.
+#
+# GEOMETRY identical to every arm compared against: 4 GPUs, batch 256, accumulate 1 -> N=64 per shard.
+# REHEARSAL: the H-ViT and D4 local configs had no smoke cell (they were proven only by production runs),
+# and center=true has never run in a training job, so smoke_4gpu gains three cells (indices 8-10) that run
+# BEFORE this wave.
+# COST, measured: ViT-S and H-ViT ~9 h per 100 epochs at spec (~36 GPU-h); D4 ~29 h (~117 GPU-h, two walls,
+# REQUEUE_LEFT=2). ~342 GPU-h at spec. One seed, like every ImageNet cell. Tags carry a backbone family prefix
+# because sync_eval_configs.family() raises at import otherwise.
+name: separating_controls_in1k
+seeds: [0]
+gpus: 4
+micro_batch: 64
+max_epochs: 100
+short: {model.lamb: lam, model.reg_loss.num_clusters: k}
+blocks:
+  - tag: hvit_strmatch
+    experiment: lejepa/hvit_in1k_localballreg_l01_k4
+    axes: {model.lamb: [0.025], model.reg_loss.num_clusters: [1]}
+    overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1}
+  - tag: d4rn50_strmatch
+    experiment: lejepa/d4rn50_in1k_localballreg_l01_k4
+    axes: {model.lamb: [0.025], model.reg_loss.num_clusters: [1]}
+    overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1}
+  - tag: vit_centred
+    experiment: lejepa/vit_in1k_sigreg_localrecipe
+    axes: {model.lamb: [0.1]}
+    overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1, model.reg_loss.center: true}
+  - tag: hvit_centred
+    experiment: lejepa/hvit_in1k_sigreg_localrecipe
+    axes: {model.lamb: [0.1]}
+    overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1, model.reg_loss.center: true}
+  - tag: d4rn50_centred
+    experiment: lejepa/d4rn50_in1k_sigreg_localrecipe
+    axes: {model.lamb: [0.1]}
+    overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1, model.reg_loss.center: true}

@@ -1,0 +1,44 @@
+# SEEDS 1 AND 2 on the five ViT-S/8 cells of the four-way split. Decision 29 (2026-10-06).
+#
+# Every ImageNet number in the paper is one seed. The ViT-S split is the paper's central decomposition --
+# training settings +6.36/+7.49, the ball (with mean-subtraction) +6.71/+8.02, strength +2.24/+0.14,
+# grouping +2.19/+2.08 -- and it rests on five cells:
+#   vit_sigreg_s0                  LeJEPA at its published recipe      (in1k_baselines)
+#   vit_control_lam0.1_s0          LeJEPA at our recipe                (in1k_local)
+#   vit_globalball_lam0.1_k1_s0    the ball, whole batch               (in1k_global_ball)
+#   vit_local_lam0.1_k4_s0         the full method                     (in1k_local)
+#   vit_strmatch_lam0.025_k1_s0    the strength-matched K=1 control    (strength_matched_in1k)
+# Two more seeds give n=3 per cell: real error bars on every step of the split.
+#
+# Each block COPIES its source block verbatim -- tag, experiment, axes, overrides -- so each run's name is
+# its seed-0 twin's with _s1/_s2, and its composed config differs from that twin in exactly `seed` (pinned
+# by a test). The seed reaches training: campaign.py hydra_overrides appends seed=N, and src/train.py calls
+# seed_everything(cfg.seed, workers=True).
+#
+# 10 runs x 4 GPUs = 40 GPUs, above the 32-GPU cap, so Slurm serialises them; submitted after the controls so
+# the controls keep the age tiebreak (F69). ~36 GPU-h each at spec -> ~360 GPU-h. Every seed is reported;
+# none is excluded. All five experiment configs are rehearsed in smoke_4gpu.
+name: seeds_vit_in1k
+seeds: [1, 2]
+gpus: 4
+micro_batch: 64
+max_epochs: 100
+short: {model.lamb: lam, model.reg_loss.num_clusters: k}
+blocks:
+  - {tag: vit_sigreg, experiment: lejepa/vit_in1k_sigreg, overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1}}
+  - tag: vit_control
+    experiment: lejepa/vit_in1k_sigreg_localrecipe
+    axes: {model.lamb: [0.1]}
+    overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1}
+  - tag: vit_globalball
+    experiment: lejepa/vit_in1k_localballreg_l01_k4
+    axes: {model.lamb: [0.1], model.reg_loss.num_clusters: [1]}
+    overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1}
+  - tag: vit_local
+    experiment: lejepa/vit_in1k_localballreg_l01_k4
+    axes: {model.lamb: [0.1], model.reg_loss.num_clusters: [4]}
+    overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1}
+  - tag: vit_strmatch
+    experiment: lejepa/vit_in1k_localballreg_l01_k4
+    axes: {model.lamb: [0.025], model.reg_loss.num_clusters: [1]}
+    overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1}

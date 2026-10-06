@@ -45,6 +45,23 @@ class Mutant:
 # Defects of the shape that actually occurs: a sign, a boundary, a dropped call, a swapped
 # constant. Each names the property it is meant to destroy.
 MUTANTS: list[Mutant] = [
+    Mutant("centred-control-harmonised", "configs/campaign/separating_controls_in1k.yaml",
+           "  - tag: vit_centred\n    experiment: lejepa/vit_in1k_sigreg_localrecipe\n    axes: {model.lamb: [0.1]}\n"
+           "    overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1, model.reg_loss.center: true}",
+           "  - tag: vit_centred\n    experiment: lejepa/vit_in1k_sigreg_localrecipe\n    axes: {model.lamb: [0.1]}\n"
+           "    overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1, model.reg_loss.center: false}",
+           "decision 29: the centred SIGReg 'harmonised' to center: false is the control again -- the centring "
+           "split measures nothing"),
+    Mutant("vitl14-control-at-128px-lambda", "configs/campaign/vitl14_strength_matched_in1k.yaml",
+           "axes: {model.lamb: [0.0125], model.reg_loss.num_clusters: [1]}",
+           "axes: {model.lamb: [0.025], model.reg_loss.num_clusters: [1]}",
+           "decision 29: ViT-L's control at the 128 px rows' lambda sits at 1.6, twice ViT-L's K=4 strength of 0.8"),
+    Mutant("seed-block-drifts-lambda", "configs/campaign/seeds_vit_in1k.yaml",
+           "  - tag: vit_globalball\n    experiment: lejepa/vit_in1k_localballreg_l01_k4\n"
+           "    axes: {model.lamb: [0.1], model.reg_loss.num_clusters: [1]}",
+           "  - tag: vit_globalball\n    experiment: lejepa/vit_in1k_localballreg_l01_k4\n"
+           "    axes: {model.lamb: [0.2], model.reg_loss.num_clusters: [1]}",
+           "decision 29: a seed run that is not its seed-0 twin puts a lambda change into the error bar"),
     Mutant("strength-control-lambda-harmonised", "configs/campaign/strength_matched_in1k.yaml",
            "axes:\n      model.lamb: [0.025]\n      model.reg_loss.num_clusters: [1]",
            "axes:\n      model.lamb: [0.1]\n      model.reg_loss.num_clusters: [1]",
