@@ -1,0 +1,28 @@
+# The STRENGTH-MATCHED K=1 control for ViT-L/14. Decision 29 (2026-10-06).
+#
+# ViT-L's locality step, +0.84 kNN / +6.17 linear, is the largest locality number in the paper and, like every
+# other, compares K=1 with K=4 at the same lambda -- so it also cuts the effective weight 4x. ViT-L runs at
+# LeJEPA's own lambda 0.05 (configs/experiment/lejepa/vitl14_in1k_localballreg_paper.yaml), batch 512 on 8
+# GPUs -> N=64 per shard, so K=4 has effective weight 0.05 x 64 / 4 = 0.8, and the matched K=1 needs lambda
+# 0.8 / 64 = 0.0125. NOT 0.025: that is the 128 px rows' value and would match a strength ViT-L never had.
+#
+# Same experiment config as vitl14_local_k4_s0, so it differs from it in exactly model.lamb and
+# model.reg_loss.num_clusters (pinned by a test). Read-out: locality = grouping (K4@0.05 - K1@0.0125) +
+# strength (K1@0.0125 - K1@0.05), against vitl14_local_k4_s0 and vitl14_globalball_k1_s0.
+#
+# Its own manifest because submit_command builds one homogeneous array per grid (8 GPUs here, 4 in the 128 px
+# controls) and sync_eval_configs renders VITL at 238 px. Rehearsed: smoke_8gpu runs this experiment config.
+# COST, measured: the ViT-L global ball took ~48.5 h for 100 epochs (two 24 h walls + 0:44) -> ~390 GPU-h,
+# REQUEUE_LEFT=2 covers three walls. Keep --mem-per-gpu-gb 120 (F57: ViT-L died of host RAM below it).
+# Batch from the config itself, as in1k_vitl14 does.
+name: vitl14_strength_matched_in1k
+seeds: [0]
+gpus: 8
+micro_batch: 64
+max_epochs: 100
+short: {model.lamb: lam, model.reg_loss.num_clusters: k}
+blocks:
+  - tag: vitl14_strmatch
+    experiment: lejepa/vitl14_in1k_localballreg_paper
+    axes: {model.lamb: [0.0125], model.reg_loss.num_clusters: [1]}
+    overrides: {logger: csv}

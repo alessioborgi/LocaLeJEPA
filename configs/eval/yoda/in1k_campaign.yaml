@@ -92,6 +92,51 @@ backbones:
     experiment: lejepa/vit_in1k_localballreg_depth
     overrides: ['model.encoder.depth=3']
     checkpoint: checkpoints/vit_strmatch_dep3_lam0.025_k1_s0/last.ckpt
+  - name: hvit_strmatch_lam0.025_k1_s0
+    experiment: lejepa/hvit_in1k_localballreg_l01_k4
+    checkpoint: checkpoints/hvit_strmatch_lam0.025_k1_s0/last.ckpt
+  - name: d4rn50_strmatch_lam0.025_k1_s0
+    experiment: lejepa/d4rn50_in1k_localballreg_l01_k4
+    checkpoint: checkpoints/d4rn50_strmatch_lam0.025_k1_s0/last.ckpt
+  - name: vit_centred_lam0.1_s0
+    experiment: lejepa/vit_in1k_sigreg_localrecipe
+    checkpoint: checkpoints/vit_centred_lam0.1_s0/last.ckpt
+  - name: hvit_centred_lam0.1_s0
+    experiment: lejepa/hvit_in1k_sigreg_localrecipe
+    checkpoint: checkpoints/hvit_centred_lam0.1_s0/last.ckpt
+  - name: d4rn50_centred_lam0.1_s0
+    experiment: lejepa/d4rn50_in1k_sigreg_localrecipe
+    checkpoint: checkpoints/d4rn50_centred_lam0.1_s0/last.ckpt
+  - name: vit_sigreg_s1
+    experiment: lejepa/vit_in1k_sigreg
+    checkpoint: checkpoints/vit_sigreg_s1/last.ckpt
+  - name: vit_sigreg_s2
+    experiment: lejepa/vit_in1k_sigreg
+    checkpoint: checkpoints/vit_sigreg_s2/last.ckpt
+  - name: vit_control_lam0.1_s1
+    experiment: lejepa/vit_in1k_sigreg_localrecipe
+    checkpoint: checkpoints/vit_control_lam0.1_s1/last.ckpt
+  - name: vit_control_lam0.1_s2
+    experiment: lejepa/vit_in1k_sigreg_localrecipe
+    checkpoint: checkpoints/vit_control_lam0.1_s2/last.ckpt
+  - name: vit_globalball_lam0.1_k1_s1
+    experiment: lejepa/vit_in1k_localballreg_l01_k4
+    checkpoint: checkpoints/vit_globalball_lam0.1_k1_s1/last.ckpt
+  - name: vit_globalball_lam0.1_k1_s2
+    experiment: lejepa/vit_in1k_localballreg_l01_k4
+    checkpoint: checkpoints/vit_globalball_lam0.1_k1_s2/last.ckpt
+  - name: vit_local_lam0.1_k4_s1
+    experiment: lejepa/vit_in1k_localballreg_l01_k4
+    checkpoint: checkpoints/vit_local_lam0.1_k4_s1/last.ckpt
+  - name: vit_local_lam0.1_k4_s2
+    experiment: lejepa/vit_in1k_localballreg_l01_k4
+    checkpoint: checkpoints/vit_local_lam0.1_k4_s2/last.ckpt
+  - name: vit_strmatch_lam0.025_k1_s1
+    experiment: lejepa/vit_in1k_localballreg_l01_k4
+    checkpoint: checkpoints/vit_strmatch_lam0.025_k1_s1/last.ckpt
+  - name: vit_strmatch_lam0.025_k1_s2
+    experiment: lejepa/vit_in1k_localballreg_l01_k4
+    checkpoint: checkpoints/vit_strmatch_lam0.025_k1_s2/last.ckpt
 probe:
   test_frac: 0.2
   val_frac: 0.2

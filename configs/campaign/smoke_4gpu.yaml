@@ -25,3 +25,11 @@ blocks:
   # F62 has the pair running out of wall with its successor budget spent. ~1.3 GPU-h each against that.
   - {tag: smoke_hvit_in1k_control,   experiment: lejepa/hvit_in1k_sigreg_localrecipe,   overrides: {logger: csv, trainer.max_epochs: 2, data.batch_size: 256, trainer.accumulate_grad_batches: 1, +trainer.limit_train_batches: 20}}
   - {tag: smoke_d4rn50_in1k_control, experiment: lejepa/d4rn50_in1k_sigreg_localrecipe, overrides: {logger: csv, trainer.max_epochs: 2, data.batch_size: 256, trainer.accumulate_grad_batches: 1, +trainer.limit_train_batches: 20}}
+  # Decision 29's controls. APPENDED so indices 0-7 do not move. The H-ViT and D4 LOCAL configs had no smoke
+  # cell -- they were proven only by their 100-epoch production runs, the gap the new-wave guard's comment
+  # names -- and `model.reg_loss.center: true` has never run in a training job (sigreg_loss's centring is
+  # unit-tested, not rehearsed). The centred cell must actually set center=true, or it rehearses nothing new
+  # (F58); a test pins that.
+  - {tag: smoke_hvit_in1k_local,     experiment: lejepa/hvit_in1k_localballreg_l01_k4,     overrides: {logger: csv, trainer.max_epochs: 2, data.batch_size: 256, trainer.accumulate_grad_batches: 1, +trainer.limit_train_batches: 20}}
+  - {tag: smoke_d4rn50_in1k_local,   experiment: lejepa/d4rn50_in1k_localballreg_l01_k4,   overrides: {logger: csv, trainer.max_epochs: 2, data.batch_size: 256, trainer.accumulate_grad_batches: 1, +trainer.limit_train_batches: 20}}
+  - {tag: smoke_vit_in1k_centred,    experiment: lejepa/vit_in1k_sigreg_localrecipe,       overrides: {logger: csv, trainer.max_epochs: 2, data.batch_size: 256, trainer.accumulate_grad_batches: 1, +trainer.limit_train_batches: 20, model.reg_loss.center: true}}

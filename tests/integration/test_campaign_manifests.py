@@ -22,10 +22,11 @@ MANIFESTS = sorted((REPO / "configs" / "campaign").glob("*.yaml"))
 EXPECTED_RUNS = {
     "ablation_grid": 252, "ablation_batch128": 24, "in1k_baselines": 6, "in1k_vitl14": 2,
     "in1k_local": 4, "torus": 11, "calibration_1gpu": 2, "calibration_4gpu": 3, "calibration_8gpu": 1,
-    "smoke_1gpu": 8, "smoke_4gpu": 8, "smoke_8gpu": 2, "ablation_grid_ep800": 252,
+    "smoke_1gpu": 8, "smoke_4gpu": 11, "smoke_8gpu": 2, "ablation_grid_ep800": 252,
     "target_and_centering": 24, "in1k_global_ball": 3, "ablation_grid_ep800_d4": 252,
     "capacity_grid_ep800": 180, "capacity_in1k": 4,
     "in1k_attribution": 2, "in1k_vitl14_globalball": 1, "strength_matched_in1k": 3,
+    "separating_controls_in1k": 5, "vitl14_strength_matched_in1k": 1, "seeds_vit_in1k": 10,
 }
 
 
@@ -350,7 +351,8 @@ def test_the_capacity_grid_omits_depth_12_because_it_is_already_trained():
 # smoke cell, which is a gap worth closing separately rather than by failing this test on day one.
 NEW_WAVE_MANIFESTS = ("capacity_grid_ep800.yaml", "capacity_in1k.yaml",
                       "in1k_attribution.yaml", "in1k_vitl14_globalball.yaml",
-                      "strength_matched_in1k.yaml")
+                      "strength_matched_in1k.yaml", "separating_controls_in1k.yaml",
+                      "vitl14_strength_matched_in1k.yaml", "seeds_vit_in1k.yaml")
 # strength_matched_in1k (decision 28) runs depths 6 and 3 through the depth config, so it belongs to the
 # depth guard too. Its depth-12 run takes the BASE config with no depth override, exactly as the K=4 arm
 # it is compared against does -- so no unrehearsed depth enters, and neither guard needs weakening.
@@ -575,7 +577,9 @@ def _effective_strength(run: C.RunSpec) -> float:
     (it is computed per shard; there is no all_gather in src/losses.py)."""
     cfg = C.compose_config(run.hydra_overrides())
     per_shard = C.geometry(run, world_size=run.gpus)["micro_batch_per_gpu"]
-    return float(cfg.model.lamb) * per_shard / int(cfg.model.reg_loss.num_clusters)
+    # SIGReg has no `num_clusters`: its single test over the whole shard is K=1 by construction
+    clusters = int(OmegaConf.select(cfg, "model.reg_loss.num_clusters", default=1))
+    return float(cfg.model.lamb) * per_shard / clusters
 
 
 def _configured(run: C.RunSpec) -> dict:
@@ -656,6 +660,104 @@ def test_the_strength_matched_tag_resolves_to_a_backbone_family():
     spec.loader.exec_module(sync)
     for run in expand(STRENGTH_MATCHED):
         assert sync.family(run) == "vit", run.tag
+
+
+SEPARATING = "separating_controls_in1k.yaml"
+# decision 29's strength-matched K=1 controls -> (their manifest, the K=4 arm's manifest, that arm, its strength)
+STRENGTH_PAIRS_29 = {
+    "hvit_strmatch_lam0.025_k1_s0": (SEPARATING, "in1k_local.yaml", "hvit_local_lam0.1_k4_s0", 1.6),
+    "d4rn50_strmatch_lam0.025_k1_s0": (SEPARATING, "in1k_local.yaml", "d4rn50_local_lam0.1_k4_s0", 1.6),
+    "vitl14_strmatch_lam0.0125_k1_s0": ("vitl14_strength_matched_in1k.yaml", "in1k_vitl14.yaml",
+                                        "vitl14_local_k4_s0", 0.8),
+}
+
+
+def _differing(a: C.RunSpec, b: C.RunSpec) -> set[str]:
+    x, y = _configured(a), _configured(b)
+    return {k for k in x.keys() | y.keys() if x.get(k, "<absent>") != y.get(k, "<absent>")}
+
+
+def test_every_decision29_strength_control_matches_its_K4_arm_and_differs_in_lambda_and_K_ONLY():
+    """Decision 29 takes decision 28's control to H-ViT, D4 and ViT-L. Each must sit at its K=4 arm's
+    effective strength (lambda N/K) and differ from it in nothing but lambda and K, measured over every
+    configured key. ViT-L runs LeJEPA's lambda 0.05, so its K=4 arm is at 0.8, not 1.6, and its matched K=1
+    needs 0.0125 -- the 128 px rows' 0.025 would match a strength ViT-L never had.
+
+    Inverted at its strength assertion by putting the separating manifest at micro_batch 32 / batch 128:
+    the H-ViT control then reads 0.800 against its arm's 1.600.
+    """
+    for name, (manifest, ref_manifest, ref_name, expected) in STRENGTH_PAIRS_29.items():
+        run, ref = _named(manifest, name), _named(ref_manifest, ref_name)
+        assert math.isclose(_effective_strength(ref), expected), f"{ref_name}: the K=4 reference moved"
+        assert math.isclose(_effective_strength(run), expected), (
+            f"{name}: effective strength {_effective_strength(run):.3f}, its K=4 arm {expected:.3f}")
+        assert _differing(ref, run) == {"model.lamb", "model.reg_loss.num_clusters"}, \
+            f"{name} vs {ref_name}: {sorted(_differing(ref, run))}"
+
+
+def test_every_centred_sigreg_differs_from_its_control_in_centring_ONLY_and_its_ball_is_centred():
+    """Decision 29. "The ball" step compares SIGReg at center=False with a global ball whose inner test
+    runs center=True, so it moves the target AND switches on mean-subtraction. The centred SIGReg splits
+    them -- which only works if (1) it differs from the control in `model.reg_loss.center` alone, (2) its
+    global ball really is centred, and (3) all three sit at one effective strength, so neither half of the
+    split is a strength change in disguise.
+
+    Inverted at assertion (1) by setting vit_centred back to `center: false`: the diff comes back empty.
+    """
+    for enc, control_manifest in (("vit", "in1k_local.yaml"), ("hvit", "in1k_attribution.yaml"),
+                                  ("d4rn50", "in1k_attribution.yaml")):
+        centred = _named(SEPARATING, f"{enc}_centred_lam0.1_s0")
+        control = _named(control_manifest, f"{enc}_control_lam0.1_s0")
+        ball = _named("in1k_global_ball.yaml", f"{enc}_globalball_lam0.1_k1_s0")
+        assert _differing(control, centred) == {"model.reg_loss.center"}, \
+            f"{enc}: centred vs control differ in {sorted(_differing(control, centred))}"
+        assert C.compose_config(centred.hydra_overrides()).model.reg_loss.center is True
+        assert OmegaConf.select(C.compose_config(ball.hydra_overrides()), "model.reg_loss.loss.center") is True, \
+            f"{enc}: the global ball is not centred, so the target step would not be centring-matched"
+        strengths = {round(_effective_strength(r), 6) for r in (centred, control, ball)}
+        assert len(strengths) == 1, f"{enc}: the three arms sit at different strengths {strengths}"
+
+
+def test_every_seed_run_differs_from_its_seed0_twin_in_the_seed_ONLY():
+    """Decision 29: seeds 1 and 2 on the five ViT-S cells of the four-way split. A seed run that differed
+    from its twin in anything but the seed would put that difference into the error bar. Each must name
+    an existing seed-0 run and differ from it, over every configured key, in exactly `seed`.
+
+    Inverted by adding `trainer.gradient_clip_val: 0.5` to the vit_local seeds block: the diff names it.
+    """
+    sources = {"vit_sigreg": "in1k_baselines.yaml", "vit_control": "in1k_local.yaml",
+               "vit_globalball": "in1k_global_ball.yaml", "vit_local": "in1k_local.yaml",
+               "vit_strmatch": "strength_matched_in1k.yaml"}
+    seeds = expand(REPO / "configs" / "campaign" / "seeds_vit_in1k.yaml")
+    assert {r.seed for r in seeds} == {1, 2} and {r.tag for r in seeds} == set(sources)
+    for run in seeds:
+        twin = _named(sources[run.tag], run.run_name.rsplit("_s", 1)[0] + "_s0")
+        assert _differing(twin, run) == {"seed"}, f"{run.run_name}: {sorted(_differing(twin, run))}"
+
+
+def test_the_centred_smoke_cell_rehearses_center_true():
+    """F58: a debug cell rehearsing a path the wave never takes is worthless. The point of
+    `smoke_vit_in1k_centred` is the first production run of `sigreg_loss(center=True)`.
+
+    Inverted by deleting its `model.reg_loss.center: true`: it composes to False and this fails.
+    """
+    cell = _named("smoke_4gpu.yaml", "smoke_vit_in1k_centred_s0")
+    assert C.compose_config(cell.hydra_overrides()).model.reg_loss.center is True
+
+
+def test_every_decision29_tag_resolves_to_a_backbone_family():
+    """`sync_eval_configs.family()` raises at MODULE IMPORT on an unmatched tag."""
+    import importlib.util
+    import sys
+
+    spec = importlib.util.spec_from_file_location(
+        "_sync_for_d29_family", REPO / "scripts/aicr/sync_eval_configs.py")
+    sync = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = sync
+    spec.loader.exec_module(sync)
+    for manifest in (SEPARATING, "vitl14_strength_matched_in1k.yaml", "seeds_vit_in1k.yaml"):
+        for run in expand(REPO / "configs" / "campaign" / manifest):
+            assert sync.family(run) == run.tag.split("_")[0], run.tag
 
 
 def test_no_capacity_run_name_can_collide_with_any_other_grid():
