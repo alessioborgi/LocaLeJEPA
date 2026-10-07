@@ -143,3 +143,6 @@ backbones:
   - name: vit_strmatch_lam0.025_k1_s2
     experiment: lejepa/vit_in1k_localballreg_l01_k4
     checkpoint: checkpoints/vit_strmatch_lam0.025_k1_s2/last.ckpt
+  - name: vit_localgauss_lam0.1_k4_s0
+    experiment: lejepa/vit_in1k_localballreg_l01_k4
+    checkpoint: checkpoints/vit_localgauss_lam0.1_k4_s0/last.ckpt
