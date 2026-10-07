@@ -45,6 +45,18 @@ class Mutant:
 # Defects of the shape that actually occurs: a sign, a boundary, a dropped call, a swapped
 # constant. Each names the property it is meant to destroy.
 MUTANTS: list[Mutant] = [
+    Mutant("local-gaussian-uncentred", "configs/campaign/local_gaussian_in1k.yaml",
+           "model/reg_loss: locale_sigreg, model.reg_loss.loss.center: true}",
+           "model/reg_loss: locale_sigreg, model.reg_loss.loss.center: false}",
+           "decision 30: an uncentred local Gaussian is the draft's old cell -- target AND centring move at once"),
+    Mutant("local-gaussian-is-the-ball-again", "configs/campaign/local_gaussian_in1k.yaml",
+           "trainer.accumulate_grad_batches: 1, model/reg_loss: locale_sigreg, model.reg_loss.loss.center: true}",
+           "trainer.accumulate_grad_batches: 1, model.reg_loss.loss.center: true}",
+           "decision 30: without the reg_loss swap the run is the local ball under a Gaussian's name"),
+    Mutant("local-gaussian-smoke-rehearses-the-ball", "configs/campaign/smoke_4gpu.yaml",
+           "+trainer.limit_train_batches: 20, model/reg_loss: locale_sigreg, model.reg_loss.loss.center: true}}",
+           "+trainer.limit_train_batches: 20, model.reg_loss.loss.center: true}}",
+           "decision 30 / F58: the smoke cell rehearses the local ball again, not the path the run takes"),
     Mutant("centred-control-harmonised", "configs/campaign/separating_controls_in1k.yaml",
            "  - tag: vit_centred\n    experiment: lejepa/vit_in1k_sigreg_localrecipe\n    axes: {model.lamb: [0.1]}\n"
            "    overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1, model.reg_loss.center: true}",

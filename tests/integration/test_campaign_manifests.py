@@ -22,11 +22,12 @@ MANIFESTS = sorted((REPO / "configs" / "campaign").glob("*.yaml"))
 EXPECTED_RUNS = {
     "ablation_grid": 252, "ablation_batch128": 24, "in1k_baselines": 6, "in1k_vitl14": 2,
     "in1k_local": 4, "torus": 11, "calibration_1gpu": 2, "calibration_4gpu": 3, "calibration_8gpu": 1,
-    "smoke_1gpu": 8, "smoke_4gpu": 11, "smoke_8gpu": 2, "ablation_grid_ep800": 252,
+    "smoke_1gpu": 8, "smoke_4gpu": 12, "smoke_8gpu": 2, "ablation_grid_ep800": 252,
     "target_and_centering": 24, "in1k_global_ball": 3, "ablation_grid_ep800_d4": 252,
     "capacity_grid_ep800": 180, "capacity_in1k": 4,
     "in1k_attribution": 2, "in1k_vitl14_globalball": 1, "strength_matched_in1k": 3,
     "separating_controls_in1k": 5, "vitl14_strength_matched_in1k": 1, "seeds_vit_in1k": 10,
+    "local_gaussian_in1k": 1,
 }
 
 
@@ -352,7 +353,7 @@ def test_the_capacity_grid_omits_depth_12_because_it_is_already_trained():
 NEW_WAVE_MANIFESTS = ("capacity_grid_ep800.yaml", "capacity_in1k.yaml",
                       "in1k_attribution.yaml", "in1k_vitl14_globalball.yaml",
                       "strength_matched_in1k.yaml", "separating_controls_in1k.yaml",
-                      "vitl14_strength_matched_in1k.yaml", "seeds_vit_in1k.yaml")
+                      "vitl14_strength_matched_in1k.yaml", "seeds_vit_in1k.yaml", "local_gaussian_in1k.yaml")
 # strength_matched_in1k (decision 28) runs depths 6 and 3 through the depth config, so it belongs to the
 # depth guard too. Its depth-12 run takes the BASE config with no depth override, exactly as the K=4 arm
 # it is compared against does -- so no unrehearsed depth enters, and neither guard needs weakening.
@@ -758,6 +759,61 @@ def test_every_decision29_tag_resolves_to_a_backbone_family():
     for manifest in (SEPARATING, "vitl14_strength_matched_in1k.yaml", "seeds_vit_in1k.yaml"):
         for run in expand(REPO / "configs" / "campaign" / manifest):
             assert sync.family(run) == run.tag.split("_")[0], run.tag
+
+
+LOCAL_GAUSSIAN = "local_gaussian_in1k.yaml"
+# Swapping the ball for the Gaussian MUST change exactly these, over every configured key: the two loss
+# targets and the three settings only the ball has. A sixth key in the diff is a second difference.
+TARGET_ONLY_KEYS = {"model.reg_loss._target_", "model.reg_loss.loss._target_", "model.reg_loss.loss.n_quad",
+                    "model.reg_loss.loss.radius", "model.reg_loss.loss.scale_grid"}
+
+
+def test_the_centred_local_gaussian_differs_from_the_local_ball_in_the_target_ONLY():
+    """Decision 30. Decision 29 found the K=1 "ball" step is mean-subtraction; this run asks whether the
+    ball matters INSIDE the groups. It is the local ball's own config with the target swapped, so it must
+    (1) differ from `vit_local_lam0.1_k4_s0` in the target keys alone, (2) keep the per-cluster
+    mean-subtraction -- an uncentred local Gaussian is the draft's old cell, which moves the target AND the
+    centring -- (3) really run the Gaussian, and (4) sit at the ball arm's effective strength.
+
+    Inverted twice: `model.reg_loss.loss.center: false` (the diff gains the centring key) and the
+    `model/reg_loss: locale_sigreg` override deleted (the run IS the ball again; the diff comes back empty).
+    """
+    run = _named(LOCAL_GAUSSIAN, "vit_localgauss_lam0.1_k4_s0")
+    ball = _named("in1k_local.yaml", "vit_local_lam0.1_k4_s0")
+    assert _differing(ball, run) == TARGET_ONLY_KEYS, \
+        f"local Gaussian vs local ball differ in {sorted(_differing(ball, run))}"
+    cfg = C.compose_config(run.hydra_overrides())
+    assert cfg.model.reg_loss.loss.center is True, "the local Gaussian must be centred per cluster"
+    assert cfg.model.reg_loss._target_ == "src.losses.local_sigreg_loss"
+    assert cfg.model.reg_loss.loss._target_ == "src.losses.sigreg_loss"
+    assert math.isclose(_effective_strength(run), 1.6) and math.isclose(_effective_strength(ball), 1.6)
+
+
+def test_the_local_gaussian_smoke_cell_rehearses_the_gaussian_AND_the_centring():
+    """F58. `smoke_vit_in1k_localgauss` exists because local_sigreg_loss has never run under 4-GPU DDP at
+    ImageNet scale in this pipeline, nor centred at K=4. Without the reg_loss swap it rehearses the local
+    ball again; without the centring, an uncentred loss the run never takes.
+
+    Inverted by deleting its `model/reg_loss: locale_sigreg`: it composes to the ball and this fails.
+    """
+    cfg = C.compose_config(_named("smoke_4gpu.yaml", "smoke_vit_in1k_localgauss_s0").hydra_overrides())
+    assert cfg.model.reg_loss._target_ == "src.losses.local_sigreg_loss"
+    assert cfg.model.reg_loss.loss.center is True
+    assert int(cfg.model.reg_loss.num_clusters) == 4
+
+
+def test_the_local_gaussian_tag_resolves_to_a_backbone_family():
+    """`sync_eval_configs.family()` raises at MODULE IMPORT on an unmatched tag."""
+    import importlib.util
+    import sys
+
+    spec = importlib.util.spec_from_file_location(
+        "_sync_for_d30_family", REPO / "scripts/aicr/sync_eval_configs.py")
+    sync = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = sync
+    spec.loader.exec_module(sync)
+    for run in expand(REPO / "configs" / "campaign" / LOCAL_GAUSSIAN):
+        assert sync.family(run) == "vit", run.tag
 
 
 def test_no_capacity_run_name_can_collide_with_any_other_grid():

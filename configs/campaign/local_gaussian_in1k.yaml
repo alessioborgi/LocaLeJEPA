@@ -1,0 +1,38 @@
+# THE CENTRED LOCAL GAUSSIAN. Decision 30 (2026-10-07).
+#
+# Decision 29's centred SIGReg showed that on ViT-S and H-ViT the "ball" step at K=1 is mean-subtraction:
+# LeJEPA's Gaussian test with the batch mean removed matches the global ball (centring +6.78/+7.43 on ViT-S,
+# ball shape -0.07/+0.59). Two older results say the GROUPING may need centring as well, and neither
+# separates the target from the centring: the uncentred local Gaussian (configs/model/reg_loss/
+# locale_sigreg.yaml inherits sigreg's `center: false`) sat ~6 points under the local ball on Imagenette
+# (torus lineup), and in the draft's own IN1K runs adding locality to an uncentred Gaussian bought ~0 on the
+# linear probe.
+#
+# This run is the local ball's own config with ONE change, the target: it swaps the reg_loss group to
+# locale_sigreg and keeps the ball arm's per-cluster mean-subtraction (`model.reg_loss.loss.center: true`,
+# exactly as localereg.yaml sets it for the ball). Composed and diffed against vit_local_lam0.1_k4_s0 over
+# every configured key, the two differ in the loss targets (local_ballreg_loss / ballreg_loss ->
+# local_sigreg_loss / sigreg_loss) and the three settings only the ball has (n_quad, radius, scale_grid) --
+# nothing else: same K=4, lambda 0.1, k-means settings, slices, t_max, centring and geometry (pinned by a test).
+#
+# Read-out, fixed in advance (state/05 decision 30): target at K=4 = local ball - centred local Gaussian.
+#   ~0  -> the ball is dispensable inside the groups too: the method is centring + grouping, with any target.
+#   > 0 -> the ball's shape matters only together with grouping -- an interaction, not a main effect.
+#   < 0 -> the Gaussian is the better target inside the groups.
+#     vit_localgauss_lam0.1_k4_s0  vs  vit_local_lam0.1_k4_s0  (and vit_centred_lam0.1_s0 for the Gaussian's
+#     own locality step, which also changes the effective strength 4x, as every locality step does)
+#
+# GEOMETRY identical to the arm it is read against: 4 GPUs, batch 256, accumulate 1 -> N=64 per shard, effective
+# strength 0.1 x 64 / 4 = 1.6. REHEARSAL: local_sigreg_loss has never run under 4-GPU DDP at ImageNet scale in
+# this pipeline, nor centred at K=4; smoke_4gpu cell 11 runs it first.
+name: local_gaussian_in1k
+seeds: [0]
+gpus: 4
+micro_batch: 64
+max_epochs: 100
+short: {model.lamb: lam, model.reg_loss.num_clusters: k}
+blocks:
+  - tag: vit_localgauss
+    experiment: lejepa/vit_in1k_localballreg_l01_k4
+    axes: {model.lamb: [0.1], model.reg_loss.num_clusters: [4]}
+    overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1, model/reg_loss: locale_sigreg, model.reg_loss.loss.center: true}

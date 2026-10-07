@@ -33,3 +33,8 @@ blocks:
   - {tag: smoke_hvit_in1k_local,     experiment: lejepa/hvit_in1k_localballreg_l01_k4,     overrides: {logger: csv, trainer.max_epochs: 2, data.batch_size: 256, trainer.accumulate_grad_batches: 1, +trainer.limit_train_batches: 20}}
   - {tag: smoke_d4rn50_in1k_local,   experiment: lejepa/d4rn50_in1k_localballreg_l01_k4,   overrides: {logger: csv, trainer.max_epochs: 2, data.batch_size: 256, trainer.accumulate_grad_batches: 1, +trainer.limit_train_batches: 20}}
   - {tag: smoke_vit_in1k_centred,    experiment: lejepa/vit_in1k_sigreg_localrecipe,       overrides: {logger: csv, trainer.max_epochs: 2, data.batch_size: 256, trainer.accumulate_grad_batches: 1, +trainer.limit_train_batches: 20, model.reg_loss.center: true}}
+  # Decision 30's centred local Gaussian. APPENDED so indices 0-10 do not move. local_sigreg_loss has never run
+  # under 4-GPU DDP at ImageNet scale in this pipeline (only 1-GPU Imagenette: torus, target_and_centering), and
+  # never at K=4 with centring. The cell must swap the reg_loss group AND centre, or it rehearses the local ball
+  # again or an uncentred loss the run never takes (F58); a test pins both.
+  - {tag: smoke_vit_in1k_localgauss, experiment: lejepa/vit_in1k_localballreg_l01_k4, overrides: {logger: csv, trainer.max_epochs: 2, data.batch_size: 256, trainer.accumulate_grad_batches: 1, +trainer.limit_train_batches: 20, model/reg_loss: locale_sigreg, model.reg_loss.loss.center: true}}
