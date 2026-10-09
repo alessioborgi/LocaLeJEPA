@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import statistics
 import sys
 from pathlib import Path
@@ -479,3 +480,35 @@ def test_transfer_per_dataset_differences_and_wins(built):
     le = statistics.fmean(50.0 + k / 10 + s / 100 for s, (k, _) in enumerate(VIT["sigreg"]))
     assert n["transfer_k4_vs_lejepa/vit/dtd"]["value"] == pytest.approx(k4 - le)
     assert n["transfer_wins_vs_lejepa/vit/count"]["value"] == 7.0
+
+
+# --------------------------------------------------------------------------------------------------
+# what a reader sees of the floats: the user's prose rules (2026-10-09) -- no semicolon unless really
+# needed (none is, in a caption or a row label), and none of the AI-writing tells the curated lists name
+# (Wikipedia's "Signs of AI writing", Graphite 2026, GPTZero, Juzek & Ward, Liang et al., Kobak et al.)
+# --------------------------------------------------------------------------------------------------
+
+TELLS = re.compile(
+    r"\b(additionally|align(s|ed|ing)?|crucial(ly)?|consequently|delv(e|es|ed|ing)|enhanc\w*|furthermore|highlight\w*|"
+    r"interplay|intricat\w*|landscape|leverag\w*|meaningful|meticulous\w*|moreover|notabl[ey]|pivotal|practical|"
+    r"robust\w*|seamless\w*|showcas\w*|underscor\w*|valuable|comprehensive|ultimately|rather\s+than|not\s+only|"
+    r"not\s+just)\b", re.I)
+
+
+def reader_text(tex: str) -> str:
+    """A generated float as a reader sees it: caption, headers and row labels -- no math, commands or markers."""
+    text = re.sub(r"(?<!\\)%[^\n]*", " ", tex)                  # the % row: markers
+    text = re.sub(r"(?<!\\)\$[^$]*(?<!\\)\$", " ", text)          # math (where a semicolon can be notation)
+    return re.sub(r"\\[A-Za-z]+\*?", " ", text)                    # command names
+
+
+@pytest.mark.parametrize("name", ["tab_in1k_main", "tab_in1k_transfer_main", "tab_in1k_indomain_full",
+                                  "tab_in1k_transfer_full", "tab_depth", "tab_k_ablation_256", "tab_strength_bands"])
+def test_no_semicolon_and_no_ai_writing_tell_reaches_the_paper(im_built, name):
+    out, _ = im_built
+    tex, _ = table(out, name)
+    seen = reader_text(tex)
+    assert ";" not in seen, f"{name}: a semicolon in what the reader sees: …{seen[max(0, seen.find(';') - 60):seen.find(';') + 30]}…"
+    tell = TELLS.search(seen)
+    assert tell is None, f"{name}: an AI-writing tell in what the reader sees: {tell.group(0)!r}"
+

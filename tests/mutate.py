@@ -654,6 +654,10 @@ MUTANTS: list[Mutant] = [
            '                        "value": min(per_seed), "per_seed": per_seed, "rendered_1dp": f"{min(per_seed):+.1f}",',
            '                        "value": max(per_seed), "per_seed": per_seed, "rendered_1dp": f"{max(per_seed):+.1f}",',
            "'positive on every seed' would be read off the LARGEST per-seed difference"),
+    Mutant('rebuttal-tables-caption-semicolon', 'scripts/make_rebuttal_tables.py',
+           'r"seed. ViT-S/8 rows are mean $\\pm$ SD over three pretraining seeds, and all other rows are single "',
+           'r"seed. ViT-S/8 rows are mean $\\pm$ SD over three pretraining seeds; all other rows are single "',
+           "a caption's semicolon reaches the paper again (the user's rule, 2026-10-09)"),
 ]
 
 
