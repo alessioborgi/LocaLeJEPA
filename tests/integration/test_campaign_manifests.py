@@ -22,12 +22,12 @@ MANIFESTS = sorted((REPO / "configs" / "campaign").glob("*.yaml"))
 EXPECTED_RUNS = {
     "ablation_grid": 252, "ablation_batch128": 24, "in1k_baselines": 6, "in1k_vitl14": 2,
     "in1k_local": 4, "torus": 11, "calibration_1gpu": 2, "calibration_4gpu": 3, "calibration_8gpu": 1,
-    "smoke_1gpu": 8, "smoke_4gpu": 12, "smoke_8gpu": 2, "ablation_grid_ep800": 252,
+    "smoke_1gpu": 8, "smoke_4gpu": 16, "smoke_8gpu": 2, "ablation_grid_ep800": 252,
     "target_and_centering": 24, "in1k_global_ball": 3, "ablation_grid_ep800_d4": 252,
     "capacity_grid_ep800": 180, "capacity_in1k": 4,
     "in1k_attribution": 2, "in1k_vitl14_globalball": 1, "strength_matched_in1k": 3,
     "separating_controls_in1k": 5, "vitl14_strength_matched_in1k": 1, "seeds_vit_in1k": 10,
-    "local_gaussian_in1k": 1,
+    "local_gaussian_in1k": 1, "paper_arms_in1k": 8,
 }
 
 
@@ -353,7 +353,8 @@ def test_the_capacity_grid_omits_depth_12_because_it_is_already_trained():
 NEW_WAVE_MANIFESTS = ("capacity_grid_ep800.yaml", "capacity_in1k.yaml",
                       "in1k_attribution.yaml", "in1k_vitl14_globalball.yaml",
                       "strength_matched_in1k.yaml", "separating_controls_in1k.yaml",
-                      "vitl14_strength_matched_in1k.yaml", "seeds_vit_in1k.yaml", "local_gaussian_in1k.yaml")
+                      "vitl14_strength_matched_in1k.yaml", "seeds_vit_in1k.yaml", "local_gaussian_in1k.yaml",
+                      "paper_arms_in1k.yaml")
 # strength_matched_in1k (decision 28) runs depths 6 and 3 through the depth config, so it belongs to the
 # depth guard too. Its depth-12 run takes the BASE config with no depth override, exactly as the K=4 arm
 # it is compared against does -- so no unrehearsed depth enters, and neither guard needs weakening.
@@ -814,6 +815,95 @@ def test_the_local_gaussian_tag_resolves_to_a_backbone_family():
     spec.loader.exec_module(sync)
     for run in expand(REPO / "configs" / "campaign" / LOCAL_GAUSSIAN):
         assert sync.family(run) == "vit", run.tag
+
+
+PAPER_ARMS = "paper_arms_in1k.yaml"
+# decision 32: each of the paper's arms -> (the keys it may differ in from its K=4 twin, its effective strength
+# at epoch 0). The twin is `{enc}_local_lam0.1_k4_s0` in in1k_local.yaml.
+PAPER_ARM_DIFFS = {
+    "local_lam0.1_k2": ({"model.reg_loss.num_clusters"}, 3.2),
+    "local_lam0.3_k2": ({"model.lamb", "model.reg_loss.num_clusters"}, 9.6),
+    "localsigreg_lam0.1_k4": (TARGET_ONLY_KEYS | {"model.reg_loss.loss.center", "tags"}, 1.6),
+    "dynk_lam0.1": ({"callbacks.dynamic_num_clusters._target_", "callbacks.dynamic_num_clusters.start",
+                     "callbacks.dynamic_num_clusters.end", "callbacks.dynamic_num_clusters.step",
+                     "callbacks.dynamic_num_clusters.step_epochs", "model.reg_loss.num_clusters"}, 6.4),
+}
+
+
+@pytest.mark.parametrize("enc", ["hvit", "d4rn50"])
+@pytest.mark.parametrize("arm", sorted(PAPER_ARM_DIFFS))
+def test_every_paper_arm_differs_from_its_K4_twin_in_its_own_keys_ONLY(enc, arm):
+    """Decision 32. The rebuttal's tables put these arms beside the campaign's K=4 run, so each must differ
+    from `{enc}_local_lam0.1_k4_s0` in exactly what its row name says, over every configured key, at the
+    stated effective strength: K=2 in K alone (3.2), K=2 at lambda 0.3 in lambda and K (9.6), the paper's
+    LocaLeJEPA-SIGReg in the target keys plus `center` (uncentred: the bundle swapped as a whole) and its
+    tags (1.6), dynamic K in the schedule and its starting K (6.4 at epoch 0, falling to 0.64).
+
+    Inverted by giving the hvit K=2 block `trainer.gradient_clip_val: 0.5`: its diff names the key.
+    """
+    allowed, strength = PAPER_ARM_DIFFS[arm]
+    run = _named(PAPER_ARMS, f"{enc}_{arm}_s0")
+    twin = _named("in1k_local.yaml", f"{enc}_local_lam0.1_k4_s0")
+    assert _differing(twin, run) == allowed, f"{run.run_name}: {sorted(_differing(twin, run))}"
+    assert math.isclose(_effective_strength(run), strength), f"{run.run_name}: {_effective_strength(run):.3f}"
+
+
+@pytest.mark.parametrize("enc", ["hvit", "d4rn50"])
+def test_the_dynamic_k_arms_run_the_papers_one_to_ten_ramp(enc):
+    """App. C: K_max 10, E_step 10 -- K=1 for epochs 0-9, +1 every ten epochs, K=10 from epoch 90 of 100.
+
+    Inverted by `callbacks.dynamic_num_clusters.step_epochs: 5`: K(89) reads 10, not 9."""
+    from hydra.utils import instantiate
+
+    cfg = C.compose_config(_named(PAPER_ARMS, f"{enc}_dynk_lam0.1_s0").hydra_overrides())
+    ramp = instantiate(cfg.callbacks.dynamic_num_clusters)
+    assert int(cfg.trainer.max_epochs) == 100
+    assert [ramp.k(e) for e in (0, 9, 10, 89, 90, 99)] == [1, 1, 2, 9, 10, 10]
+
+
+@pytest.mark.parametrize("enc", ["hvit", "d4rn50"])
+def test_the_paper_local_control_is_local_and_UNCENTRED(enc):
+    """The paper's LocaLeJEPA-SIGReg is Gaussian matching on UNCENTRED clusters (5_Experiments / App. C).
+    Unlike decision 30's centred local Gaussian, it changes the target and the centring together -- the
+    bundle swapped as a whole, which is what the paper's own row compares.
+
+    Inverted by `model.reg_loss.loss.center: true` on the block: the centring assertion fails."""
+    cfg = C.compose_config(_named(PAPER_ARMS, f"{enc}_localsigreg_lam0.1_k4_s0").hydra_overrides())
+    assert cfg.model.reg_loss._target_ == "src.losses.local_sigreg_loss"
+    assert cfg.model.reg_loss.loss._target_ == "src.losses.sigreg_loss"
+    assert cfg.model.reg_loss.loss.center is False
+    assert int(cfg.model.reg_loss.num_clusters) == 4
+
+
+@pytest.mark.parametrize("enc", ["hvit", "d4rn50"])
+def test_the_paper_arm_smoke_cells_rehearse_what_the_wave_runs(enc):
+    """F58. The dynamic-K cell must reach the production endpoint K=10 inside its two epochs (at the
+    production step_epochs 10 it would rehearse K=1 only); the control's cell must be the uncentred local
+    Gaussian at K=4.
+
+    Inverted by deleting the dynamic cell's `step: 9`: its second epoch reads K=2, not 10."""
+    from hydra.utils import instantiate
+
+    dyn = C.compose_config(_named("smoke_4gpu.yaml", f"smoke_{enc}_in1k_dynk_s0").hydra_overrides())
+    ramp = instantiate(dyn.callbacks.dynamic_num_clusters)
+    assert [ramp.k(e) for e in range(int(dyn.trainer.max_epochs))] == [1, 10]
+    ctl = C.compose_config(_named("smoke_4gpu.yaml", f"smoke_{enc}_in1k_localsigreg_s0").hydra_overrides())
+    assert ctl.model.reg_loss._target_ == "src.losses.local_sigreg_loss"
+    assert ctl.model.reg_loss.loss.center is False and int(ctl.model.reg_loss.num_clusters) == 4
+
+
+def test_every_paper_arm_tag_resolves_to_a_backbone_family():
+    """`sync_eval_configs.family()` raises at MODULE IMPORT on an unmatched tag."""
+    import importlib.util
+    import sys
+
+    spec = importlib.util.spec_from_file_location(
+        "_sync_for_d32_family", REPO / "scripts/aicr/sync_eval_configs.py")
+    sync = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = sync
+    spec.loader.exec_module(sync)
+    for run in expand(REPO / "configs" / "campaign" / PAPER_ARMS):
+        assert sync.family(run) == run.tag.split("_")[0], run.tag
 
 
 def test_no_capacity_run_name_can_collide_with_any_other_grid():

@@ -712,6 +712,35 @@ def test_eval_postflight_wants_the_per_backbone_json(tmp_path):
     assert C.eval_postflight(cfg, "run_a", root).ok
 
 
+def test_eval_postflight_wants_every_configured_transfer_dataset(tmp_path):
+    """F88: every 09-25 transfer evaluation died at its fifth dataset (a purged image folder), left a
+    per-backbone JSON with four of the seven datasets -- which parses -- and the job was logged as done.
+    For an eval config that lists datasets, each one must carry a result."""
+    root = tmp_path / "root"
+    cfg = tmp_path / "transfer.yaml"
+    cfg.write_text(yaml.safe_dump({"output_folder": "logs/eval_x", "datasets": ["dtd", "aircraft", "flowers"],
+                                   "backbones": [{"name": "run_a", "experiment": "lejepa/x"}]}))
+    out = root / "logs" / "eval_x" / "per_backbone"; out.mkdir(parents=True)
+    (out / "run_a.json").write_text(json.dumps({"epoch": 99, "datasets": {"dtd": {"top1": 50.0}, "aircraft": {"top1": 30.0}}}))
+    partial = C.eval_postflight(cfg, "run_a", root)
+    assert not partial.ok and not partial.checks["datasets"][0]
+    assert "flowers" in partial.checks["datasets"][1], "the missing dataset is named"
+    (out / "run_a.json").write_text(json.dumps({"epoch": 99, "datasets": {k: {"top1": 1.0} for k in ["dtd", "aircraft", "flowers"]}}))
+    assert C.eval_postflight(cfg, "run_a", root).ok
+    (out / "run_a.json").write_text(json.dumps({"epoch": 99, "datasets": {k: {"lr": 0.1} for k in ["dtd", "aircraft", "flowers"]}}))
+    assert not C.eval_postflight(cfg, "run_a", root).ok, "an entry without top1 is not a result"
+
+
+def test_eval_postflight_does_not_ask_an_indomain_config_for_datasets(tmp_path):
+    """The in-domain configs list no datasets; their check is unchanged (the result exists and parses)."""
+    root = tmp_path / "root"
+    cfg = eval_config(tmp_path)
+    out = root / "logs" / "eval_x" / "per_backbone"; out.mkdir(parents=True)
+    (out / "run_a.json").write_text(json.dumps({"knn": {"20": {"top1": 50.0}}}))
+    verdict = C.eval_postflight(cfg, "run_a", root)
+    assert verdict.ok and "datasets" not in verdict.checks
+
+
 def calibration_run(tmp_path: Path, *, first: range, second: range, lr_jump: float = 0.0) -> Path:
     root = tmp_path / "calib"
     for version, steps in (("version_0", first), ("version_1", second)):
