@@ -778,7 +778,9 @@ def eval_preflight(config_path: Path, only: str, root: Path) -> Verdict:
 
 
 def eval_postflight(config_path: Path, only: str, root: Path) -> Verdict:
-    """The evaluation's own artifact: the per-backbone JSON exists, parses, and names the backbone."""
+    """The evaluation's own artifact: the per-backbone JSON exists, parses, and -- for a config that lists
+    datasets (transfer) -- carries a result for every one of them (F88: a run that died at its fifth of
+    seven datasets left a JSON that parses, and was logged as done)."""
     import yaml
 
     with open(config_path, encoding="utf-8") as handle:
@@ -794,6 +796,13 @@ def eval_postflight(config_path: Path, only: str, root: Path) -> Verdict:
             checks["parses"] = (isinstance(payload, dict) and bool(payload), f"{len(payload)} top-level keys")
         except ValueError as error:
             checks["parses"] = (False, str(error))
+            payload = None
+        wanted = cfg.get("datasets")
+        if wanted and isinstance(payload, dict):
+            got = payload.get("datasets") or {}
+            missing = [d for d in wanted if not (isinstance(got.get(d), dict) and "top1" in got[d])]
+            checks["datasets"] = (not missing, f"{len(wanted) - len(missing)}/{len(wanted)} with a result"
+                                  + (f"; missing {', '.join(missing)}" if missing else ""))
     return Verdict(checks)
 
 

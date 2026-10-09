@@ -555,8 +555,8 @@ MUTANTS: list[Mutant] = [
            "    pass",
            "a strict result fills an eval-selected cell (or the reverse) and the table is mislabelled"),
     Mutant("dynamic-k-clamp", "src/callbacks/dynamic_num_clusters.py",
-           "k = min(self.end, self.start + moved) if self.end >= self.start else max(self.end, self.start - moved)",
-           "k = self.start + moved if self.end >= self.start else self.start - moved",
+           "return min(self.end, self.start + moved) if self.end >= self.start else max(self.end, self.start - moved)",
+           "return self.start + moved if self.end >= self.start else self.start - moved",
            "the k schedule is never clamped at its endpoint"),
     # --- docs that must keep matching the code (D0.cold-P2-3, P3-4, P3-5) ---
     Mutant("readme-stale-project-name", "README.md",
@@ -578,6 +578,37 @@ MUTANTS: list[Mutant] = [
            "    if not accs:\n        return None",
            '    accs = [s[METRIC_KEYS[metric]] or s["final_probe_acc"] for s in summaries]',
            "a cell that was trained but never evaluated reports its ONLINE accuracy in a post-hoc table"),
+    # --- decision 32: the rebuttal's re-runs (F87, F88 and the paper_arms_in1k manifest) ---
+    Mutant("rebuttal-f87-resumed-epoch-not-bound", "src/callbacks/dynamic_num_clusters.py",
+           "        pl_module.reg_loss = partial(pl_module.reg_loss, num_clusters=k)\n        print(f\"DynamicNumClusters: K={k} at train start",
+           "        print(f\"DynamicNumClusters: K={k} at train start",
+           "a run resumed mid-epoch after a wall trains the rest of that epoch at the config's K, not the schedule's"),
+    Mutant("rebuttal-f88-transfer-postflight-ignores-datasets", "scripts/aicr/campaign.py",
+           '            missing = [d for d in wanted if not (isinstance(got.get(d), dict) and "top1" in got[d])]',
+           "            missing = []",
+           "a transfer evaluation that died at its fifth of seven datasets passes its postflight again"),
+    Mutant("rebuttal-paper-k2-axis", "configs/campaign/paper_arms_in1k.yaml",
+           "  - tag: hvit_local\n    experiment: lejepa/hvit_in1k_localballreg_l01_k4\n"
+           "    axes: {model.lamb: [0.1, 0.3], model.reg_loss.num_clusters: [2]}",
+           "  - tag: hvit_local\n    experiment: lejepa/hvit_in1k_localballreg_l01_k4\n"
+           "    axes: {model.lamb: [0.1, 0.3], model.reg_loss.num_clusters: [4]}",
+           "the paper's K=2 rows silently train at K=4"),
+    Mutant("rebuttal-paper-local-control-centred", "configs/campaign/paper_arms_in1k.yaml",
+           "    experiment: lejepa/hvit_in1k_localsigreg_l01_k4\n    axes: {model.lamb: [0.1], model.reg_loss.num_clusters: [4]}\n"
+           "    overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1}",
+           "    experiment: lejepa/hvit_in1k_localsigreg_l01_k4\n    axes: {model.lamb: [0.1], model.reg_loss.num_clusters: [4]}\n"
+           "    overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1, model.reg_loss.loss.center: true}",
+           "the paper's uncentred local control is centred, so its row is no longer the paper's control"),
+    Mutant("rebuttal-smoke-dynk-ramp-uncompressed", "configs/campaign/smoke_4gpu.yaml",
+           "+trainer.limit_train_batches: 20, callbacks.dynamic_num_clusters.step_epochs: 1, ++callbacks.dynamic_num_clusters.step: 9}}\n"
+           "  - {tag: smoke_d4rn50_in1k_dynk,",
+           "+trainer.limit_train_batches: 20, callbacks.dynamic_num_clusters.step_epochs: 1}}\n"
+           "  - {tag: smoke_d4rn50_in1k_dynk,",
+           "the H-ViT dynamic-K smoke cell never reaches K=10, so the wave's endpoint is unrehearsed (F58)"),
+    Mutant("rebuttal-paper-arms-not-synced", "scripts/aicr/sync_eval_configs.py",
+           '"seeds_vit_in1k.yaml", "local_gaussian_in1k.yaml", "paper_arms_in1k.yaml"]',
+           '"seeds_vit_in1k.yaml", "local_gaussian_in1k.yaml"]',
+           "the eight re-run arms are named by no eval config -- a silently dropped row (F71)"),
 ]
 
 

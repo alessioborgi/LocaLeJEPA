@@ -156,6 +156,30 @@ backbones:
   - name: vit_localgauss_lam0.1_k4_s0
     experiment: lejepa/vit_in1k_localballreg_l01_k4
     checkpoint: checkpoints/vit_localgauss_lam0.1_k4_s0/last.ckpt
+  - name: d4rn50_dynk_lam0.1_s0
+    experiment: lejepa/d4rn50_in1k_localballreg_l01_dynk
+    checkpoint: checkpoints/d4rn50_dynk_lam0.1_s0/last.ckpt
+  - name: d4rn50_localsigreg_lam0.1_k4_s0
+    experiment: lejepa/d4rn50_in1k_localsigreg_l01_k4
+    checkpoint: checkpoints/d4rn50_localsigreg_lam0.1_k4_s0/last.ckpt
+  - name: d4rn50_local_lam0.1_k2_s0
+    experiment: lejepa/d4rn50_in1k_localballreg_l01_k4
+    checkpoint: checkpoints/d4rn50_local_lam0.1_k2_s0/last.ckpt
+  - name: d4rn50_local_lam0.3_k2_s0
+    experiment: lejepa/d4rn50_in1k_localballreg_l01_k4
+    checkpoint: checkpoints/d4rn50_local_lam0.3_k2_s0/last.ckpt
+  - name: hvit_dynk_lam0.1_s0
+    experiment: lejepa/hvit_in1k_localballreg_l01_dynk
+    checkpoint: checkpoints/hvit_dynk_lam0.1_s0/last.ckpt
+  - name: hvit_localsigreg_lam0.1_k4_s0
+    experiment: lejepa/hvit_in1k_localsigreg_l01_k4
+    checkpoint: checkpoints/hvit_localsigreg_lam0.1_k4_s0/last.ckpt
+  - name: hvit_local_lam0.1_k2_s0
+    experiment: lejepa/hvit_in1k_localballreg_l01_k4
+    checkpoint: checkpoints/hvit_local_lam0.1_k2_s0/last.ckpt
+  - name: hvit_local_lam0.3_k2_s0
+    experiment: lejepa/hvit_in1k_localballreg_l01_k4
+    checkpoint: checkpoints/hvit_local_lam0.3_k2_s0/last.ckpt
   # ---- the online probe's checkpoint (best val/probe_acc): the labelled secondary column ----
   - name: vit_sigreg_s0_best
     experiment: lejepa/vit_in1k_sigreg
@@ -277,3 +301,27 @@ backbones:
   - name: vit_localgauss_lam0.1_k4_s0_best
     experiment: lejepa/vit_in1k_localballreg_l01_k4
     checkpoint: checkpoints/vit_localgauss_lam0.1_k4_s0/best.ckpt
+  - name: d4rn50_dynk_lam0.1_s0_best
+    experiment: lejepa/d4rn50_in1k_localballreg_l01_dynk
+    checkpoint: checkpoints/d4rn50_dynk_lam0.1_s0/best.ckpt
+  - name: d4rn50_localsigreg_lam0.1_k4_s0_best
+    experiment: lejepa/d4rn50_in1k_localsigreg_l01_k4
+    checkpoint: checkpoints/d4rn50_localsigreg_lam0.1_k4_s0/best.ckpt
+  - name: d4rn50_local_lam0.1_k2_s0_best
+    experiment: lejepa/d4rn50_in1k_localballreg_l01_k4
+    checkpoint: checkpoints/d4rn50_local_lam0.1_k2_s0/best.ckpt
+  - name: d4rn50_local_lam0.3_k2_s0_best
+    experiment: lejepa/d4rn50_in1k_localballreg_l01_k4
+    checkpoint: checkpoints/d4rn50_local_lam0.3_k2_s0/best.ckpt
+  - name: hvit_dynk_lam0.1_s0_best
+    experiment: lejepa/hvit_in1k_localballreg_l01_dynk
+    checkpoint: checkpoints/hvit_dynk_lam0.1_s0/best.ckpt
+  - name: hvit_localsigreg_lam0.1_k4_s0_best
+    experiment: lejepa/hvit_in1k_localsigreg_l01_k4
+    checkpoint: checkpoints/hvit_localsigreg_lam0.1_k4_s0/best.ckpt
+  - name: hvit_local_lam0.1_k2_s0_best
+    experiment: lejepa/hvit_in1k_localballreg_l01_k4
+    checkpoint: checkpoints/hvit_local_lam0.1_k2_s0/best.ckpt
+  - name: hvit_local_lam0.3_k2_s0_best
+    experiment: lejepa/hvit_in1k_localballreg_l01_k4
+    checkpoint: checkpoints/hvit_local_lam0.3_k2_s0/best.ckpt

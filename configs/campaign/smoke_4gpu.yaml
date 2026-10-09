@@ -38,3 +38,12 @@ blocks:
   # never at K=4 with centring. The cell must swap the reg_loss group AND centre, or it rehearses the local ball
   # again or an uncentred loss the run never takes (F58); a test pins both.
   - {tag: smoke_vit_in1k_localgauss, experiment: lejepa/vit_in1k_localballreg_l01_k4, overrides: {logger: csv, trainer.max_epochs: 2, data.batch_size: 256, trainer.accumulate_grad_batches: 1, +trainer.limit_train_batches: 20, model/reg_loss: locale_sigreg, model.reg_loss.loss.center: true}}
+  # The rebuttal's arms (decision 32, paper_arms_in1k). APPENDED so indices 0-11 do not move. Dynamic K has never
+  # run at ImageNet scale under 4-GPU DDP (only the Imagenette grids), and the uncentred local SIGReg never in this
+  # pipeline at ImageNet scale. The dynamic-K cells compress the ramp (step_epochs 1, step 9) so the 2-epoch smoke
+  # reaches the production endpoint K=10 -- at step_epochs 10 it would rehearse K=1 only (F58). `step` takes `++`:
+  # the calibrate callbacks group has no `step` key, so a plain override would not compose there. Tests pin both.
+  - {tag: smoke_hvit_in1k_dynk,          experiment: lejepa/hvit_in1k_localballreg_l01_dynk,   overrides: {logger: csv, trainer.max_epochs: 2, data.batch_size: 256, trainer.accumulate_grad_batches: 1, +trainer.limit_train_batches: 20, callbacks.dynamic_num_clusters.step_epochs: 1, ++callbacks.dynamic_num_clusters.step: 9}}
+  - {tag: smoke_d4rn50_in1k_dynk,        experiment: lejepa/d4rn50_in1k_localballreg_l01_dynk, overrides: {logger: csv, trainer.max_epochs: 2, data.batch_size: 256, trainer.accumulate_grad_batches: 1, +trainer.limit_train_batches: 20, callbacks.dynamic_num_clusters.step_epochs: 1, ++callbacks.dynamic_num_clusters.step: 9}}
+  - {tag: smoke_hvit_in1k_localsigreg,   experiment: lejepa/hvit_in1k_localsigreg_l01_k4,      overrides: {logger: csv, trainer.max_epochs: 2, data.batch_size: 256, trainer.accumulate_grad_batches: 1, +trainer.limit_train_batches: 20}}
+  - {tag: smoke_d4rn50_in1k_localsigreg, experiment: lejepa/d4rn50_in1k_localsigreg_l01_k4,    overrides: {logger: csv, trainer.max_epochs: 2, data.batch_size: 256, trainer.accumulate_grad_batches: 1, +trainer.limit_train_batches: 20}}

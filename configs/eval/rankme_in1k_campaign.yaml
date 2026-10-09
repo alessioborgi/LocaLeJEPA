@@ -180,3 +180,35 @@ backbones:
     experiment: lejepa/vit_in1k_localballreg_l01_k4
     family: vit
     checkpoint: checkpoints/vit_localgauss_lam0.1_k4_s0/last.ckpt
+  - name: d4rn50_dynk_lam0.1_s0
+    experiment: lejepa/d4rn50_in1k_localballreg_l01_dynk
+    family: d4rn50
+    checkpoint: checkpoints/d4rn50_dynk_lam0.1_s0/last.ckpt
+  - name: d4rn50_localsigreg_lam0.1_k4_s0
+    experiment: lejepa/d4rn50_in1k_localsigreg_l01_k4
+    family: d4rn50
+    checkpoint: checkpoints/d4rn50_localsigreg_lam0.1_k4_s0/last.ckpt
+  - name: d4rn50_local_lam0.1_k2_s0
+    experiment: lejepa/d4rn50_in1k_localballreg_l01_k4
+    family: d4rn50
+    checkpoint: checkpoints/d4rn50_local_lam0.1_k2_s0/last.ckpt
+  - name: d4rn50_local_lam0.3_k2_s0
+    experiment: lejepa/d4rn50_in1k_localballreg_l01_k4
+    family: d4rn50
+    checkpoint: checkpoints/d4rn50_local_lam0.3_k2_s0/last.ckpt
+  - name: hvit_dynk_lam0.1_s0
+    experiment: lejepa/hvit_in1k_localballreg_l01_dynk
+    family: hvit
+    checkpoint: checkpoints/hvit_dynk_lam0.1_s0/last.ckpt
+  - name: hvit_localsigreg_lam0.1_k4_s0
+    experiment: lejepa/hvit_in1k_localsigreg_l01_k4
+    family: hvit
+    checkpoint: checkpoints/hvit_localsigreg_lam0.1_k4_s0/last.ckpt
+  - name: hvit_local_lam0.1_k2_s0
+    experiment: lejepa/hvit_in1k_localballreg_l01_k4
+    family: hvit
+    checkpoint: checkpoints/hvit_local_lam0.1_k2_s0/last.ckpt
+  - name: hvit_local_lam0.3_k2_s0
+    experiment: lejepa/hvit_in1k_localballreg_l01_k4
+    family: hvit
+    checkpoint: checkpoints/hvit_local_lam0.3_k2_s0/last.ckpt

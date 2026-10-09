@@ -24,8 +24,23 @@ class DynamicNumClusters(Callback):
         self.step_epochs = step_epochs
         self.step = step
 
+    def k(self, epoch: int) -> int:
+        """The neighborhood count in force during ``epoch``."""
+        moved = self.step * (epoch // self.step_epochs)
+        return min(self.end, self.start + moved) if self.end >= self.start else max(self.end, self.start - moved)
+
+    def on_train_start(self, trainer: Trainer, pl_module: LightningModule) -> None:
+        # F87: Lightning skips on_train_epoch_start for an epoch it resumes in the middle of, and the
+        # launcher resumes mid-epoch after every wall; without this the rest of that epoch would train at
+        # the freshly built module's K (the config's num_clusters), not the schedule's. Not logged here:
+        # the epoch-start hook logs K, and this hook runs before any training step. Printed instead, so a
+        # successor's job log shows the K its resumed epoch trains at: train/num_clusters gets no row for
+        # that epoch (the regularizer's per-step train/local/configured_clusters does record it).
+        k = self.k(trainer.current_epoch)
+        pl_module.reg_loss = partial(pl_module.reg_loss, num_clusters=k)
+        print(f"DynamicNumClusters: K={k} at train start (epoch {trainer.current_epoch})", flush=True)
+
     def on_train_epoch_start(self, trainer: Trainer, pl_module: LightningModule) -> None:
-        moved = self.step * (trainer.current_epoch // self.step_epochs)
-        k = min(self.end, self.start + moved) if self.end >= self.start else max(self.end, self.start - moved)
+        k = self.k(trainer.current_epoch)
         pl_module.reg_loss = partial(pl_module.reg_loss, num_clusters=k)
         pl_module.log("train/num_clusters", float(k), sync_dist=True, on_epoch=True)

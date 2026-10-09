@@ -69,6 +69,24 @@ def test_step_larger_than_one_moves_faster():
     assert advance(callback, FakeModule(), 20) == 9
 
 
+def test_train_start_binds_the_resumed_epochs_k_without_logging(capsys):
+    """F87: a run resumed in the middle of epoch 85 never sees on_train_epoch_start for that epoch, so
+    on_train_start binds the schedule's K for the resumed epoch (here 1 + 85 // 10 = 9 on the paper's
+    1 -> 10 every-10-epochs ramp) -- and logs nothing, since no training step has run yet. It prints the
+    K instead: the job log is the only record of the K a resumed epoch trains at."""
+    module = FakeModule()
+    DynamicNumClusters(start=1, end=10, step_epochs=10, step=1).on_train_start(FakeTrainer(85), module)
+    assert module.effective_k() == 9
+    assert module.logged == {}
+    assert "DynamicNumClusters: K=9 at train start (epoch 85)" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("epoch, expected", [(0, 1), (9, 1), (10, 2), (89, 9), (90, 10), (99, 10)])
+def test_the_papers_imagenet_ramp(epoch, expected):
+    """K_max=10, E_step=10 (App. C): K=1 for epochs 0-9, +1 every ten epochs, K=10 from epoch 90."""
+    assert DynamicNumClusters(start=1, end=10, step_epochs=10, step=1).k(epoch) == expected
+
+
 def test_k_is_logged_for_the_run_record():
     """The k actually in force is logged, which is the only runtime record of it -- there is no
     other report of the effective cluster count."""

@@ -259,3 +259,15 @@ def test_only_runs_that_NEED_an_override_carry_one():
             if entry.get("overrides") and base not in wanted:
                 offenders.append((rel, entry["name"], entry["overrides"]))
     assert not offenders, f"entries carrying overrides their run does not need: {offenders}"
+
+
+def test_the_paper_arms_are_named_by_the_indomain_and_transfer_configs():
+    """Decision 32 (positive coverage, F71): the eight re-run paper arms must reach the rebuttal tables, so
+    each is named by the in-domain config with its `_best` twin and by the transfer config. Listing the
+    manifest in IN1K_128 is what does it; dropping it from the list fails this with the eight names."""
+    runs = {r.run_name for r in C.expand(C.load_manifest(REPO / "configs/campaign/paper_arms_in1k.yaml"))}
+    assert len(runs) == 8
+    indomain = {e["name"] for e in yaml.safe_load(RENDERED["configs/eval/indomain_in1k_campaign.yaml"])["backbones"]}
+    transfer = {e["name"] for e in yaml.safe_load(RENDERED["configs/eval/transfer_in1k_campaign.yaml"])["backbones"]}
+    assert runs <= indomain and {f"{r}_best" for r in runs} <= indomain, sorted(runs - indomain)
+    assert runs <= transfer, sorted(runs - transfer)
