@@ -66,7 +66,7 @@ FAMILIES = {
     "vit": r"Plain ViT-S/8 (Euclidean, 21.7M)",
     "hvit": r"Hyperbolic ViT-S/8 (Poincar\'e ball, 21.7M)",
     "d4rn50": r"$D_4$-equivariant ResNet-50 (24.4M)",
-    "vitl14": r"Plain ViT-L/14 (Euclidean, 303.2M; LeJEPA's ViT-L settings)",
+    "vitl14": r"Plain ViT-L/14 (Euclidean, 303.2M, LeJEPA's ViT-L settings)",
 }
 
 # arm -> (row label, run-name template). The 128 px arms; ViT-L has its own three below.
@@ -120,10 +120,10 @@ TABLES = {
         "colspec": "l cc c c", "size": r"\tiny", "tabcolsep": "4pt",
         "caption": (r"\emph{ImageNet-1K Frozen-feature Evaluation across Representation Geometries.} "
                     r"ImageNet classification and seven-dataset transfer for the Euclidean, hyperbolic and "
-                    r"$D_4$-equivariant encoders at 128 px, and ViT-L/14 at 238 px. Final-epoch checkpoints; one "
-                    r"linear-probe seed, learning rate selected on a held-out slice of the training set. "
-                    r"ViT-S/8 rows other than RDMReg are mean $\pm$ SD over three pretraining seeds; all other rows "
-                    r"are single runs. \emph{LeJEPA} uses LeJEPA's published settings; \emph{LeJEPA (our settings)} "
+                    r"$D_4$-equivariant encoders at 128 px, and ViT-L/14 at 238 px. Final-epoch checkpoints and one "
+                    r"linear-probe seed, with the learning rate selected on a held-out slice of the training set. "
+                    r"ViT-S/8 rows other than RDMReg are mean $\pm$ SD over three pretraining seeds, and all other rows "
+                    r"are single runs. \emph{LeJEPA} uses LeJEPA's published settings, and \emph{LeJEPA (our settings)} "
                     r"uses the optimization settings of LocaLeJEPA. Full sweeps in \Cref{tab:in1k-indomain-full}. "
                     r"\textbf{Bold} denotes the best result within each encoder family and metric."),
     },
@@ -133,8 +133,9 @@ TABLES = {
         "head": ["Method & " + " & ".join(DATASET_LABEL[d] for d in DATASETS) + r" & Avg \\"],
         "colspec": "l ccccccc c", "size": r"\small", "tabcolsep": "4pt",
         "caption": (r"\emph{Linear Transfer across Seven Downstream Datasets.} "
-                    r"Frozen-feature top-1 accuracy (\%); \emph{Avg} is the unweighted mean. One linear-probe seed. "
-                    r"ViT-S/8 rows are mean $\pm$ SD over three pretraining seeds; all other rows are single runs. "
+                    r"Frozen-feature top-1 accuracy (\%), where \emph{Avg} is the unweighted mean. One linear-probe "
+                    r"seed. ViT-S/8 rows are mean $\pm$ SD over three pretraining seeds, and all other rows are single "
+                    r"runs. "
                     r"\textbf{Bold} denotes the best mean within each encoder family and column."),
     },
     "tab_in1k_indomain_full": {
@@ -147,8 +148,8 @@ TABLES = {
         "colspec": "l cccc cc", "size": r"\small", "tabcolsep": "4pt",
         "caption": (r"\emph{ImageNet-1K Frozen-feature Classification across All Configurations.} "
                     r"Top-1 $k$-NN and linear-probe accuracy (\%) on the ImageNet-1K validation set using the "
-                    r"final-epoch checkpoints; one linear-probe seed. ViT-S/8 rows other than RDMReg are mean $\pm$ SD "
-                    r"over three pretraining seeds; all other rows are single runs. "
+                    r"final-epoch checkpoints and one linear-probe seed. ViT-S/8 rows other than RDMReg are mean "
+                    r"$\pm$ SD over three pretraining seeds, and all other rows are single runs. "
                     r"\textbf{Bold} denotes the best mean within each encoder family."),
     },
     "tab_in1k_transfer_full": {
@@ -158,8 +159,8 @@ TABLES = {
         "colspec": "l ccccccc c", "size": r"\small", "tabcolsep": "3pt",
         "caption": (r"\emph{Transfer Linear Probing across All Configurations.} "
                     r"Top-1 accuracy (\%) on the official test splits of seven downstream datasets using frozen "
-                    r"final-epoch ImageNet-1K representations; one linear-probe seed. ViT-S/8 rows other than RDMReg "
-                    r"are mean $\pm$ SD over three pretraining seeds; all other rows are single runs. "
+                    r"final-epoch ImageNet-1K representations and one linear-probe seed. ViT-S/8 rows other than "
+                    r"RDMReg are mean $\pm$ SD over three pretraining seeds, and all other rows are single runs. "
                     r"\textbf{Bold} marks the best mean within each encoder family and column."),
     },
 }
@@ -519,8 +520,8 @@ def build_k_axis(im: Imagenette) -> tuple[str, dict]:
     marker_acc, marker_khat = f"% row:{name}/acc", f"% row:{name}/khat"
     tex = [r"\begin{table}[htbp]", r"\revstart", r"\centering",
            r"\caption{\textit{Neighborhood-count ablation on Imagenette, 800 epochs, $B=256\times1$, $\lambda=0.1$.} "
-           r"Final-epoch online linear-probe accuracy (\%): mean $\pm$ SD over three pretraining seeds; $\hat K$ is the "
-           r"realized number of neighborhoods (mean of the last ten epochs, averaged over seeds).}",
+           r"Final-epoch online linear-probe accuracy (\%): mean $\pm$ SD over three pretraining seeds. The row "
+           r"$\hat K$ gives the realized number of neighborhoods (mean of the last ten epochs, averaged over seeds).}",
            r"\label{tab:k-ablation-online}", r"\small", r"\setlength{\tabcolsep}{4pt}",
            r"\begin{tabular}{l" + "c" * len(K_AXIS) + "}", r"\toprule",
            r"$\lambda$ & " + " & ".join(f"$K={k}$" for k in K_AXIS) + r" \\", r"\midrule",
@@ -565,8 +566,9 @@ def build_bands(im: Imagenette) -> tuple[str, dict]:
     tex = [r"\begin{table}[htbp]", r"\revstart", r"\centering",
            r"\caption{\textit{Effective regularization strength orders the Imagenette grid (800 epochs, both per-step "
            r"batches).} Each cell of the $(B, \lambda, K)$ grid (three pretraining seeds) is placed by its effective "
-           r"strength $\lambda N/K$, with $N$ the per-step batch; per band, the number of cells and the minimum / median "
-           r"/ maximum of the cell means (\%), on the final-epoch online probe and on the post-hoc linear probe.}",
+           r"strength $\lambda N/K$, with $N$ the per-step batch. For each band, the table gives the number of cells and "
+           r"the minimum / median / maximum of the cell means (\%), on the final-epoch online probe and on the post-hoc "
+           r"linear probe.}",
            r"\label{tab:strength-bands}", r"\small", r"\setlength{\tabcolsep}{3pt}",
            r"\resizebox{\linewidth}{!}{\begin{tabular}{l l c ccc ccc}", r"\toprule",
            r" & & & \multicolumn{3}{c}{Online probe (\%)} & \multicolumn{3}{c}{Linear probe (\%)} \\",
