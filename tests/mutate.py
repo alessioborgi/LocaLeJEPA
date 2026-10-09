@@ -646,6 +646,14 @@ MUTANTS: list[Mutant] = [
            '        if claimed != truth:',
            '        if False:',
            'a band that leaves out a cell of the grid passes the audit'),
+    Mutant('rebuttal-tables-depth-grouping-vs-k1', 'scripts/make_rebuttal_tables.py',
+           '            for step, value in (("grouping", v["k4"] - v["k1_quarter"]), ("strength", v["k1_quarter"] - v["k1"]),',
+           '            for step, value in (("grouping", v["k4"] - v["k1"]), ("strength", v["k1_quarter"] - v["k1"]),',
+           "the depth table's grouping step silently includes the strength step"),
+    Mutant('rebuttal-tables-seedmin-is-max', 'scripts/make_rebuttal_tables.py',
+           '                        "value": min(per_seed), "per_seed": per_seed, "rendered_1dp": f"{min(per_seed):+.1f}",',
+           '                        "value": max(per_seed), "per_seed": per_seed, "rendered_1dp": f"{max(per_seed):+.1f}",',
+           "'positive on every seed' would be read off the LARGEST per-seed difference"),
 ]
 
 

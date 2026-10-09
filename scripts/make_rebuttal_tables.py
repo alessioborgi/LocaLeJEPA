@@ -599,6 +599,8 @@ DIFFS = [  # (key, minuend arm, subtrahend arm, families, definition)
      "LocaLeJEPA K=4 minus LocaLeJEPA-SIGReg (same neighbourhoods; the centred ball target vs the uncentred Gaussian)"),
     ("k2_vs_k4", "k2", "k4", ("hvit", "d4rn50"), "K=2 minus K=4, both at lambda 0.1"),
     ("k2l03_vs_k2", "k2_l03", "k2", ("hvit", "d4rn50"), "K=2 at lambda 0.3 minus K=2 at lambda 0.1"),
+    ("lejepa_over_rdmreg", "lejepa", "rdmreg", ("vit", "hvit", "d4rn50"),
+     "LeJEPA minus RDMReg, both at LeJEPA's published settings (ViT-S: LeJEPA over 3 seeds, RDMReg seed 0)"),
 ]
 RULERS = {"knn20": ("indomain", "knn.20.top1"), "linear": ("indomain", "linear.top1"), "transfer": ("transfer", "avg")}
 
@@ -629,6 +631,158 @@ def text_numbers(src: Source) -> dict:
                                                                  if n == 3 else "single runs"),
                     "value": value, "rendered_1dp": f"{value:+.1f}", "rendered_2dp": f"{value:+.2f}",
                     "minuend": run_names(family, a), "subtrahend": run_names(family, b)}
+                if n == 3 and len(run_names(family, b)) == 3:
+                    per_seed = [field_value(src.load(kind, family, ra)[0], field) - field_value(src.load(kind, family, rb)[0], field)
+                                for ra, rb in zip(run_names(family, a), run_names(family, b))]
+                    out[f"{key}_seedmin/{family}/{ruler}"] = {
+                        "definition": definition + f"; {ruler}; the SMALLEST of the three per-seed differences (seed s minus seed s)",
+                        "value": min(per_seed), "per_seed": per_seed, "rendered_1dp": f"{min(per_seed):+.1f}",
+                        "rendered_2dp": f"{min(per_seed):+.2f}"}
+    out.update(depth_numbers(src))
+    out.update(knn_k_numbers(src))
+    out.update(transfer_detail_numbers(src))
+    return out
+
+
+def _value_entry(definition: str, value: float, signed: bool) -> dict:
+    fmt1, fmt2 = ("{:+.1f}", "{:+.2f}") if signed else ("{:.1f}", "{:.2f}")
+    return {"definition": definition, "value": value, "rendered_1dp": fmt1.format(value), "rendered_2dp": fmt2.format(value)}
+
+
+def depth_numbers(src: Source) -> dict:
+    """The depth study's steps, seed 0 at every depth (depth 12 included, so the three depths compare like for like):
+    grouping = K=4 minus K=1 at lambda/4; strength = K=1 at lambda/4 minus K=1; locality = K=4 minus K=1."""
+    out = {}
+    for depth in DEPTHS:
+        got = {}
+        for arm, (_, runs) in DEPTH_ARMS.items():
+            entry, _ = src.load("indomain", "vit", runs[depth])
+            got[arm] = entry
+        if None in got.values():
+            continue
+        for ruler, field in (("knn20", "knn.20.top1"), ("linear", "linear.top1")):
+            v = {arm: field_value(e, field) for arm, e in got.items()}
+            for step, value in (("grouping", v["k4"] - v["k1_quarter"]), ("strength", v["k1_quarter"] - v["k1"]),
+                                ("locality", v["k4"] - v["k1"])):
+                out[f"depth_{step}/d{depth}/{ruler}"] = _value_entry(
+                    f"ViT-S/8 at depth {depth}, seed 0: the {step} step; {ruler}", value, signed=True)
+    return out
+
+
+def knn_k_numbers(src: Source) -> dict:
+    """App C's claim about the k of k-NN, over every row of tab:in1k-indomain-full: the largest gap between the best k
+    and k=20 (row means), and whether the ordering of a family's rows is the same at every k."""
+    out, gaps, same = {}, [], {}
+    ks = (10, 20, 100, 200)
+    for family, arms in FULL_ROWS.items():
+        means = {}
+        for arm in arms:
+            vals = {k: [] for k in ks}
+            for run in run_names(family, arm):
+                entry, _ = src.load("indomain", family, run)
+                if entry is None:
+                    vals = None
+                    break
+                for k in ks:
+                    vals[k].append(field_value(entry, f"knn.{k}.top1"))
+            if vals:
+                means[arm] = {k: statistics.fmean(v) for k, v in vals.items()}
+        for arm, m in means.items():
+            gaps.append(max(m.values()) - m[20])
+        if len(means) > 1:
+            orders = {tuple(sorted(means, key=lambda a: -means[a][k])) for k in ks}
+            same[family] = len(orders) == 1
+    if gaps:
+        out["knn_k20_maxgap/all/knn"] = _value_entry("over every row of tab:in1k-indomain-full with data: the largest "
+                                                     "(best-k minus k=20) k-NN top-1 gap", max(gaps), signed=False)
+    for family, ok in same.items():
+        out[f"knn_order_same/{family}/knn"] = {"definition": f"{family}: the rows' k-NN ordering is identical at k = 10, 20, "
+                                               "100 and 200 (1 = yes)", "value": float(ok), "rendered_1dp": str(int(ok)),
+                                               "rendered_2dp": str(int(ok))}
+    return out
+
+
+def transfer_detail_numbers(src: Source) -> dict:
+    """Per dataset, LocaLeJEPA K=4 minus each LeJEPA arm; and how many of the seven it wins (mean > mean)."""
+    out = {}
+    for family in ("vit", "hvit", "d4rn50", "vitl14"):
+        for vs in ("lejepa", "ours"):
+            if family == "vitl14" and vs == "ours":
+                continue
+            per = {}
+            for arm in ("k4", vs):
+                rows = []
+                for run in run_names(family, arm):
+                    entry, _ = src.load("transfer", family, run)
+                    if entry is None:
+                        rows = None
+                        break
+                    rows.append(entry)
+                per[arm] = rows
+            if not per["k4"] or not per[vs]:
+                continue
+            wins = 0
+            for d in DATASETS:
+                diff = (statistics.fmean(field_value(e, f"datasets.{d}.top1") for e in per["k4"])
+                        - statistics.fmean(field_value(e, f"datasets.{d}.top1") for e in per[vs]))
+                wins += diff > 0
+                out[f"transfer_k4_vs_{vs}/{family}/{d}"] = _value_entry(
+                    f"{family}: LocaLeJEPA K=4 minus {vs} on {d} (top-1)", diff, signed=True)
+            out[f"transfer_wins_vs_{vs}/{family}/count"] = {
+                "definition": f"{family}: datasets (of 7) where LocaLeJEPA K=4's mean beats {vs}'s", "value": float(wins),
+                "rendered_1dp": str(wins), "rendered_2dp": str(wins)}
+    return out
+
+
+def vitl_matched_numbers(root: Path, src: Source) -> dict:
+    """ViT-L/14's strength-matched control (K=1 at lambda 0.0125) -- not a table row, it trained unstably: its final strict
+    k-NN / linear, and every ViT-L arm's online probe at epoch index 5 (the sixth epoch) and at the last epoch."""
+    out = {}
+    entry, _ = src.load("indomain", "vitl14", "vitl14_strmatch_lam0.0125_k1_s0")
+    if entry is not None:
+        for ruler, field in (("knn20", "knn.20.top1"), ("linear", "linear.top1")):
+            out[f"vitl14_matched/value/{ruler}"] = _value_entry(
+                f"ViT-L/14, K=1 at lambda 0.0125 (strength-matched to K=4): final strict {ruler}", field_value(entry, field),
+                signed=False)
+    for name, tag in (("vitl14_strmatch_lam0.0125_k1_s0", "matched"), ("vitl14_sigreg_s0", "lejepa"),
+                      ("vitl14_globalball_k1_s0", "k1"), ("vitl14_local_k4_s0", "k4")):
+        csv_dir = root / "logs" / "train" / "runs" / name / "csv"
+        if not C.metrics_versions(csv_dir):
+            continue
+        _, rows = C.merged_metrics_rows(csv_dir)
+        acc = {}
+        for row in rows:
+            if row.get("val/probe_acc") not in ("", None) and row.get("epoch") not in ("", None):
+                acc[int(float(row["epoch"]))] = 100.0 * float(row["val/probe_acc"])
+        if 5 in acc:
+            out[f"vitl14_online/{tag}/ep5"] = _value_entry(f"ViT-L/14 {tag}: online probe top-1 (%) at epoch index 5",
+                                                           acc[5], signed=False)
+        if acc:
+            out[f"vitl14_online/{tag}/last"] = _value_entry(f"ViT-L/14 {tag}: online probe top-1 (%) at its last epoch "
+                                                            f"({max(acc)})", acc[max(acc)], signed=False)
+    return out
+
+
+def imagenette_tie_numbers(im: "Imagenette") -> dict:
+    """With lambda chosen per K (the best cell mean over lambda), the best K>1 minus K=1, per batch and ruler."""
+    out = {}
+    keyed = im.cells()
+    for b in (64, 256):
+        for ruler in ("online", "linear"):
+            best = {}
+            for (bb, lam, k), runs in keyed.items():
+                if bb != b or not all(r in im.summary for r in runs):
+                    continue
+                m = statistics.fmean(im.value(r, ruler) for r in runs)
+                best[k] = max(best.get(k, -1.0), m)
+            if 1 in best and len(best) > 1:
+                top_k = max((k for k in best if k > 1), key=lambda k: best[k])
+                out[f"imagenette_bestk_minus_k1/b{b}/{ruler}"] = _value_entry(
+                    f"Imagenette 800 ep, B={b}: with lambda chosen per K, the best K>1 (K={top_k}) minus K=1; {ruler}",
+                    best[top_k] - best[1], signed=True)
+                for k, v in sorted(best.items()):
+                    out[f"imagenette_bestlam/b{b}k{k}/{ruler}"] = _value_entry(
+                        f"Imagenette 800 ep, B={b}, K={k}: best cell mean over lambda; {ruler}", v, signed=False)
     return out
 
 
@@ -645,10 +799,12 @@ def main(argv=None) -> int:
     outputs = {name: build_table(name, spec, src) for name, spec in TABLES.items()}
     outputs["tab_depth"] = build_depth(src)
     numbers = text_numbers(src)
+    numbers.update(vitl_matched_numbers(args.root, src))
     im = Imagenette(args.root) if (args.root / "logs" / "train" / "runs").is_dir() else None
     if im is not None:
         outputs["tab_k_ablation_256"] = build_k_axis(im)
         outputs["tab_strength_bands"] = build_bands(im)
+        numbers.update(imagenette_tie_numbers(im))
     else:
         print(f"Imagenette tables SKIPPED: no logs/train/runs under {args.root}")
 
