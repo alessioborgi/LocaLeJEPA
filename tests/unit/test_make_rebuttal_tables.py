@@ -407,3 +407,75 @@ def test_a_band_with_a_cell_left_out_is_named(audit, im_built):
     key = next(k for k in payload["cells"] if k.endswith("/healthy/cells"))
     payload["cells"][key]["members"] = payload["cells"][key]["members"][1:]
     assert any("not the archive's" in p for p in audit.audit_latex(tex, payload, raw))
+
+
+# --------------------------------------------------------------------------------------------------
+# the numbers the prose quotes beyond the tables (batch 2 of the edit list)
+# --------------------------------------------------------------------------------------------------
+
+def numbers(out: Path) -> dict:
+    return json.loads((out / "text_numbers.json").read_text())
+
+
+def test_the_smallest_per_seed_difference_is_recorded_for_a_three_seed_step(built):
+    out, _ = built
+    n = numbers(out)
+    per_seed = [o - l for (o, _), (l, _) in zip(VIT["control_lam0.1"], VIT["sigreg"])]     # 6.9, 6.0, 5.2
+    assert n["recipe_seedmin/vit/knn20"]["per_seed"] == pytest.approx(per_seed)
+    assert n["recipe_seedmin/vit/knn20"]["value"] == pytest.approx(min(per_seed))
+    assert n["recipe_seedmin/vit/knn20"]["rendered_1dp"] == "+5.2"
+
+
+def test_rdmreg_gap_is_lejepa_minus_rdmreg(built):
+    out, _ = built
+    expected = statistics.fmean(k for k, _ in VIT["sigreg"]) - 12.6
+    assert numbers(out)["lejepa_over_rdmreg/vit/knn20"]["value"] == pytest.approx(expected)
+
+
+def test_the_depth_steps_use_seed_0_at_every_depth(built):
+    out, _ = built
+    n = numbers(out)
+    k1, k1q, k4 = VIT["globalball_lam0.1_k1"][0][0], VIT["strmatch_lam0.025_k1"][0][0], VIT["local_lam0.1_k4"][0][0]
+    assert n["depth_grouping/d12/knn20"]["value"] == pytest.approx(k4 - k1q)
+    assert n["depth_strength/d12/knn20"]["value"] == pytest.approx(k1q - k1)
+    assert n["depth_locality/d12/knn20"]["value"] == pytest.approx(k4 - k1)
+    assert "depth_grouping/d6/knn20" not in n, "no depth-6 run in the fixture: absent, never zero"
+
+
+def test_the_knn_k_claim_reports_the_largest_gap_and_the_ordering(gen, root, tmp_path):
+    # one run whose best k is 10, 0.9 above its k=20
+    e = indomain(50.6, 61.94)
+    e["knn"]["10"]["top1"] = 51.5
+    write(root / IND / "hvit_local_lam0.1_k4_s0.json", e)
+    out = tmp_path / "o"
+    assert gen.main(["--root", str(root), "--out", str(out), "--raw", str(tmp_path / "r")]) == 0
+    n = numbers(out)
+    assert n["knn_k20_maxgap/all/knn"]["value"] == pytest.approx(0.9)
+    assert n["knn_order_same/vit/knn"]["value"] == 1.0
+
+
+def test_the_vitl_matched_control_reads_its_values_and_its_early_online_probe(gen, root, tmp_path):
+    write(root / IND_L / "vitl14_strmatch_lam0.0125_k1_s0.json", indomain(25.06, 35.14))
+    metrics_csv(root / "logs/train/runs/vitl14_strmatch_lam0.0125_k1_s0/csv/version_0/metrics.csv", range(0, 100), 0.0027, 1.0)
+    out = tmp_path / "o"
+    assert gen.main(["--root", str(root), "--out", str(out), "--raw", str(tmp_path / "r")]) == 0
+    n = numbers(out)
+    assert n["vitl14_matched/value/linear"]["rendered_2dp"] == "35.14"
+    assert n["vitl14_online/matched/ep5"]["value"] == pytest.approx(0.27)
+
+
+def test_the_imagenette_tie_takes_the_best_lambda_per_k(im_built):
+    out, _ = im_built
+    n = numbers(out)
+    k1 = statistics.fmean([87.4, 87.9, 87.0])
+    assert n["imagenette_bestk_minus_k1/b256/online"]["value"] == pytest.approx(89.6 - k1)
+    assert "imagenette_bestk_minus_k1/b64/online" not in n, "no K=1 cell at B=64 in the fixture"
+
+
+def test_transfer_per_dataset_differences_and_wins(built):
+    out, _ = built
+    n = numbers(out)
+    k4 = statistics.fmean(50.0 + k / 10 + s / 100 for s, (k, _) in enumerate(VIT["local_lam0.1_k4"]))
+    le = statistics.fmean(50.0 + k / 10 + s / 100 for s, (k, _) in enumerate(VIT["sigreg"]))
+    assert n["transfer_k4_vs_lejepa/vit/dtd"]["value"] == pytest.approx(k4 - le)
+    assert n["transfer_wins_vs_lejepa/vit/count"]["value"] == 7.0
