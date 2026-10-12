@@ -88,6 +88,6 @@ per-backbone baselines.
 * `ablations/{batch_k,k_lr,batch_lr}` and the dynamic-k rows `ablations/{batch_dynk,lr_dynk}`:
   the three ablation tables on a common recipe (`ablations/base`: Euclidean ViT-S/8, Imagenette,
   100 epochs, B 256 without accumulation, lr 1e-3 cosine to 1% of the peak, k 4, lambda 0.2);
-  each carries its grid in `hydra.sweeper.params`. See `handoff.md`.
+  each carries its grid in `hydra.sweeper.params`.
 * Radius sweep: `uv run python src/train.py -m experiment=lejepa/vit_imagenette_localballreg_l01_k4 model.reg_loss.loss.radius=0.5,1.0,null model.reg_loss.loss.scale_grid=true`
   (`scale_grid` keeps the test's power the same at every radius; it is a no-op at the default R).

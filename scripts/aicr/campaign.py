@@ -7,7 +7,7 @@
 
 """Every decision the AICR launcher makes, as tested Python. The shell scripts stay thin.
 
-Why a helper and not a smarter shell script: the FASRC launcher (``scripts/slurm_submit.sh``)
+Why a helper and not a smarter shell script: the former FASRC launcher (``scripts/slurm_submit.sh``, since removed)
 resumed on the *existence* of ``last.ckpt``, queued its successor before training started, and
 let that successor revert to the header's one-GPU request (F32, F33). None of that was testable
 and all of it was wrong in a way that looked like success. Here each of those decisions is a
@@ -1211,7 +1211,7 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("calibrate-overrides"); p.add_argument("--max-steps", type=int, required=True); p.add_argument("--interrupt", type=int)
     p = sub.add_parser("submit"); p.add_argument("grid", type=Path); p.add_argument("--partition", required=True)
     p.add_argument("--account", default="dominici_lab_hu"); p.add_argument("--time", required=True)
-    p.add_argument("--script", default="scripts/aicr/slurm_train.sh"); p.add_argument("--log-dir", required=True)
+    p.add_argument("--script", required=True, help="the sbatch script each array task runs"); p.add_argument("--log-dir", required=True)
     p.add_argument("--export", action="append", default=[]); p.add_argument("--throttle", type=int)
     p.add_argument("--gpu-type"); p.add_argument("--cpus-per-gpu", type=int, default=16)
     p.add_argument("--mem-per-gpu-gb", type=int, default=60); p.add_argument("--indices", help="e.g. 0-9,20")
