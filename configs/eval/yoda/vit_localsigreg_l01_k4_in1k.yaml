@@ -1,0 +1,27 @@
+# Yoda (bobblehead) linear-probe eval of the plain ViT-S/8 LeJEPA + vit_localsigreg_l01_k4, ImageNet-1K
+# pretrained backbone (lejepa/vit_in1k_localsigreg_l01_k4). Same probe protocol (full 8097 frames,
+# 60/20/20 split, 10 seeds) as the other eval configs so the numbers drop straight
+# into the comparison tables in report_equivariance.md.
+#
+#   python src/eval_angle_probe.py           --config configs/eval/yoda/vit_localsigreg_l01_k4_in1k.yaml
+#   python src/eval_angle_probe_multiseed.py --config configs/eval/yoda/vit_localsigreg_l01_k4_in1k.yaml --n-seeds 10
+device: null
+crop_size: 128
+data_dir: data
+output_folder: logs/eval_angle_probe_yoda_vit_localsigreg_l01_k4_in1k
+cache_dir: logs/eval_angle_probe_yoda_vit_localsigreg_l01_k4_in1k/cache
+subsample: 1
+max_frames: null
+batch_size: 256
+num_workers: 8
+angle_labels: ["figure 0", "figure 1"]
+backbones:
+  - name: vit_localsigreg_l01_k4_in1k
+    experiment: lejepa/vit_in1k_localsigreg_l01_k4
+    checkpoint: checkpoints/lejepa_vit_in1k_localsigreg_l01_k4/last.ckpt
+probe:
+  test_frac: 0.2
+  val_frac: 0.2
+  ridge_grid: [0.01, 0.1, 1.0, 10.0, 100.0, 1000.0]
+  standardize: true
+  seed: 0

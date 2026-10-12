@@ -41,6 +41,7 @@ from src.eval.extract import load_backbone  # noqa: E402
 from src.eval.indomain import extract_classification_features, get_indomain_splits, subsample_per_class
 from src.eval.knn_probe import weighted_knn
 from src.eval.linear_probe import run_linear_probe
+from src.eval.multiseed import linear_probe_multiseed
 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO, format="%(asctime)s %(message)s")
 logger = logging.getLogger()
@@ -209,8 +210,9 @@ def main(cfg: dict, only: list[str] | None, merge_only: bool = False) -> None:
         for k, metrics in knn.items():
             logger.info("%s: k-NN k=%-3d top-1 = %.2f%%  top-5 = %.2f%%", name, k, metrics["top1"], metrics["top5"])
 
-        linear = run_linear_probe(
+        linear = linear_probe_multiseed(
             X_train, y_train, X_val, y_val, num_classes=num_classes,
+            seeds=int(linear_cfg.get("seeds", 1)), base_seed=int(cfg.get("seed", 0)), tag=name,
             lr_grid=linear_cfg.get("lr_grid", [0.01, 0.03, 0.1, 0.3, 1.0]),
             epochs=int(linear_cfg.get("epochs", 50)),
             batch_size=int(linear_cfg.get("batch_size", 4096)),
@@ -218,7 +220,7 @@ def main(cfg: dict, only: list[str] | None, merge_only: bool = False) -> None:
             momentum=float(linear_cfg.get("momentum", 0.9)),
             standardize=bool(linear_cfg.get("standardize", True)),
             val_frac=float(linear_cfg.get("val_frac", 0.02)),
-            device=device, seed=int(cfg.get("seed", 0)),
+            device=device,
         )
         logger.info(
             "%s: linear top-1 = %.2f%%  top-5 = %.2f%%  (lr=%g, train top-1 = %.2f%%)",

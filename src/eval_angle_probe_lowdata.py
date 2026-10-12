@@ -142,8 +142,18 @@ def main():
                 entry["angles"][f"angle{a}"] = {
                     "r2_mean": float(r2.mean()), "r2_std": float(r2.std(ddof=1)),
                     "mae_mean": float(mae.mean()), "mae_std": float(mae.std(ddof=1)),
+                    "r2_seeds": [float(v) for v in r2], "mae_seeds": [float(v) for v in mae],
                 }
                 row += f"  {r2.mean():.3f}±{r2.std(ddof=1):.3f}  {mae.mean():5.2f}±{mae.std(ddof=1):4.2f} |"
+            # mean over the angles per seed, then mean/std over seeds: the two angles share
+            # the probe split of each seed, so this is the exact std of the averaged metric
+            mae_avg = np.mean([res[ts][a]["mae"] for a in range(n_ang)], axis=0)
+            r2_avg = np.mean([res[ts][a]["r2"] for a in range(n_ang)], axis=0)
+            entry["mean_over_angles"] = {
+                "mae_mean": float(mae_avg.mean()), "mae_std": float(mae_avg.std(ddof=1)),
+                "r2_mean": float(r2_avg.mean()), "r2_std": float(r2_avg.std(ddof=1)),
+                "mae_seeds": [float(v) for v in mae_avg], "r2_seeds": [float(v) for v in r2_avg],
+            }
             print(row)
             summary["backbones"][name]["sizes"][ts] = entry
 

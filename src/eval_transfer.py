@@ -42,6 +42,7 @@ rootutils.setup_root(__file__, indicator=".project-root", pythonpath=True)
 from src.eval.extract import load_backbone  # noqa: E402
 from src.eval.indomain import extract_classification_features  # noqa: E402
 from src.eval.linear_probe import run_linear_probe  # noqa: E402
+from src.eval.multiseed import linear_probe_multiseed  # noqa: E402
 from src.eval.transfer import TRANSFER_DATASETS, get_transfer_splits  # noqa: E402
 
 logging.basicConfig(stream=sys.stdout, level=logging.INFO, format="%(asctime)s %(message)s")
@@ -237,8 +238,11 @@ def main(cfg: dict, only: list[str] | None, datasets: list[str] | None, merge_on
                 num_workers=cfg.get("num_workers", 8), cache_path=cache("test"), tag=f"{name}/{key}/test",
                 log_every=100,
             )
-            linear = run_linear_probe(
+            linear = linear_probe_multiseed(
                 X_train, y_train, X_test, y_test, num_classes=num_classes,
+                seeds=int(linear_cfg.get("seeds", 1)), base_seed=int(cfg.get("seed", 0)),
+                search_per_seed=bool(linear_cfg.get("search_per_seed", True)),
+                tag=f"{name}/{display}",
                 lr_grid=record["linear_config"]["lr_grid"],
                 epochs=record["linear_config"]["epochs"],
                 batch_size=record["linear_config"]["batch_size"],
@@ -246,7 +250,7 @@ def main(cfg: dict, only: list[str] | None, datasets: list[str] | None, merge_on
                 momentum=float(linear_cfg.get("momentum", 0.9)),
                 standardize=record["linear_config"]["standardize"],
                 val_frac=record["linear_config"]["val_frac"],
-                device=device, seed=int(cfg.get("seed", 0)),
+                device=device,
             )
             logger.info(
                 "%s/%s: linear top-1 = %.2f%%  top-5 = %.2f%%  (lr=%g, train top-1 = %.2f%%, %.1f min)",
@@ -260,8 +264,13 @@ def main(cfg: dict, only: list[str] | None, datasets: list[str] | None, merge_on
                 "n_test": int(X_test.shape[0]),
                 "top1": linear["top1"],
                 "top5": linear["top5"],
+                "top1_mean": linear.get("top1_mean", linear["top1"]),
+                "top1_std": linear.get("top1_std", 0.0),
+                "top1_seeds": linear.get("top1_seeds", [linear["top1"]]),
                 "train_top1": linear["train_top1"],
                 "best_lr": linear["best_lr"],
+                "lr_seeds": linear.get("lr_seeds", [linear["best_lr"]]),
+                "n_seeds": linear.get("n_seeds", 1),
                 "search": linear["search"],
                 "runtime_min": (time.time() - ds_started) / 60,
             }

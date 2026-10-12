@@ -154,7 +154,7 @@ def main():
     gx, gy, gz = torus_xyz(th_all, phi_all)
     p1 = ax1.scatter(gx, gy, gz, c=th_all, cmap="twilight", s=6, alpha=0.8,
                      vmin=0, vmax=2 * np.pi, depthshade=False)
-    style_axes(ax1, "Ground truth · figurine 0")
+    style_axes(ax1, "")
     cb1 = fig.colorbar(cm.ScalarMappable(Normalize(0, 2 * np.pi), "twilight"),
                        ax=ax1, fraction=0.03, pad=0.02, ticks=[0, np.pi, 2 * np.pi])
     cb1.ax.set_yticklabels(["0", "π", "2π"]); cb1.ax.tick_params(labelsize=9)
@@ -164,7 +164,7 @@ def main():
     draw_torus_surface(ax2)
     ax2.scatter(gx, gy, gz, c=phi_all, cmap="hsv", s=6, alpha=0.8,
                 vmin=0, vmax=2 * np.pi, depthshade=False)
-    style_axes(ax2, "Ground truth · figurine 1")
+    style_axes(ax2, "")
     cb2 = fig.colorbar(cm.ScalarMappable(Normalize(0, 2 * np.pi), "hsv"),
                        ax=ax2, fraction=0.03, pad=0.02, ticks=[0, np.pi, 2 * np.pi])
     cb2.ax.set_yticklabels(["0", "π", "2π"]); cb2.ax.tick_params(labelsize=9)
@@ -178,13 +178,12 @@ def main():
                      vmin=0, vmax=max(20.0, np.percentile(per_frame_err, 95)), depthshade=False)
     # Drop the "_l<lambda>_k<clusters>" suffix from the display label; the exact
     # hyperparameters live in the LaTeX caption instead.
-    style_axes(ax3, f"Probe reconstruction · {name.split('_l')[0]}")
+    style_axes(ax3, "")
     cb3 = fig.colorbar(p3, ax=ax3, fraction=0.03, pad=0.02)
     cb3.set_label("angular error (deg)", fontsize=9); cb3.ax.tick_params(labelsize=9)
 
-    fig.suptitle("The rotation-angle label space is a 2-torus",
-                 fontsize=16, fontweight="bold", y=0.98, color="#141a20")
-    fig.tight_layout(rect=(0, 0, 1, 0.95))
+    # No titles: the LaTeX caption and subcaptions name the figure and its panels.
+    fig.tight_layout(rect=(0, 0, 1, 1))
     os.makedirs(os.path.dirname(out), exist_ok=True)
     fig.savefig(out, dpi=150, facecolor="white", bbox_inches="tight")
     # Always also emit a vector PDF alongside the raster PNG.

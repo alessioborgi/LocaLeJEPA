@@ -13,6 +13,16 @@ import yaml
 from src.eval.patch_pca import pca_colors, load_spatial_feature_archive
 
 
+def _sha256(stream, chunk=1 << 20):
+    """hashlib.file_digest fallback for Python < 3.11."""
+    if hasattr(hashlib, 'file_digest'):
+        return hashlib.file_digest(stream, 'sha256').hexdigest()
+    h = hashlib.sha256()
+    for block in iter(lambda: stream.read(chunk), b''):
+        h.update(block)
+    return h.hexdigest()
+
+
 def visualize_feature_archive(args):
     """Render spatial features from any architecture, independently of input data."""
     if args.images or args.image_root or args.classes or args.only:
@@ -32,7 +42,7 @@ def visualize_feature_archive(args):
         )
     np.savez_compressed(args.out / 'pca.npz', rgb=rgb, pc1=pc1, mask=mask, grid=grid)
     with args.features.open('rb') as stream:
-        digest = hashlib.file_digest(stream, 'sha256').hexdigest()
+        digest = _sha256(stream)
     (args.out / 'manifest.json').write_text(json.dumps({
         'source': str(args.features.resolve()), 'sha256': digest,
         'feature_shape': list(features.shape), 'grid': grid, 'scope': args.scope,
@@ -77,7 +87,18 @@ def select_images(args, aliases=None):
     return groups
 
 
-def render(originals,colors,pc1,masks,grid,out,title,labels):
+RESAMPLE={'nearest':Image.Resampling.NEAREST,'bilinear':Image.Resampling.BILINEAR,'bicubic':Image.Resampling.BICUBIC}
+
+
+def upsample_map(values,size,interp):
+    """Resize an (H,W[,3]) map in [0,1] to a PIL size with the chosen filter; bicubic gives smooth contours."""
+    arr=np.asarray(values,dtype=np.float32)
+    mode='RGB' if arr.ndim==3 else 'L'
+    im=Image.fromarray(np.uint8(255*np.clip(arr,0,1)),mode=mode).resize(size,RESAMPLE[interp])
+    return np.clip(np.asarray(im,dtype=np.float32)/255,0,1)
+
+
+def render(originals,colors,pc1,masks,grid,out,title,labels,interp='nearest'):
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
@@ -85,16 +106,15 @@ def render(originals,colors,pc1,masks,grid,out,title,labels):
     fig,axes=plt.subplots(4,n,figsize=(3*n,10),squeeze=False,layout='constrained')
     for i,im in enumerate(originals):
         axes[0,i].imshow(im);axes[0,i].set_title(labels[i],fontsize=9)
-        axes[1,i].imshow(colors[i].reshape(*grid,3),interpolation='nearest')
-        axes[2,i].imshow(pc1[i].reshape(grid),cmap='gray',vmin=0,vmax=1,interpolation='nearest')
+        axes[1,i].imshow(upsample_map(colors[i].reshape(*grid,3),im.size,interp),interpolation='nearest')
+        axes[2,i].imshow(upsample_map(pc1[i].reshape(grid),im.size,interp),cmap='gray',vmin=0,vmax=1,interpolation='nearest')
         axes[3,i].imshow(im)
-        overlay=colors[i].reshape(*grid,3)
-        overlay=np.asarray(Image.fromarray(np.uint8(255*overlay)).resize(im.size,Image.Resampling.NEAREST))/255
-        axes[3,i].imshow(overlay,alpha=.55)
+        axes[3,i].imshow(upsample_map(colors[i].reshape(*grid,3),im.size,interp),alpha=.55)
         for ax in axes[:,i]:ax.set_xticks([]);ax.set_yticks([])
     for row,label in enumerate(['Input crop','PCA → RGB','Initial PC1','Overlay (55%)']):axes[row,0].set_ylabel(label)
     fig.suptitle(title,fontsize=12)
     fig.savefig(out.with_suffix('.png'),dpi=160)
+    fig.savefig(out.with_suffix('.pdf'))
     plt.close(fig)
 
 
@@ -115,6 +135,8 @@ def main():
     ap.add_argument('--device',default='cuda' if torch.cuda.is_available() else 'cpu')
     ap.add_argument('--out',type=Path,default=Path('logs/patch_pca'))
     ap.add_argument('--overwrite',action='store_true')
+    ap.add_argument('--display-size',type=int,help='Resolution of the displayed/saved crops (same field of view as crop_size; default crop_size)')
+    ap.add_argument('--interp',choices=list(RESAMPLE),default='nearest',help='Upsampling filter for the PCA maps in the figures (bicubic = smooth contours)')
     args=ap.parse_args()
     try:
         if args.per_class<1:raise ValueError('--per-class must be positive')
@@ -138,6 +160,10 @@ def main():
         size=cfg.get('crop_size',128)
         # Same resize + center crop for displayed images and network tensors.
         crop=transforms.Compose([transforms.Resize(size),transforms.CenterCrop(size)])
+        dsize=args.display_size or size
+        if dsize<1:raise ValueError('--display-size must be positive')
+        # Resize(shorter side)+CenterCrop keeps the same field of view at any resolution.
+        display_crop=transforms.Compose([transforms.Resize(dsize),transforms.CenterCrop(dsize)])
         mode=cfg.get('image_mode','RGB')
         if mode not in ('RGB','L'):raise ValueError('image_mode must be RGB or L; use --features for other data modalities')
         norm=cfg.get('normalization')
@@ -148,19 +174,21 @@ def main():
             raise ValueError('Normalization must be finite with positive std')
         normalize=transforms.Compose([transforms.ToTensor(),transforms.Normalize(norm['mean'],norm['std'])])
         args.out.mkdir(parents=True,exist_ok=True)
-        manifest=dict(options={k:str(v) if isinstance(v,Path) else v for k,v in vars(args).items()},crop_size=size,image_mode=mode,normalization=norm,groups={},models=[],feature='post-final-norm transformer patch tokens; excludes prefix tokens, pooling, output head and SSL projector',sources=['https://arxiv.org/pdf/2304.07193','https://arxiv.org/pdf/2511.08544'])
+        manifest=dict(options={k:str(v) if isinstance(v,Path) else v for k,v in vars(args).items()},crop_size=size,display_size=dsize,image_mode=mode,normalization=norm,groups={},models=[],feature='post-final-norm transformer patch tokens (ViT) or pre-global-pool equivariant map (E2ResNet); excludes prefix tokens, pooling, output head and SSL projector',sources=['https://arxiv.org/pdf/2304.07193','https://arxiv.org/pdf/2511.08544'])
         for name,paths in groups.items():
             manifest['groups'][name]=[]
             for p in paths:
-                with p.open('rb') as f:digest=hashlib.file_digest(f,'sha256').hexdigest()
+                with p.open('rb') as f:digest=_sha256(f)
                 manifest['groups'][name].append(dict(path=str(p),sha256=digest))
         for entry in entries:
             extract,dim=load_backbone(entry['experiment'],entry['checkpoint'],device=torch.device(args.device),crop_size=size,feature='patch',overrides=entry.get('overrides'))
             model_dir=args.out/entry['name'];model_dir.mkdir(exist_ok=True)
             for group_index,(name,paths) in enumerate(groups.items()):
-                originals=[]
+                originals=[];displays=[]
                 for p in paths:
-                    with Image.open(p) as im:originals.append(crop(ImageOps.exif_transpose(im).convert(mode)))
+                    with Image.open(p) as im:
+                        im=ImageOps.exif_transpose(im).convert(mode)
+                        originals.append(crop(im));displays.append(display_crop(im))
                 features=torch.cat([extract(normalize(im).unsqueeze(0)) for im in originals]).numpy()
                 side=int(np.sqrt(features.shape[1]));grid=(side,side)
                 if side*side!=features.shape[1]:raise ValueError('Square patch grid required')
@@ -168,13 +196,13 @@ def main():
                 prefix=model_dir/f'group_{group_index:02d}'
                 np.savez_compressed(prefix.with_suffix('.npz'),features=features,rgb=rgb,pc1=pc1,mask=mask,grid=np.array(grid))
                 prefix.with_suffix('.json').write_text(json.dumps(dict(group=name,pca=records),indent=2))
-                for i,im in enumerate(originals):im.save(model_dir/f'group_{group_index:02d}_input_{i}.png')
+                for i,im in enumerate(displays):im.save(model_dir/f'group_{group_index:02d}_input_{i}.png')
                 is_hvit = 'hvit' in entry['experiment'] or any(
                     'model/encoder=hvit' in override for override in entry.get('overrides', [])
                 )
-                hyper='H-ViT body (before hyperbolic head)' if is_hvit else 'ViT body'
+                hyper='H-ViT body (before hyperbolic head)' if is_hvit else ('D4-ResNet-50 pre-pool map' if 'd4rn50' in entry['experiment'] else 'ViT body')
                 title=f'{entry["name"]} · {name} · {hyper}\n{args.scope} PCA; {side}×{side} patches; {dim} channels; mask={args.pc1_threshold}, side={args.foreground}'
-                render(originals,rgb,pc1,mask,grid,prefix,title,[p.name for p in paths])
+                render(displays,rgb,pc1,mask,grid,prefix,title,[p.name for p in paths],args.interp)
                 print(f'Wrote {prefix}.png',flush=True)
             manifest['models'].append(dict(entry,token_dim=dim,checkpoint_size=Path(entry['checkpoint']).stat().st_size))
             del extract

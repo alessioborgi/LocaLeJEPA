@@ -1,0 +1,48 @@
+# @package _global_
+
+# Rectified LpJEPA (RDMReg, Rectified Laplace target, 25/125 weights)
+# pretraining on ImageNet-1K with the plain (Euclidean) ViT-S/8. Same SSL
+# protocol as the in1k LeJEPA runs: crop 128, global batch 256.
+
+defaults:
+  - override /data: imagenet1k
+  - override /model: rectifiedlpjepa
+  - override /model/encoder: timm_vit
+  - override /optimizer: adamw
+  - override /trainer: gpu
+  - _self_
+
+tags: ["rectifiedlpjepa", "imagenet1k", "vit-small-p8", "rdmreg"]
+
+trainer:
+  max_epochs: 100   # launched with trainer.max_epochs=100 (config previously said 800)
+  accumulate_grad_batches: 4
+
+data:
+  batch_size: 64    # per-step batch; x accumulate_grad_batches=4 -> effective 256 (as launched)
+  num_workers: 8
+  crop_size: 128
+  copy_data: false
+
+model:
+  lr_eta_min_ratio: 0.5
+  embedding_dim: 512
+  projection_dim: 16
+  num_classes: 1000
+  encoder:
+    model_name: vit_small_patch8_224
+
+
+  use_online_probe: true
+  num_global_crops: null
+  probe_lr: 1e-3
+  probe_weight_decay: 1e-7
+  projector:
+    hidden_channels:
+      - 2048
+      - 2048
+      - ${model.projection_dim}
+
+optimizer:
+  lr: 2e-3
+  weight_decay: 5e-2

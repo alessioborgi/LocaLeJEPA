@@ -85,12 +85,19 @@ def load_backbone(
     encoder = hydra.utils.instantiate(cfg.model.encoder)
     embedding_dim = int(cfg.model.embedding_dim)
     patch_body = None
+    spatial_cnn = None
     if feature == "patch":
         patch_body = encoder.body if hasattr(encoder, "to_poincare") else encoder
-        if not all(hasattr(patch_body, attr) for attr in
-                   ("forward_features", "patch_embed", "num_prefix_tokens", "num_features")):
-            raise ValueError("Patch extraction requires a timm ViT or HyperbolicViT")
-        embedding_dim = int(patch_body.num_features)
+        if all(hasattr(patch_body, attr) for attr in
+               ("forward_features", "patch_embed", "num_prefix_tokens", "num_features")):
+            embedding_dim = int(patch_body.num_features)
+        elif hasattr(encoder, "forward_features") and getattr(encoder, "pool", None) == "equivariant":
+            # E2ResNet with the equivariant head: the (B, D, H, W) map right before
+            # the global average pool, i.e. the embedding before spatial pooling.
+            spatial_cnn, patch_body = encoder, None
+        else:
+            raise ValueError("Patch extraction requires a timm ViT, HyperbolicViT, "
+                             "or an E2ResNet with pool='equivariant'")
     GlobalHydra.instance().clear()
 
     ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
@@ -145,6 +152,8 @@ def load_backbone(
         images = images.to(device, non_blocking=True)
         if patch_body is not None:
             return vit_spatial_patch_tokens(patch_body, images).float().cpu()
+        if spatial_cnn is not None:
+            return e2resnet_spatial_tokens(spatial_cnn, images).float().cpu()
         feats = encoder(images)
         if feats.ndim != 2:
             raise RuntimeError(
@@ -236,3 +245,10 @@ def extract_features(
         torch.save({"X": X, "y": y}, cache_path)
 
     return X, y
+
+
+def e2resnet_spatial_tokens(encoder, images):
+    """Pre-pool E2ResNet map (equivariant head) in raster order: (B, H*W, D)."""
+    x = encoder.forward_features(images)
+    x = encoder.reduce_relu(encoder.reduce_bn(encoder.reduce(x))).tensor
+    return x.flatten(2).transpose(1, 2)

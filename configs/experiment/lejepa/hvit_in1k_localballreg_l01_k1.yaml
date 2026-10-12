@@ -1,0 +1,48 @@
+# @package _global_
+# Hyperbolic ViT-S/8 + local BallReg (λ0.1, k1) (LeJEPA local regularizer) on ImageNet-1K, 100
+# epochs. Stabilized recipe (lr 1e-3, warmup 10, grad-clip 1.0 via CLI).
+
+defaults:
+  - override /data: imagenet1k
+  - override /model: lejepa
+  - override /model/reg_loss: localereg
+  - override /model/encoder: hvit_small_p8
+  - override /optimizer: adamw
+  - override /trainer: gpu
+  - _self_
+
+tags: ["lejepa", "imagenet1k", "hvit", "hyperbolic", "local-ballreg"]
+
+trainer:
+  max_epochs: 100
+  accumulate_grad_batches: 4
+  gradient_clip_val: 1.0
+
+data:
+  batch_size: 64    # per-step batch; x accumulate_grad_batches=4 -> effective 256 (as launched)
+  num_workers: 8
+  crop_size: 128
+  copy_data: false
+
+model:
+  lr_eta_min_ratio: 1.0
+  embedding_dim: 512
+  projection_dim: 16
+  num_classes: 1000
+  use_online_probe: true
+  num_global_crops: null
+  probe_lr: 1e-3
+  probe_weight_decay: 1e-7
+  warmup_epochs: 10
+  lamb: 0.1
+  reg_loss:
+    num_clusters: 1
+  projector:
+    hidden_channels:
+      - 2048
+      - 2048
+      - ${model.projection_dim}
+
+optimizer:
+  lr: 1e-3
+  weight_decay: 5e-2

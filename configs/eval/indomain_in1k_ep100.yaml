@@ -42,6 +42,7 @@ knn:
   chunk_size: 128
 
 linear:
+  seeds: 5              # probe repeats; the LR is selected once, seeds vary init/order
   lr_grid: [0.01, 0.03, 0.1, 0.3, 1.0, 3.0, 10.0]
   epochs: 50
   batch_size: 4096
@@ -95,6 +96,12 @@ backbones:
   - name: hvit_localsigreg_l01_k4
     experiment: lejepa/hvit_in1k_localsigreg_l01_k4
     checkpoint: checkpoints/lejepa_hvit_in1k_localsigreg_l01_k4/last.ckpt
+  - name: hvit_localballreg_l01_k4
+    experiment: lejepa/hvit_in1k_localballreg_l01_k4
+    checkpoint: checkpoints/lejepa_hvit_in1k_localballreg_l01_k4/last.ckpt
+  - name: hvit_localballreg_l01_dynk
+    experiment: lejepa/hvit_in1k_localballreg_l01_dynk
+    checkpoint: checkpoints/lejepa_hvit_in1k_localballreg_l01_dynk/last.ckpt
 
   # ---- online-probe-selected (best.ckpt) checkpoints ------------------------
   - name: d4rn50_localballreg_l01_k2_best

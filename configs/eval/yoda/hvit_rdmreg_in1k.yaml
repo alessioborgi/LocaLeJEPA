@@ -23,7 +23,7 @@ angle_labels: ["figure 0", "figure 1"]
 backbones:
   - name: hvit_rdmreg_in1k
     experiment: rectifiedlpjepa/hvit_in1k_rdmreg
-    checkpoint: checkpoints/rectifiedlpjepa_hvit_in1k_rdmreg/best.ckpt
+    checkpoint: checkpoints/rectifiedlpjepa_hvit_in1k_rdmreg/last.ckpt
 
 probe:
   test_frac: 0.2

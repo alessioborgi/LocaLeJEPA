@@ -103,12 +103,9 @@ def main():
                  fontsize=10)
     cb.ax.tick_params(labelsize=9)
 
-    fig.suptitle(
-        "Which frozen backbone reconstructs the Yoda torus best — at every probe budget?\n"
-        f"rows = backbone (best → worst, full data) · cols = # training frames · "
-        f"{HIGHLIGHT} highlighted",
-        fontsize=15, fontweight="bold", y=0.995, color="#141a20")
-    fig.tight_layout(rect=(0.02, 0.07, 1, 0.95), h_pad=1.4, w_pad=0.4)
+    # No figure title: the LaTeX caption names the figure. The per-panel MAE titles and
+    # the row/column labels stay, since they carry data.
+    fig.tight_layout(rect=(0.02, 0.07, 1, 0.99), h_pad=1.4, w_pad=0.4)
 
     os.makedirs(os.path.dirname(out), exist_ok=True)
     fig.savefig(out, dpi=150, facecolor="white", bbox_inches="tight")

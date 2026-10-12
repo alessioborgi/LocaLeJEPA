@@ -34,6 +34,7 @@ knn:
   chunk_size: 128
 
 linear:
+  seeds: 5              # probe repeats; the LR is selected once, seeds vary init/order
   lr_grid: [0.01, 0.03, 0.1, 0.3, 1.0, 3.0, 10.0]
   epochs: 50
   batch_size: 4096
@@ -49,6 +50,15 @@ backbones:
   - name: vit_localballreg_l01_k4
     experiment: lejepa/vit_in1k_localballreg_l01_k4
     checkpoint: checkpoints/lejepa_vit_in1k_localballreg_l01_k4/last.ckpt
+  - name: vit_localballreg_l01_k2
+    experiment: lejepa/vit_in1k_localballreg_l01_k2
+    checkpoint: checkpoints/lejepa_vit_in1k_localballreg_l01_k2/last.ckpt
+  - name: vit_localballreg_l03_k2
+    experiment: lejepa/vit_in1k_localballreg_l03_k2
+    checkpoint: checkpoints/lejepa_vit_in1k_localballreg_l03_k2/last.ckpt
+  - name: vit_localsigreg_l01_k4
+    experiment: lejepa/vit_in1k_localsigreg_l01_k4
+    checkpoint: checkpoints/lejepa_vit_in1k_localsigreg_l01_k4/last.ckpt
   - name: vit_sigreg_best
     experiment: lejepa/vit_in1k_sigreg
     checkpoint: checkpoints/lejepa_vit_in1k_sigreg/best.ckpt

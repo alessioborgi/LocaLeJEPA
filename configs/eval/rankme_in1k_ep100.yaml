@@ -26,7 +26,7 @@ batch_size: 256
 num_workers: 8
 
 transfer_datasets: [dtd, aircraft, cifar10, cifar100, flowers, food, pets]
-transfer_data_root: /n/netscratch/dominici_lab/Lab/aborgi/transfer_datasets
+transfer_data_root: /n/holylabs/LABS/dominici_lab/Lab/aborgi/transfer_datasets
 
 indomain_cache_dir: /n/netscratch/dominici_lab/Lab/aborgi/eval_indomain_in1k_cache
 transfer_cache_dir: /n/netscratch/dominici_lab/Lab/aborgi/eval_transfer_in1k_cache
@@ -103,3 +103,15 @@ backbones:
     family: vit
     experiment: lejepa/vit_in1k_localballreg_l01_k4
     checkpoint: checkpoints/lejepa_vit_in1k_localballreg_l01_k4/last.ckpt
+  - name: vit_localballreg_l01_k2
+    family: vit
+    experiment: lejepa/vit_in1k_localballreg_l01_k2
+    checkpoint: checkpoints/lejepa_vit_in1k_localballreg_l01_k2/last.ckpt
+  - name: vit_localballreg_l03_k2
+    family: vit
+    experiment: lejepa/vit_in1k_localballreg_l03_k2
+    checkpoint: checkpoints/lejepa_vit_in1k_localballreg_l03_k2/last.ckpt
+  - name: vit_localsigreg_l01_k4
+    family: vit
+    experiment: lejepa/vit_in1k_localsigreg_l01_k4
+    checkpoint: checkpoints/lejepa_vit_in1k_localsigreg_l01_k4/last.ckpt

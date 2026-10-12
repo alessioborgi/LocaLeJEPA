@@ -20,7 +20,7 @@
 device: null
 seed: 0
 
-data_root: /n/netscratch/dominici_lab/Lab/aborgi/transfer_datasets
+data_root: /n/holylabs/LABS/dominici_lab/Lab/aborgi/transfer_datasets
 datasets: [dtd, aircraft, cifar10, cifar100, flowers, food, pets]
 
 # Backbones were pretrained at crop 128; evaluate at the same resolution.
@@ -33,6 +33,7 @@ output_folder: logs/eval_transfer_in1k_ep100
 cache_dir: /n/netscratch/dominici_lab/Lab/aborgi/eval_transfer_in1k_cache
 
 linear:
+  seeds: 5              # probe repeats; the LR is selected once, seeds vary init/order
   # Wide grid: the 7-point {0.01..10} grid was hit at both ends on the first pass.
   lr_grid: [0.001, 0.003, 0.01, 0.03, 0.1, 0.3, 1.0, 3.0, 10.0, 30.0]
   epochs: 100
@@ -102,3 +103,12 @@ backbones:
   - name: vit_localballreg_l01_k4
     experiment: lejepa/vit_in1k_localballreg_l01_k4
     checkpoint: checkpoints/lejepa_vit_in1k_localballreg_l01_k4/last.ckpt
+  - name: vit_localballreg_l01_k2
+    experiment: lejepa/vit_in1k_localballreg_l01_k2
+    checkpoint: checkpoints/lejepa_vit_in1k_localballreg_l01_k2/last.ckpt
+  - name: vit_localballreg_l03_k2
+    experiment: lejepa/vit_in1k_localballreg_l03_k2
+    checkpoint: checkpoints/lejepa_vit_in1k_localballreg_l03_k2/last.ckpt
+  - name: vit_localsigreg_l01_k4
+    experiment: lejepa/vit_in1k_localsigreg_l01_k4
+    checkpoint: checkpoints/lejepa_vit_in1k_localsigreg_l01_k4/last.ckpt

@@ -185,10 +185,9 @@ def main():
     cb.set_label(f"per-frame angular-error advantage  (red = {hero} wins the frame)",
                  fontsize=10, labelpad=6)
 
-    fig.suptitle(
-        f"Where {hero} wins across the Torus",
-        fontsize=16, fontweight="bold", y=0.985, color="#141a20")
-    fig.tight_layout(rect=(0.02, 0.06, 1, 0.95), h_pad=1.4, w_pad=0.4)
+    # No figure title: the LaTeX caption names the figure. The per-panel titles
+    # (mean advantage, win rate) and the row/column labels stay, since they carry data.
+    fig.tight_layout(rect=(0.02, 0.06, 1, 0.99), h_pad=1.4, w_pad=0.4)
 
     os.makedirs(os.path.dirname(out), exist_ok=True)
     fig.savefig(out, dpi=150, facecolor="white", bbox_inches="tight")

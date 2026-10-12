@@ -34,6 +34,32 @@ python visualisations/plot_yoda_torus.py            # or:  cd visualisations && 
 - `logs/eval_angle_probe_lowdata/results_lowdata.{json,csv}` — learning-curve metrics (produced by `src/eval_angle_probe_lowdata.py` at the repo root).
 - `logs/eval_angle_probe_*/cache/*_features.pt` — cached frozen 512-d features + angle labels per backbone.
 
+## Embedding geometry of the three ImageNet-1K encoder families
+
+`plot_encoder_geometries.py` draws the Euclidean (ViT-S/8), hyperbolic
+(H-ViT-S/8, Poincare ball) and `D4`-equivariant (ResNet-50, regular
+representation) encoders each in its own geometry, one row per objective
+(global SIGReg vs LocaLeJEPA), and writes `paper/figs/encoder_geometries.{pdf,png}`.
+
+The first two columns read the cached ImageNet-1K validation features that
+`src/eval_indomain.py` leaves in the `cache_dir` of
+`configs/eval/indomain_in1k_ep100.yaml`. The third needs the two D4 checkpoints
+to embed the eight group views of a few validation images; that cache
+(`paper/figs/encoder_geometries_orbits.npz`) is the only part that wants a GPU:
+
+```bash
+sbatch scripts/slurm_encoder_geometries.sh            # build the orbit cache + figure
+python visualisations/plot_encoder_geometries.py      # restyle from the caches (CPU)
+python visualisations/plot_encoder_geometries.py --panels   # + one image per panel
+```
+
+`--panels` additionally writes each panel on its own, without headings, row
+labels or the measurement line, into `paper/figs/encoder_geometries_panels/`
+(plus a `legend` strip), and prints the numbers every panel carries in the
+assembled figure. `paper/figs/encoder_geometries_panels.tex` assembles those
+files with the headings and numbers set in LaTeX; it uses the same figure label
+as the single-image version, so a document takes one or the other.
+
 ## Spatial feature PCA
 
 Run `src/visualize_patch_pca.py` from the repository root to produce spatial

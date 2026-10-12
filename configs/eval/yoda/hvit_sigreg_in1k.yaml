@@ -23,7 +23,7 @@ angle_labels: ["figure 0", "figure 1"]
 backbones:
   - name: hvit_sigreg_in1k
     experiment: lejepa/hvit_in1k_sigreg
-    checkpoint: checkpoints/lejepa_hvit_in1k_sigreg/best.ckpt
+    checkpoint: checkpoints/lejepa_hvit_in1k_sigreg/last.ckpt
 
 probe:
   test_frac: 0.2
