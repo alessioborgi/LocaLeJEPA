@@ -1,4 +1,55 @@
-# LocaLeJEPA
+<div align="center">
+
+# LocaLeJEPA: Local Regularizers for Joint-Embedding Predictive Architectures
+
+Kartik Tandon<sup>1,‡</sup>,
+[Alessio Borgi](https://scholar.google.com/citations?hl=it&user=Ds4ktdkAAAAJ)<sup>2,‡</sup>,
+[Pavel Snopov](https://scholar.google.com/citations?user=CAmErvEAAAAJ)<sup>3</sup>,
+[Inés García-Redondo](https://scholar.google.com/citations?user=QJugIzgAAAAJ)<sup>4</sup>,
+[Davide D'Ascenzo](https://scholar.google.com/citations?user=E_rNRYwAAAAJ)<sup>5</sup>,
+[Sebastiano Cultrera di Montesano](https://scholar.google.com/citations?user=NFX7NNYAAAAJ)<sup>6</sup>,
+[Fabrizio Silvestri](https://scholar.google.com/citations?user=pi985dQAAAAJ)<sup>2</sup>,
+[Pietro Liò](https://scholar.google.com/citations?user=4YhNJBEAAAAJ)<sup>7</sup>,
+[Francesca Dominici](https://scholar.google.com/citations?user=RSwElNMAAAAJ)<sup>8</sup>,
+[Randall Balestriero](https://scholar.google.com/citations?user=S1x_xqcAAAAJ)<sup>9</sup>,
+[Claudio Battiloro](https://scholar.google.com/citations?user=_J11o_IAAAAJ)<sup>8</sup>
+
+<sup>1</sup>University of Pennsylvania · <sup>2</sup>Sapienza University of Rome · <sup>3</sup>University of Texas Rio Grande Valley ·
+<sup>4</sup>University of Fribourg · <sup>5</sup>University of Milan · <sup>6</sup>Broad Institute ·
+<sup>7</sup>University of Cambridge · <sup>8</sup>Harvard University · <sup>9</sup>Brown University
+
+<p><sup>‡</sup>Equal contribution</p>
+
+</div>
+
+<p align="center">
+  <a href="https://arxiv.org/abs/2511.08544">
+    <img src="https://img.shields.io/badge/Builds%20on-LeJEPA-orange" alt="LeJEPA" style="height: 25px; margin-right: 5px;">
+  </a>
+  <a href="https://github.com/alessioborgi/LocaLeJEPA">
+    <img src="https://img.shields.io/badge/Code-GitHub-black?logo=github" alt="Code" style="height: 25px; margin-right: 5px;">
+  </a>
+  <a href="https://www.python.org/downloads/release/python-3120/">
+    <img src="https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white" alt="Python 3.12" style="height: 25px; margin-right: 5px;">
+  </a>
+  <a href="https://pytorch.org/">
+    <img src="https://img.shields.io/badge/PyTorch-2.14-EE4C2C?logo=pytorch&logoColor=white" alt="PyTorch 2.14" style="height: 25px; margin-right: 5px;">
+  </a>
+  <a href="https://lightning.ai/">
+    <img src="https://img.shields.io/badge/Lightning-2.6-792EE5?logo=lightning&logoColor=white" alt="Lightning 2.6" style="height: 25px; margin-right: 5px;">
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/License-MIT-lightgrey" alt="License" style="height: 25px;">
+  </a>
+  <!-- Add once available:
+  <a href="https://arxiv.org/abs/XXXX.XXXXX"><img src="https://img.shields.io/badge/arXiv-XXXX.XXXXX-orange" alt="arXiv" style="height: 25px;"></a>
+  <a href="https://openreview.net/forum?id=XXXX"><img src="https://img.shields.io/badge/OpenReview-Paper-8C1B13" alt="OpenReview" style="height: 25px;"></a>
+  -->
+</p>
+
+---
+
+## Overview 🚀
 
 Self-supervised pretraining in the [LeJEPA](https://arxiv.org/abs/2511.08544) family
 (invariance loss + distribution-matching regularizer, no teacher/EMA, no predictor),
@@ -8,11 +59,7 @@ projection space instead of on the whole batch. The proposed variant is
 neighbourhood — which on ImageNet-1K (ViT-S/8, 100 epochs) lifts LeJEPA's frozen-feature
 k-NN / linear top-1 from 24.3 / 40.7 to 34.1 / 49.5 with the same backbone and schedule.
 
-Authors: Alessio Borgi, Kartik Tandon, Pavel Snopov, Inés García-Redondo, Davide D'Ascenzo,
-Sebastiano Cultrera di Montesano, Fabrizio Silvestri, Pietro Lio, Francesca Dominici,
-Randall Balestriero, Claudio Battiloro.
-
-## Overview
+<p align="center"><img src="assets/LocaLeJEPA_Main_Figure.svg" width="100%" alt="LocaLeJEPA main figure"/></p>
 
 LeJEPA trains an encoder `f` and projector `g` on `V` augmented views of each image with
 
