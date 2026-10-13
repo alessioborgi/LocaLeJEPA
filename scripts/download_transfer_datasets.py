@@ -33,6 +33,8 @@ import sys
 import time
 from pathlib import Path
 
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from src.eval.transfer import TRANSFER_DATASETS, get_transfer_splits
 from src.utils.touch import touch_tree
 
