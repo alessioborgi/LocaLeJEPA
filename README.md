@@ -61,14 +61,7 @@
 > accuracy and nearly 10 points higher k-NN accuracy than global distribution matching, with consistent
 > gains of about 6 points on downstream transfer.
 
-> **Quick start.** [`MINIMAL.md`](MINIMAL.md) presents the whole method on a single page, from the
-> formulation to a compact PyTorch Lightning implementation, and trains a ViT-S/8 with LocaLeReg on
-> Imagenette on one GPU:
->
-> ```bash
-> uv sync --locked
-> uv run python src/train.py experiment=minimal
-> ```
+<p align="center"><img src="assets/LocaLeJEPA_Main_Figure.svg" width="100%" alt="LocaLeJEPA main figure"/></p>
 
 Joint-Embedding Predictive Architectures (JEPAs) are an appealing approach to self-supervised learning,
 but they are prone to representational collapse, in which all inputs are mapped to the same embedding.
@@ -91,7 +84,14 @@ k-means, and each neighborhood is re-centered on its own mean and matched to a u
 ball. The position of each neighborhood is left unconstrained, and only its internal spread is
 regularized. All other components of LeJEPA are unchanged.
 
-<p align="center"><img src="assets/LocaLeJEPA_Main_Figure.svg" width="100%" alt="LocaLeJEPA main figure"/></p>
+> **Quick start.** [`MINIMAL.md`](MINIMAL.md) presents the whole method on a single page, from the
+> formulation to a compact PyTorch Lightning implementation, and trains a ViT-S/8 with LocaLeReg on
+> Imagenette on one GPU:
+>
+> ```bash
+> uv sync --locked
+> uv run python src/train.py experiment=minimal
+> ```
 
 On ImageNet-1K, LocaLeJEPA outperforms LeJEPA with hyperbolic ViT-S/8, D4-equivariant ResNet-50 and
 Euclidean ViT-S/8 backbones, in linear and k-NN classification and on downstream transfer. For a frozen
