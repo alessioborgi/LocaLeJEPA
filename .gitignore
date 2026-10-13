@@ -77,7 +77,7 @@ docs/_build/
 # PyBuilder
 target/
 
-# Claude
+# local editor / assistant settings
 .claude/
 
 # Jupyter Notebook
@@ -188,3 +188,9 @@ scripts/aicr/roots.env
 
 # a Slurm job submitted from the clone without --output writes its stdout here (F50): never tracked, never a dirty tree
 slurm-*.out
+
+# generated result tables (rebuild with scripts/make_*.py)
+results/
+
+# local environment activation for scripts/slurm_submit.sh (ENV_SETUP)
+env.sh

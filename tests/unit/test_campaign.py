@@ -508,14 +508,14 @@ def test_submit_names_every_chosen_cell_by_index_and_run_name(tmp_path, capsys):
     assert C.main(["expand", str(path), "--out", str(grid)]) == 0
     capsys.readouterr()
     _, runs = C.read_grid(grid)
-    assert C.main(["submit", str(grid), "--partition", "rtx-batch", "--indices", "1,9", "--time", "01:00:00",
+    assert C.main(["submit", str(grid), "--partition", "rtx-batch", "--indices", "1,9", "--time", "01:00:00", "--script", "s.sh",
                    "--log-dir", "/logs", "--export", "REPO=/r"]) == 0
     out, err = capsys.readouterr()
     lines = out.strip().splitlines()
     assert len(lines) == 1 and lines[0].startswith("sbatch --parsable") and "--array=1,9" in lines[0]
     assert err.strip() == f"# cells: 1={runs[1].run_name} 9={runs[9].run_name}"
     assert runs[1].tag == "zulu" and runs[9].tag == "alpha"
-    assert C.main(["submit", str(grid), "--partition", "rtx-batch", "--time", "01:00:00",
+    assert C.main(["submit", str(grid), "--partition", "rtx-batch", "--time", "01:00:00", "--script", "s.sh",
                    "--log-dir", "/logs", "--export", "REPO=/r"]) == 0
     out, err = capsys.readouterr()
     assert "--array=0-15" in out and err.strip() == "# cells: 0-15 in index order: zulu[0-7] alpha[8-15]"

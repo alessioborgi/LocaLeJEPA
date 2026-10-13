@@ -99,7 +99,7 @@ def test_every_reg_loss_override_in_the_readme_is_a_real_parameter(key):
     leaf = key.split(".")[-1]
     if key.startswith("loss."):
         # the inner test: whichever regularizer is placed at `loss`
-        candidates = [losses.sigreg_loss, losses.ballreg_loss, losses.uniform_reg_loss]
+        candidates = [losses.sigreg_loss, losses.ballreg_loss]   # uniform_reg.yaml targets ballreg_loss
     else:
         candidates = [losses.local_loss]
 

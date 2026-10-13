@@ -17,5 +17,9 @@ log_dir: ${paths.root_dir}/logs/
 # use it to store all files generated during the run, like ckpts and metrics
 output_dir: ${hydra:runtime.output_dir}
 
+# where best.ckpt, last.ckpt and on_exception.ckpt are written (all three checkpoint callbacks).
+# Set it to checkpoints/<run name> to give a run a stable checkpoint directory across resumes.
+ckpt_dir: ${paths.output_dir}/checkpoints
+
 # path to working directory
 work_dir: ${hydra:runtime.cwd}

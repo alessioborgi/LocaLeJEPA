@@ -11,7 +11,7 @@ defaults:
 # first ablation wave found it (last.ckpt at epoch 97 of a 100-epoch run); every FASRC run of the
 # draft carried the same version and the same settings, so its "last" numbers were best-on-val.
 model_checkpoint:
-  dirpath: ${paths.output_dir}/checkpoints
+  dirpath: ${paths.ckpt_dir}
   # best.ckpt: the epoch the online probe ranked highest on val -- the labelled secondary
   # column (state/10-PAPER-STATE.md PD-4), never the headline. Runs without an online probe
   # override monitor: null in their experiment config (it then saves every epoch as best.ckpt).
@@ -25,7 +25,7 @@ model_checkpoint:
 
 last_checkpoint:
   _target_: lightning.pytorch.callbacks.ModelCheckpoint
-  dirpath: ${paths.output_dir}/checkpoints
+  dirpath: ${paths.ckpt_dir}
   # last.ckpt: the final-epoch weights, the headline artifact (no selection on the reported
   # split). No monitor, so it is saved at every validation end regardless of any metric; the
   # launcher's postflight requires epoch == max_epochs - 1 inside it.
@@ -47,5 +47,5 @@ model_summary:
 # holds the larger global_step, read from inside the file.
 on_exception:
   _target_: lightning.pytorch.callbacks.OnExceptionCheckpoint
-  dirpath: ${paths.output_dir}/checkpoints
+  dirpath: ${paths.ckpt_dir}
   filename: "on_exception"
