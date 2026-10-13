@@ -49,6 +49,8 @@
 
 ---
 
+<div align="justify">
+
 ## Overview 🚀
 
 > **TL;DR.** LocaLeJEPA is a self-supervised JEPA framework that matches the embedding distribution
@@ -113,9 +115,18 @@ angles with 23% and 17% lower error than on LeJEPA features (Imagenette pretrain
 setting evaluated). After ImageNet-1K pretraining the improvement is smaller: 3.68° against 3.94° for one
 figurine, and none for the other.
 
-A self-contained walkthrough of the method is given in [`MINIMAL.md`](MINIMAL.md), and the regularizer can be
-added to an existing training loop in [five lines](#use-the-regularizer-in-your-own-code). The encoders are
-described [under the hood](#under-the-hood).
+The regularizer can be added to an existing training loop in
+[five lines](#use-the-regularizer-in-your-own-code), and the encoders are described
+[under the hood](#under-the-hood).
+
+> **Quick start.** [`MINIMAL.md`](MINIMAL.md) presents the whole method on a single page, from the
+> formulation to a compact PyTorch Lightning implementation, and trains a ViT-S/8 with LocaLeReg on
+> Imagenette on one GPU:
+>
+> ```bash
+> uv sync --locked
+> uv run python src/train.py experiment=minimal
+> ```
 
 ## Try it
 
@@ -409,3 +420,5 @@ Built on [LeJEPA](https://github.com/galilai-group/lejepa) (Balestriero & LeCun,
 [hyp_metric](https://github.com/htdt/hyp_metric) (hyperbolic ViT head) and
 [equivision](https://github.com/dmklee/equivision) (D4-ResNet-50); third-party notices are in `src/NOTICE`.
 Released under the [MIT License](LICENSE).
+
+</div>
