@@ -12,7 +12,7 @@
 [Pietro Liò](https://scholar.google.com/citations?user=4YhNJBEAAAAJ)<sup>7</sup>,
 [Francesca Dominici](https://scholar.google.com/citations?user=RSwElNMAAAAJ)<sup>8</sup>,
 [Randall Balestriero](https://scholar.google.com/citations?user=S1x_xqcAAAAJ)<sup>9</sup>,
-[Claudio Battiloro](https://scholar.google.com/citations?user=_J11o_IAAAAJ)<sup>8</sup>
+[Claudio Battiloro](https://scholar.google.com/citations?user=_J11o_IAAAAJ)<sup>9,8</sup>
 
 <sup>1</sup>University of Pennsylvania · <sup>2</sup>Sapienza University of Rome · <sup>3</sup>University of Texas Rio Grande Valley ·
 <sup>4</sup>University of Fribourg · <sup>5</sup>University of Milan · <sup>6</sup>Broad Institute ·
