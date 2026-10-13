@@ -61,6 +61,15 @@
 > accuracy and nearly 10 points higher k-NN accuracy than global distribution matching, with consistent
 > gains of about 6 points on downstream transfer.
 
+> **Quick start.** [`MINIMAL.md`](MINIMAL.md) presents the whole method on a single page, from the
+> formulation to a compact PyTorch Lightning implementation, and trains a ViT-S/8 with LocaLeReg on
+> Imagenette on one GPU:
+>
+> ```bash
+> uv sync --locked
+> uv run python src/train.py experiment=minimal
+> ```
+
 Joint-Embedding Predictive Architectures (JEPAs) are an appealing approach to self-supervised learning,
 but they are prone to representational collapse, in which all inputs are mapped to the same embedding.
 [LeJEPA](https://arxiv.org/abs/2511.08544) resolves this with a theoretically grounded distribution-matching
@@ -85,27 +94,14 @@ regularized. All other components of LeJEPA are unchanged.
 <p align="center"><img src="assets/LocaLeJEPA_Main_Figure.svg" width="100%" alt="LocaLeJEPA main figure"/></p>
 
 On ImageNet-1K, LocaLeJEPA outperforms LeJEPA with hyperbolic ViT-S/8, D4-equivariant ResNet-50 and
-Euclidean ViT-S/8 backbones, in linear and k-NN classification and on downstream transfer. For a ViT-S/8
-pretrained for 100 epochs, linear-probe accuracy increases from 40.7% to 49.6% and k-NN accuracy from 24.3%
-to 34.1%:
-
-| Encoder | Method | Linear top-1 | k-NN top-1 | Transfer, 7-dataset avg |
-|---|---|---|---|---|
-| ViT-S/8 | LeJEPA | 40.7 | 24.3 | 56.7 |
-| | LocaLeJEPA | **49.6** | **34.1** | **63.0** |
-| Hyperbolic ViT-S/8 | LeJEPA | 41.1 | 25.1 | 57.6 |
-| | LocaLeJEPA | **50.5** | **34.9** | **63.9** |
-| D4-equivariant ResNet-50 | LeJEPA | 35.7 | 23.3 | 48.2 |
-| | LocaLeJEPA | **42.3** | **33.0** | **54.0** |
-
-All encoders are evaluated frozen. LocaLeJEPA uses λ = 0.1 and K = 4, and LeJEPA uses λ = 0.02. The k-NN
-classifier votes over the 20 nearest training images (this k is unrelated to K), and the transfer column
-reports the same linear probe averaged over 7 downstream datasets. Each row corresponds to a single
-pretraining run; linear-probe accuracies are averaged over five probe seeds.
+Euclidean ViT-S/8 backbones, in linear and k-NN classification and on downstream transfer. For a frozen
+ViT-S/8 pretrained for 100 epochs, linear-probe accuracy increases from 40.7% to 49.6% and k-NN accuracy
+from 24.3% to 34.1%. These results use λ = 0.1 and K = 4 for LocaLeJEPA and λ = 0.02 for LeJEPA, and each
+comes from a single pretraining run.
 
 The two methods are not trained with identical recipes, and part of each difference may therefore be
-attributable to optimization. LeJEPA rows use a learning rate of 2e-3 with one warm-up epoch (1e-3 for the
-D4-ResNet-50). Local matching collapses under this setting, so LocaLeJEPA rows use a learning rate of 1e-3,
+attributable to optimization. LeJEPA runs use a learning rate of 2e-3 with one warm-up epoch (1e-3 for the
+D4-ResNet-50). Local matching collapses under this setting, so LocaLeJEPA runs use a learning rate of 1e-3,
 ten warm-up epochs and gradient clipping at 1.0. The `*_in1k_sigreg_localrecipe` configurations train
 LeJEPA with the LocaLeJEPA recipe and isolate this effect.
 
@@ -115,18 +111,9 @@ angles with 23% and 17% lower error than on LeJEPA features (Imagenette pretrain
 setting evaluated). After ImageNet-1K pretraining the improvement is smaller: 3.68° against 3.94° for one
 figurine, and none for the other.
 
-The regularizer can be added to an existing training loop in
+The regularizer can also be added to an existing training loop in
 [five lines](#use-the-regularizer-in-your-own-code), and the encoders are described
 [under the hood](#under-the-hood).
-
-> **Quick start.** [`MINIMAL.md`](MINIMAL.md) presents the whole method on a single page, from the
-> formulation to a compact PyTorch Lightning implementation, and trains a ViT-S/8 with LocaLeReg on
-> Imagenette on one GPU:
->
-> ```bash
-> uv sync --locked
-> uv run python src/train.py experiment=minimal
-> ```
 
 ## Try it
 
@@ -167,7 +154,7 @@ online linear probe; with `logger=csv` it is in `logs/train/runs/<date>_<time>/c
 
 ## Reproduce the paper
 
-Every number comes from four steps: get the data, pretrain, evaluate the frozen encoder, read off the table.
+Every number comes from four steps: get the data, pretrain, evaluate the frozen encoder, read off the tables.
 
 ### Step 1: get the data
 
@@ -269,7 +256,7 @@ uv run python src/eval_angle_probe_multiseed.py --config configs/eval/yoda/vit_l
   --n-seeds 10
 ```
 
-The first command reproduces the ViT-S/8 LocaLeJEPA row. It writes `linear.top1` ≈ 49.5 to
+The first command reproduces the ViT-S/8 LocaLeJEPA result. It writes `linear.top1` ≈ 49.5 to
 `logs/eval_indomain_in1k_plainvit/per_backbone/vit_localballreg_l01_k4.json` with one probe seed (paper:
 49.6, five seeds). The probe tunes its learning rate on a held-out slice of the training set, never on the
 validation images.
