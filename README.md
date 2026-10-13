@@ -3,7 +3,7 @@
 # LocaLeJEPA: Local Regularizers for Joint-Embedding Predictive Architectures
 
 [Kartik Tandon](https://scholar.google.com/citations?user=Jxj7usMAAAAJ)<sup>1,‡</sup>,
-[Alessio Borgi](https://scholar.google.com/citations?hl=it&user=Ds4ktdkAAAAJ)<sup>2,‡</sup>,
+[Alessio Borgi](https://scholar.google.com/citations?hl=it&user=Ds4ktdkAAAAJ)<sup>2,7,‡</sup>,
 [Pavel Snopov](https://scholar.google.com/citations?user=CAmErvEAAAAJ)<sup>3</sup>,
 [Inés García-Redondo](https://scholar.google.com/citations?user=QJugIzgAAAAJ)<sup>4</sup>,
 [Davide D'Ascenzo](https://scholar.google.com/citations?user=E_rNRYwAAAAJ)<sup>5</sup>,
