@@ -31,7 +31,6 @@ class ImageNet(ImageFolder):
         index_targets: bool = False,
     ) -> None:
         suffix = "train/" if train else "val/"
-        data_path = None
         root = str(root)
 
         if copy_data:
@@ -49,8 +48,7 @@ class ImageNet(ImageFolder):
                 "Stage the dataset to node-local storage in the job script and set the "
                 "datamodule's data_dir to that path instead."
             )
-        if (not copy_data) or (data_path is None):
-            data_path = os.path.join(root, image_folder, suffix)
+        data_path = os.path.join(root, image_folder, suffix)
 
         super().__init__(root=data_path, transform=transform)
 

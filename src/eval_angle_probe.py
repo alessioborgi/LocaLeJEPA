@@ -55,6 +55,8 @@ def _plots(per_backbone, out_dir, angle_labels):
     names = list(per_backbone.keys())
     n_ang = max(len(b["metrics"]) for b in per_backbone.values())
     ang_keys = [f"angle{k}" for k in range(n_ang)]
+    # same fallback as main's log lines: a config may name fewer angles than the data has
+    angle_labels = [angle_labels[k] if k < len(angle_labels) else ak for k, ak in enumerate(ang_keys)]
     x = np.arange(len(names))
     w = 0.8 / n_ang
 

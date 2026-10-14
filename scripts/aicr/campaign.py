@@ -46,9 +46,10 @@ import os
 import re
 import subprocess
 import sys
+from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any
 
 REPO = Path(__file__).resolve().parents[2]
 CONFIG_DIR = REPO / "configs"
@@ -102,16 +103,17 @@ def shape_overrides(overrides: Iterable[str]) -> list[str]:
 # manifest -> runs
 # ======================================================================================
 
+
 @dataclass(frozen=True)
 class RunSpec:
     """One training run: everything the launcher needs, nothing it must guess."""
 
     run_name: str
     experiment: str
-    overrides: tuple[str, ...]        # "key=value", cell overrides only; seed is separate
+    overrides: tuple[str, ...]  # "key=value", cell overrides only; seed is separate
     seed: int
     gpus: int
-    micro_batch: int                  # the declared per-GPU batch, asserted by `geometry`
+    micro_batch: int  # the declared per-GPU batch, asserted by `geometry`
     max_epochs: int
     tag: str
 
@@ -126,8 +128,7 @@ class RunSpec:
         verbatim, found nothing, and reported every smoke cell as a config mismatch while its
         artifact was complete and correct. ``hydra_overrides`` keeps the prefix, which is where it
         belongs -- on the command line."""
-        return {key.lstrip("+"): value
-                for key, value in (item.split("=", 1) for item in self.overrides)} | {"seed": str(self.seed)}
+        return {key.lstrip("+"): value for key, value in (item.split("=", 1) for item in self.overrides)} | {"seed": str(self.seed)}
 
 
 def format_value(value: Any) -> str:
@@ -136,7 +137,7 @@ def format_value(value: Any) -> str:
         return str(value).lower()
     if isinstance(value, float):
         text = repr(value)
-        return text[:-2] if text.endswith(".0") else text
+        return text.removesuffix(".0")
     return str(value)
 
 
@@ -176,7 +177,7 @@ def expand(manifest: Mapping[str, Any]) -> list[RunSpec]:
         names = list(axes)
         for combo in itertools.product(*(axes[name] for name in names)) if names else [()]:
             overrides: dict[str, Any] = dict(fixed)
-            parts: list[tuple[str, str]] = []            # (key, aliased text), sorted below
+            parts: list[tuple[str, str]] = []  # (key, aliased text), sorted below
             micro_batch = block.get("micro_batch", defaults["micro_batch"])
             experiment = block.get("experiment", defaults["experiment"])
             for axis, value in zip(names, combo):
@@ -202,16 +203,18 @@ def expand(manifest: Mapping[str, Any]) -> list[RunSpec]:
                 if run_name in seen:
                     raise ValueError(f"duplicate run name {run_name!r}: two cells are indistinguishable")
                 seen.add(run_name)
-                runs.append(RunSpec(
-                    run_name=run_name,
-                    experiment=str(experiment),
-                    overrides=tuple(f"{k}={format_value(v)}" for k, v in sorted(overrides.items())),
-                    seed=seed,
-                    gpus=int(block.get("gpus", defaults["gpus"])),
-                    micro_batch=int(micro_batch),
-                    max_epochs=int(block.get("max_epochs", defaults["max_epochs"])),
-                    tag=tag,
-                ))
+                runs.append(
+                    RunSpec(
+                        run_name=run_name,
+                        experiment=str(experiment),
+                        overrides=tuple(f"{k}={format_value(v)}" for k, v in sorted(overrides.items())),
+                        seed=seed,
+                        gpus=int(block.get("gpus", defaults["gpus"])),
+                        micro_batch=int(micro_batch),
+                        max_epochs=int(block.get("max_epochs", defaults["max_epochs"])),
+                        tag=tag,
+                    )
+                )
     return runs
 
 
@@ -245,6 +248,7 @@ def read_grid(path: Path) -> tuple[dict[str, Any], list[RunSpec]]:
 # ======================================================================================
 # geometry -- printed before any number that depends on it (05-DECISIONS)
 # ======================================================================================
+
 
 def compose_config(hydra_overrides: list[str]):
     """The experiment as Hydra would compose it, without running anything."""
@@ -293,8 +297,6 @@ def geometry(spec: RunSpec, world_size: int, cfg=None) -> dict[str, Any]:
         views = int(transform.get("num_global_crops", 0)) + int(transform.get("num_local_crops", 0))
     target = str(_select(cfg, "data._target_", ""))
     dataset = next((name for name in DATASET_SIZES if name in target.lower().replace("_", "")), None)
-    if dataset is None and "imagenet1k" in target.lower():
-        dataset = "imagenet1k"
     steps_per_epoch = math.ceil(DATASET_SIZES[dataset] / batch_size) if dataset else None
     return {
         "run_name": spec.run_name,
@@ -318,6 +320,7 @@ def geometry(spec: RunSpec, world_size: int, cfg=None) -> dict[str, Any]:
 # ======================================================================================
 # resume -- by the step inside the checkpoint, never by existence or mtime
 # ======================================================================================
+
 
 @dataclass(frozen=True)
 class Candidate:
@@ -344,14 +347,13 @@ def read_checkpoint_progress(path: Path) -> Candidate:
 
 @dataclass(frozen=True)
 class Decision:
-    kind: str                         # "fresh" | "resume" | "done"
+    kind: str  # "fresh" | "resume" | "done"
     path: Path | None
     reason: str
     candidates: tuple[Candidate, ...] = field(default_factory=tuple)
 
 
-def resume_decision(ckpt_dir: Path, max_epochs: int,
-                    names: tuple[str, ...] = ("last.ckpt", "on_exception.ckpt")) -> Decision:
+def resume_decision(ckpt_dir: Path, max_epochs: int, names: tuple[str, ...] = ("last.ckpt", "on_exception.ckpt")) -> Decision:
     """The three-way decision, from what is *inside* the candidates.
 
     ``done`` only when ``last.ckpt`` -- written at the END of an epoch by the every-epoch callback
@@ -365,21 +367,17 @@ def resume_decision(ckpt_dir: Path, max_epochs: int,
     mid-epoch beats an older ``last.ckpt`` even though its mtime may be older on NFS; ``fresh``
     when nothing readable exists, saying so if something unreadable does.
     """
-    candidates = tuple(read_checkpoint_progress(ckpt_dir / name)
-                       for name in names if (ckpt_dir / name).is_file())
+    candidates = tuple(read_checkpoint_progress(ckpt_dir / name) for name in names if (ckpt_dir / name).is_file())
     readable = [c for c in candidates if c.valid]
-    finished = [c for c in readable
-                if c.path.name == "last.ckpt" and c.epoch is not None and c.epoch >= max_epochs - 1]
+    finished = [c for c in readable if c.path.name == "last.ckpt" and c.epoch is not None and c.epoch >= max_epochs - 1]
     if finished:
         best = finished[0]
-        return Decision("done", best.path, f"{best.path.name} is at epoch {best.epoch} "
-                        f"(max_epochs {max_epochs})", candidates)
+        return Decision("done", best.path, f"{best.path.name} is at epoch {best.epoch} (max_epochs {max_epochs})", candidates)
     if readable:
         # the largest global_step wins; on a tie max() keeps the first maximal element, i.e. the
         # epoch-end checkpoint (last.ckpt, first in `names`) rather than the mid-epoch one
         best = max(readable, key=lambda c: c.global_step or 0)
-        return Decision("resume", best.path, f"{best.path.name} at epoch {best.epoch}, "
-                        f"global_step {best.global_step}", candidates)
+        return Decision("resume", best.path, f"{best.path.name} at epoch {best.epoch}, global_step {best.global_step}", candidates)
     if candidates:
         broken = "; ".join(f"{c.path.name}: {c.error}" for c in candidates)
         return Decision("fresh", None, f"no readable checkpoint ({broken}); starting over", candidates)
@@ -398,6 +396,7 @@ def verify_artifact(ckpt_path: Path, max_epochs: int) -> tuple[bool, str]:
 # ======================================================================================
 # postflight -- the artifact, the config it was trained with, the tree, the environment
 # ======================================================================================
+
 
 def _parse_override_value(text: str) -> Any:
     lowered = text.lower()
@@ -544,7 +543,7 @@ def merged_metrics_rows(source: Path) -> tuple[list[str], list[dict[str, str]]]:
                     no_epoch.append(row)
                     continue
                 launch.setdefault(int(float(value)), []).append(row)
-        by_epoch.update(launch)      # this launch supersedes every earlier one on the epochs it logged
+        by_epoch.update(launch)  # this launch supersedes every earlier one on the epochs it logged
     rows = [row for epoch in sorted(by_epoch) for row in by_epoch[epoch]] + no_epoch
     return columns, rows
 
@@ -622,10 +621,10 @@ def tree_state(repo: Path) -> tuple[str | None, bool]:
     """(commit, dirty). ``dirty`` counts modified tracked files only -- the git-ignored
     ``configs/local/default.yaml`` is expected to exist."""
     try:
-        commit = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True,
-                                text=True, check=True).stdout.strip()
-        status = subprocess.run(["git", "-C", str(repo), "status", "--porcelain", "--untracked-files=no"],
-                                capture_output=True, text=True, check=True).stdout.strip()
+        commit = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+        status = subprocess.run(
+            ["git", "-C", str(repo), "status", "--porcelain", "--untracked-files=no"], capture_output=True, text=True, check=True
+        ).stdout.strip()
     except (subprocess.CalledProcessError, FileNotFoundError):
         return None, False
     return commit, bool(status)
@@ -643,8 +642,17 @@ class Verdict:
         return [f"  [{'ok' if passed else 'FAIL'}] {name}: {detail}" for name, (passed, detail) in self.checks.items()]
 
 
-def postflight(spec: RunSpec, run_dir: Path, ckpt_dir: Path, *, grid_commit: str | None,
-               lock_hash: str | None, python: str | None, repo: Path = REPO, lock_text: str | None = None) -> Verdict:
+def postflight(
+    spec: RunSpec,
+    run_dir: Path,
+    ckpt_dir: Path,
+    *,
+    grid_commit: str | None,
+    lock_hash: str | None,
+    python: str | None,
+    repo: Path = REPO,
+    lock_text: str | None = None,
+) -> Verdict:
     """Everything G5 asks of a finished pretrain, as one verdict. Writes nothing itself."""
     checks: dict[str, tuple[bool, str]] = {}
     ckpt = ckpt_dir / "last.ckpt"
@@ -660,11 +668,11 @@ def postflight(spec: RunSpec, run_dir: Path, ckpt_dir: Path, *, grid_commit: str
 
     csv_dir = run_dir / "csv"
     launches = metrics_versions(csv_dir)
-    local_run = run_is_local(run_dir, spec)      # from the recorded config, never the name (F53)
+    local_run = run_is_local(run_dir, spec)  # from the recorded config, never the name (F53)
     if not launches:
         checks["metrics"] = (False, "no csv/version_*/metrics.csv under the run dir")
     else:
-        problems = metrics_complete(csv_dir, spec.max_epochs, local_run=local_run)   # every launch, merged (F52)
+        problems = metrics_complete(csv_dir, spec.max_epochs, local_run=local_run)  # every launch, merged (F52)
         checks["metrics"] = (not problems, f"complete over {len(launches)} launch(es)" if not problems else "; ".join(problems))
 
     commit, dirty = tree_state(repo)
@@ -680,13 +688,16 @@ def postflight(spec: RunSpec, run_dir: Path, ckpt_dir: Path, *, grid_commit: str
     if lock_hash and python:
         live = current_env_text(python)
         actual = env_hash(live)
-        checks["environment"] = (actual == lock_hash, "matches the lock" if actual == lock_hash
-                                 else f"pins differ from the lock: {env_diff(lock_text or '', live)}")
+        checks["environment"] = (
+            actual == lock_hash,
+            "matches the lock" if actual == lock_hash else f"pins differ from the lock: {env_diff(lock_text or '', live)}",
+        )
     return Verdict(checks)
 
 
-def preflight(spec: RunSpec, *, grid_commit: str | None, lock_hash: str | None, python: str | None,
-              repo: Path = REPO, lock_text: str | None = None) -> Verdict:
+def preflight(
+    spec: RunSpec, *, grid_commit: str | None, lock_hash: str | None, python: str | None, repo: Path = REPO, lock_text: str | None = None
+) -> Verdict:
     """What a job checks before it stages a byte: the tree and the environment it will train
     with are the ones the grid was expanded from. Refusing here costs seconds; discovering it in
     postflight costs the run."""
@@ -705,8 +716,10 @@ def preflight(spec: RunSpec, *, grid_commit: str | None, lock_hash: str | None, 
     if lock_hash and python:
         live = current_env_text(python)
         actual = env_hash(live)
-        checks["environment"] = (actual == lock_hash, "matches the lock" if actual == lock_hash
-                                 else f"pins differ from the lock (F38: env drift): {env_diff(lock_text or '', live)}")
+        checks["environment"] = (
+            actual == lock_hash,
+            "matches the lock" if actual == lock_hash else f"pins differ from the lock (F38: env drift): {env_diff(lock_text or '', live)}",
+        )
     checks["run"] = (True, f"{spec.run_name}: {spec.experiment} + {len(spec.overrides)} overrides, seed {spec.seed}")
     return Verdict(checks)
 
@@ -714,9 +727,12 @@ def preflight(spec: RunSpec, *, grid_commit: str | None, lock_hash: str | None, 
 def write_marker(ckpt_dir: Path, verdict: Verdict, spec: RunSpec, extra: Mapping[str, Any] | None = None) -> Path:
     """``.verified`` on success, ``.failed`` otherwise -- the eval preflight requires the former."""
     name = ".verified" if verdict.ok else ".failed"
-    payload = {"run_name": spec.run_name, "ok": verdict.ok,
-               "checks": {k: {"ok": p, "detail": d} for k, (p, d) in verdict.checks.items()},
-               **dict(extra or {})}
+    payload = {
+        "run_name": spec.run_name,
+        "ok": verdict.ok,
+        "checks": {k: {"ok": p, "detail": d} for k, (p, d) in verdict.checks.items()},
+        **dict(extra or {}),
+    }
     path = ckpt_dir / name
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(payload, indent=1) + "\n", encoding="utf-8")
@@ -738,6 +754,7 @@ def checkpoint_digest(path: Path) -> str:
 # ======================================================================================
 # evaluations -- never on a checkpoint the launcher did not verify
 # ======================================================================================
+
 
 def eval_backbone_entry(config_path: Path, only: str) -> dict[str, Any]:
     import yaml
@@ -763,8 +780,10 @@ def eval_preflight(config_path: Path, only: str, root: Path) -> Verdict:
     checks["checkpoint"] = (ckpt.is_file(), str(ckpt))
     if ckpt.is_file():
         candidate = read_checkpoint_progress(ckpt)
-        checks["readable"] = (candidate.valid, f"epoch {candidate.epoch}, global_step {candidate.global_step}"
-                              if candidate.valid else str(candidate.error))
+        checks["readable"] = (
+            candidate.valid,
+            f"epoch {candidate.epoch}, global_step {candidate.global_step}" if candidate.valid else str(candidate.error),
+        )
         marker = ckpt.parent / ".verified"
         if marker.is_file():
             try:
@@ -801,14 +820,17 @@ def eval_postflight(config_path: Path, only: str, root: Path) -> Verdict:
         if wanted and isinstance(payload, dict):
             got = payload.get("datasets") or {}
             missing = [d for d in wanted if not (isinstance(got.get(d), dict) and "top1" in got[d])]
-            checks["datasets"] = (not missing, f"{len(wanted) - len(missing)}/{len(wanted)} with a result"
-                                  + (f"; missing {', '.join(missing)}" if missing else ""))
+            checks["datasets"] = (
+                not missing,
+                f"{len(wanted) - len(missing)}/{len(wanted)} with a result" + (f"; missing {', '.join(missing)}" if missing else ""),
+            )
     return Verdict(checks)
 
 
 # ======================================================================================
 # calibration -- the rehearsed interruption actually resumed
 # ======================================================================================
+
 
 def _step_rows(metrics_csv: Path) -> list[int]:
     steps: list[int] = []
@@ -832,20 +854,23 @@ def calibrate_verdict(run_dir: Path, *, interrupt_step: int, max_steps: int) -> 
     if not first or not second:
         checks["steps"] = (False, f"empty step series: first {len(first)} rows, second {len(second)} rows")
         return Verdict(checks)
-    checks["interrupted"] = (abs(first[-1] - interrupt_step) <= 1,
-                             f"first launch stopped at step {first[-1]} (interrupt at {interrupt_step})")
+    checks["interrupted"] = (
+        abs(first[-1] - interrupt_step) <= 1,
+        f"first launch stopped at step {first[-1]} (interrupt at {interrupt_step})",
+    )
     spacing = min((b - a for a, b in zip(first, first[1:])), default=1)
-    hint = (f"; rows are {spacing} steps apart -- the seam check needs trainer.log_every_n_steps=1 (F46)"
-            if spacing > 1 else "")
+    hint = f"; rows are {spacing} steps apart -- the seam check needs trainer.log_every_n_steps=1 (F46)" if spacing > 1 else ""
     checks["resumed"] = (second[0] == first[-1] + 1, f"second launch began at step {second[0]} after {first[-1]}{hint}")
     checks["completed"] = (second[-1] >= max_steps - 1, f"second launch ended at step {second[-1]} (max_steps {max_steps})")
     lr_col = None
     with open(versions[0], newline="", encoding="utf-8") as handle:
         lr_col = next((c for c in (csv.DictReader(handle).fieldnames or []) if c.startswith("lr-")), None)
     if lr_col:
+
         def series(path):
             with open(path, newline="", encoding="utf-8") as handle:
                 return [(int(float(r["step"])), float(r[lr_col])) for r in csv.DictReader(handle) if r.get(lr_col, "") != ""]
+
         a, b = series(versions[0]), series(versions[1])
         if len(a) >= 2 and b:
             # F48: with gradient accumulation the scheduler steps once per optimizer step, so the
@@ -855,8 +880,9 @@ def calibrate_verdict(run_dir: Path, *, interrupt_step: int, max_steps: int) -> 
             # side spans several accumulation windows); a restart from scratch still jumps by orders
             # of magnitude more than that.
             window = 16
-            around = [abs(y - x) for (_, x), (_, y) in zip(a[-window:], a[-window + 1:])] + \
-                     [abs(y - x) for (_, x), (_, y) in zip(b[:window], b[1:window + 1])]
+            around = [abs(y - x) for (_, x), (_, y) in zip(a[-window:], a[-window + 1 :])] + [
+                abs(y - x) for (_, x), (_, y) in zip(b[:window], b[1 : window + 1])
+            ]
             slope = max(around, default=0.0)
             jump = abs(b[0][1] - a[-1][1])
             checks["lr_continuous"] = (jump <= max(3 * slope, 1e-12), f"lr jump at the seam {jump:.3e} vs local slope {slope:.3e}")
@@ -866,6 +892,7 @@ def calibrate_verdict(run_dir: Path, *, interrupt_step: int, max_steps: int) -> 
 # ======================================================================================
 # successor -- inherits what THIS job actually got, and counts down
 # ======================================================================================
+
 
 def parse_slurm_time_left(text: str | None) -> float | None:
     """``squeue -o %L`` (``D-HH:MM:SS``, ``HH:MM:SS``, ``MM:SS``, ``SS``) in seconds; ``None`` when
@@ -889,7 +916,7 @@ def parse_slurm_time_left(text: str | None) -> float | None:
     return float(days * 86400 + seconds)
 
 
-SIGNAL_LEAD_S = 600              # seconds before the wall that Slurm SIGTERMs the job STEPS.
+SIGNAL_LEAD_S = 600  # seconds before the wall that Slurm SIGTERMs the job STEPS.
 # F80 (2026-10-03): at 120 s this was far too short. A 4-GPU ImageNet run has four ranks, each with
 # 16 persistent loader workers, and a ~200 MB checkpoint to write; `capacity_in1k` task 0 was still
 # shutting down 149 s after the signal when the wall killed it, so `srun` had not returned, the
@@ -923,8 +950,10 @@ def check_signal_lead(signal_s: int, time: str) -> None:
     if wall is None:
         raise ValueError(f"--time={time!r} is not a Slurm duration, so the signal lead cannot be checked")
     if signal_s * 2 >= wall:
-        raise ValueError(f"signal lead {signal_s}s is at least half of --time={time} ({wall:.0f}s): "
-                         "the job would be signalled before it had done useful work")
+        raise ValueError(
+            f"signal lead {signal_s}s is at least half of --time={time} ({wall:.0f}s): "
+            "the job would be signalled before it had done useful work"
+        )
 
 
 def successor_allowed(*, signalled: bool, time_left: str | None) -> tuple[bool, str]:
@@ -939,8 +968,9 @@ def successor_allowed(*, signalled: bool, time_left: str | None) -> tuple[bool, 
     return False, f"signalled with {time_left!r} left, not the wall: a cancel or a preemption -- no successor"
 
 
-def successor_argv(env: Mapping[str, str], *, script: str, requeue_left: int, time: str,
-                   exports: Mapping[str, str], log_dir: str | None = None) -> list[str] | None:
+def successor_argv(
+    env: Mapping[str, str], *, script: str, requeue_left: int, time: str, exports: Mapping[str, str], log_dir: str | None = None
+) -> list[str] | None:
     """The ``sbatch`` argv for a resumable exit, or ``None`` when the budget is spent.
 
     Resources are read from the running job's ``SLURM_*`` variables, never from a header, so
@@ -963,7 +993,8 @@ def successor_argv(env: Mapping[str, str], *, script: str, requeue_left: int, ti
     cpus = env.get("SLURM_CPUS_PER_TASK", "16")
     mem_mb = env.get("SLURM_MEM_PER_NODE")
     argv = [
-        "sbatch", "--parsable",
+        "sbatch",
+        "--parsable",
         f"--account={env['SLURM_JOB_ACCOUNT']}",
         f"--partition={env['SLURM_JOB_PARTITION']}",
         "--nodes=1",
@@ -998,6 +1029,7 @@ def successor_argv(env: Mapping[str, str], *, script: str, requeue_left: int, ti
 # realised K -- the column
 # ======================================================================================
 
+
 def launch_overrides(gpus: int, cpus_per_task: int) -> list[str]:
     """The Hydra overrides every campaign launch adds to the grid's own: the trainer for this GPU
     count, the CSV logger the tables read, one loader worker per allocated core (F46).
@@ -1017,9 +1049,14 @@ def calibrate_overrides(max_steps: int, interrupt_step: int | None = None) -> li
     at ``interrupt_step`` when given (the first launch), and logs every step so the resume seam
     and the LR continuity can be read from ``metrics.csv`` (F46: Lightning's default of 50 hid the
     seam)."""
-    out = ["callbacks=calibrate", f"+trainer.max_steps={max_steps}", "+trainer.limit_val_batches=0",
-           "+trainer.num_sanity_val_steps=0", "callbacks.learning_rate_monitor.logging_interval=step",
-           "trainer.log_every_n_steps=1"]
+    out = [
+        "callbacks=calibrate",
+        f"+trainer.max_steps={max_steps}",
+        "+trainer.limit_val_batches=0",
+        "+trainer.num_sanity_val_steps=0",
+        "callbacks.learning_rate_monitor.logging_interval=step",
+        "trainer.log_every_n_steps=1",
+    ]
     if interrupt_step is not None:
         out.append(f"callbacks.self_interrupt.at_step={interrupt_step}")
     return out
@@ -1045,7 +1082,7 @@ def online_probe_curve(metrics_csv: Path) -> dict[str, float | int | None]:
             if row.get(column) in ("", None):
                 continue
             epoch = int(float(row["epoch"])) if row.get("epoch") not in ("", None) else len(points)
-            points.append((epoch, round(100.0 * float(row[column]), 6)))     # percent; 6 dp kills float noise
+            points.append((epoch, round(100.0 * float(row[column]), 6)))  # percent; 6 dp kills float noise
     if not points:
         return {"epochs": 0, "final": None, "max": None, "argmax_epoch": None}
     best_epoch, best = max(points, key=lambda pt: (pt[1], -pt[0]))
@@ -1079,13 +1116,19 @@ def realised_k(metrics_csv: Path, last_n: int = 10) -> dict[str, float | int | N
     if not values:
         return {"epochs": 0, "mean": None, "last_mean": None, "fallback_epochs": 0, "configured": configured}
     tail = values[-last_n:]
-    return {"epochs": len(values), "mean": sum(values) / len(values), "last_mean": sum(tail) / len(tail),
-            "fallback_epochs": fallbacks, "configured": configured}
+    return {
+        "epochs": len(values),
+        "mean": sum(values) / len(values),
+        "last_mean": sum(tail) / len(tail),
+        "fallback_epochs": fallbacks,
+        "configured": configured,
+    }
 
 
 # ======================================================================================
 # staging and submission
 # ======================================================================================
+
 
 def stage_check(free_bytes: int, tar_bytes: int, factor: float = 1.2) -> tuple[bool, str]:
     needed = int(tar_bytes * factor)
@@ -1117,11 +1160,24 @@ def describe_cells(runs: list[RunSpec], indices: list[int] | None) -> str:
     return " ".join(f"{i}={runs[i].run_name}" for i in indices)
 
 
-def submit_command(grid_path: Path, runs: list[RunSpec], *, partition: str, account: str, time: str,
-                   script: str, log_dir: str, exports: Mapping[str, str], throttle: int | None = None,
-                   cpus_per_gpu: int = 16, mem_per_gpu_gb: int = 60, gpu_type: str | None = None,
-                   indices: list[int] | None = None, signal_s: int = SIGNAL_LEAD_S,
-                   exclusive: bool = False) -> list[str]:
+def submit_command(
+    grid_path: Path,
+    runs: list[RunSpec],
+    *,
+    partition: str,
+    account: str,
+    time: str,
+    script: str,
+    log_dir: str,
+    exports: Mapping[str, str],
+    throttle: int | None = None,
+    cpus_per_gpu: int = 16,
+    mem_per_gpu_gb: int = 60,
+    gpu_type: str | None = None,
+    indices: list[int] | None = None,
+    signal_s: int = SIGNAL_LEAD_S,
+    exclusive: bool = False,
+) -> list[str]:
     """One homogeneous job array per grid: every run needs the same GPU count, or the array
     would silently give the wrong resources to some of its tasks."""
     gpus = {run.gpus for run in runs}
@@ -1136,8 +1192,10 @@ def submit_command(grid_path: Path, runs: list[RunSpec], *, partition: str, acco
     if throttle:
         array += f"%{throttle}"
     argv = [
-        "sbatch", "--parsable",
-        f"--account={account}", f"--partition={partition}",
+        "sbatch",
+        "--parsable",
+        f"--account={account}",
+        f"--partition={partition}",
         f"--array={array}",
         "--nodes=1",
         f"--ntasks-per-node={g}",
@@ -1173,6 +1231,7 @@ def submit_command(grid_path: Path, runs: list[RunSpec], *, partition: str, acco
 # CLI
 # ======================================================================================
 
+
 def _emit_shell(assignments: Mapping[str, Any]) -> None:
     import shlex
 
@@ -1184,58 +1243,102 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p = sub.add_parser("expand"); p.add_argument("manifest", type=Path); p.add_argument("--out", type=Path, required=True)
-    p = sub.add_parser("show"); p.add_argument("grid", type=Path); p.add_argument("--index", type=int)
-    p = sub.add_parser("args"); p.add_argument("grid", type=Path); p.add_argument("--index", type=int, required=True)
-    p = sub.add_parser("preflight"); p.add_argument("grid", type=Path); p.add_argument("--index", type=int, required=True)
-    p.add_argument("--lock", type=Path); p.add_argument("--python", default=sys.executable)
-    p = sub.add_parser("geometry"); p.add_argument("grid", type=Path); p.add_argument("--index", type=int, required=True)
-    p.add_argument("--world-size", type=int, required=True); p.add_argument("--shell", action="store_true")
-    p = sub.add_parser("stage-check"); p.add_argument("--free", type=int, required=True)
-    p.add_argument("--tar-bytes", type=int, required=True); p.add_argument("--factor", type=float, default=1.2)
-    p = sub.add_parser("resume"); p.add_argument("--ckpt-dir", type=Path, required=True)
-    p.add_argument("--max-epochs", type=int, required=True); p.add_argument("--shell", action="store_true")
-    p = sub.add_parser("postflight"); p.add_argument("grid", type=Path); p.add_argument("--index", type=int, required=True)
-    p.add_argument("--run-dir", type=Path, required=True); p.add_argument("--ckpt-dir", type=Path, required=True)
-    p.add_argument("--lock", type=Path); p.add_argument("--python", default=sys.executable)
+    p = sub.add_parser("expand")
+    p.add_argument("manifest", type=Path)
+    p.add_argument("--out", type=Path, required=True)
+    p = sub.add_parser("show")
+    p.add_argument("grid", type=Path)
+    p.add_argument("--index", type=int)
+    p = sub.add_parser("args")
+    p.add_argument("grid", type=Path)
+    p.add_argument("--index", type=int, required=True)
+    p = sub.add_parser("preflight")
+    p.add_argument("grid", type=Path)
+    p.add_argument("--index", type=int, required=True)
+    p.add_argument("--lock", type=Path)
+    p.add_argument("--python", default=sys.executable)
+    p = sub.add_parser("geometry")
+    p.add_argument("grid", type=Path)
+    p.add_argument("--index", type=int, required=True)
+    p.add_argument("--world-size", type=int, required=True)
+    p.add_argument("--shell", action="store_true")
+    p = sub.add_parser("stage-check")
+    p.add_argument("--free", type=int, required=True)
+    p.add_argument("--tar-bytes", type=int, required=True)
+    p.add_argument("--factor", type=float, default=1.2)
+    p = sub.add_parser("resume")
+    p.add_argument("--ckpt-dir", type=Path, required=True)
+    p.add_argument("--max-epochs", type=int, required=True)
+    p.add_argument("--shell", action="store_true")
+    p = sub.add_parser("postflight")
+    p.add_argument("grid", type=Path)
+    p.add_argument("--index", type=int, required=True)
+    p.add_argument("--run-dir", type=Path, required=True)
+    p.add_argument("--ckpt-dir", type=Path, required=True)
+    p.add_argument("--lock", type=Path)
+    p.add_argument("--python", default=sys.executable)
     p.add_argument("--train-rc", type=int, default=0)
-    p = sub.add_parser("successor"); p.add_argument("--requeue-left", type=int, required=True)
-    p.add_argument("--time", required=True); p.add_argument("--script", required=True)
+    p = sub.add_parser("successor")
+    p.add_argument("--requeue-left", type=int, required=True)
+    p.add_argument("--time", required=True)
+    p.add_argument("--script", required=True)
     p.add_argument("--signalled", action="store_true", help="a SIGTERM reached the batch script (F50)")
     p.add_argument("--time-left", default=None, help="squeue %L at the signal")
     p.add_argument("--log-dir", default=None, help="where the successor's stdout goes (never the clone, F50)")
     p.add_argument("--export", action="append", default=[], help="KEY=VALUE to carry to the successor")
-    p = sub.add_parser("realised-k"); p.add_argument("metrics", type=Path)
-    p = sub.add_parser("online-curve"); p.add_argument("metrics", type=Path)
-    p = sub.add_parser("launch-overrides"); p.add_argument("--gpus", type=int, required=True); p.add_argument("--cpus", type=int, required=True)
-    p = sub.add_parser("calibrate-overrides"); p.add_argument("--max-steps", type=int, required=True); p.add_argument("--interrupt", type=int)
-    p = sub.add_parser("submit"); p.add_argument("grid", type=Path); p.add_argument("--partition", required=True)
-    p.add_argument("--account", default="dominici_lab_hu"); p.add_argument("--time", required=True)
-    p.add_argument("--script", required=True, help="the sbatch script each array task runs"); p.add_argument("--log-dir", required=True)
-    p.add_argument("--export", action="append", default=[]); p.add_argument("--throttle", type=int)
-    p.add_argument("--gpu-type"); p.add_argument("--cpus-per-gpu", type=int, default=16)
-    p.add_argument("--mem-per-gpu-gb", type=int, default=60); p.add_argument("--indices", help="e.g. 0-9,20")
-    p.add_argument("--signal-s", type=int, default=SIGNAL_LEAD_S,
-                   help=f"seconds of grace before the wall (default {SIGNAL_LEAD_S}; F80)")
-    p.add_argument("--exclusive", action="store_true",
-                   help="request the whole node: for decode-bound runs sharing a node costs 3-5x (F81)")
-    p = sub.add_parser("env-hash"); p.add_argument("freeze", type=Path, nargs="?")
+    p = sub.add_parser("realised-k")
+    p.add_argument("metrics", type=Path)
+    p = sub.add_parser("online-curve")
+    p.add_argument("metrics", type=Path)
+    p = sub.add_parser("launch-overrides")
+    p.add_argument("--gpus", type=int, required=True)
+    p.add_argument("--cpus", type=int, required=True)
+    p = sub.add_parser("calibrate-overrides")
+    p.add_argument("--max-steps", type=int, required=True)
+    p.add_argument("--interrupt", type=int)
+    p = sub.add_parser("submit")
+    p.add_argument("grid", type=Path)
+    p.add_argument("--partition", required=True)
+    p.add_argument("--account", default="dominici_lab_hu")
+    p.add_argument("--time", required=True)
+    p.add_argument("--script", required=True, help="the sbatch script each array task runs")
+    p.add_argument("--log-dir", required=True)
+    p.add_argument("--export", action="append", default=[])
+    p.add_argument("--throttle", type=int)
+    p.add_argument("--gpu-type")
+    p.add_argument("--cpus-per-gpu", type=int, default=16)
+    p.add_argument("--mem-per-gpu-gb", type=int, default=60)
+    p.add_argument("--indices", help="e.g. 0-9,20")
+    p.add_argument("--signal-s", type=int, default=SIGNAL_LEAD_S, help=f"seconds of grace before the wall (default {SIGNAL_LEAD_S}; F80)")
+    p.add_argument("--exclusive", action="store_true", help="request the whole node: for decode-bound runs sharing a node costs 3-5x (F81)")
+    p = sub.add_parser("env-hash")
+    p.add_argument("freeze", type=Path, nargs="?")
     for name in ("eval-preflight", "eval-postflight"):
-        p = sub.add_parser(name); p.add_argument("--config", type=Path, required=True)
-        p.add_argument("--only", required=True); p.add_argument("--root", type=Path, required=True)
-    p = sub.add_parser("calibrate-verdict"); p.add_argument("--run-dir", type=Path, required=True)
-    p.add_argument("--interrupt-step", type=int, required=True); p.add_argument("--max-steps", type=int, required=True)
+        p = sub.add_parser(name)
+        p.add_argument("--config", type=Path, required=True)
+        p.add_argument("--only", required=True)
+        p.add_argument("--root", type=Path, required=True)
+    p = sub.add_parser("calibrate-verdict")
+    p.add_argument("--run-dir", type=Path, required=True)
+    p.add_argument("--interrupt-step", type=int, required=True)
+    p.add_argument("--max-steps", type=int, required=True)
     args = parser.parse_args(argv)
 
     if args.command == "expand":
         manifest = load_manifest(args.manifest)
         runs = expand(manifest)
         commit, dirty = tree_state(REPO)
-        write_grid(runs, args.out, manifest_name=str(manifest.get("name", args.manifest.stem)),
-                   commit=(commit + ("-dirty" if dirty else "")) if commit else None)
-        blocks = " ".join(f"{t}[{a}-{b}]" for t, a, b in block_index_ranges(runs))   # index order, never sorted (F51)
-        print(f"{len(runs)} runs from {len(manifest['blocks'])} block(s) in index order: {blocks} "
-              f"x {len(manifest.get('seeds', [0]))} seed(s) -> {args.out}")
+        write_grid(
+            runs,
+            args.out,
+            manifest_name=str(manifest.get("name", args.manifest.stem)),
+            commit=(commit + ("-dirty" if dirty else "")) if commit else None,
+        )
+        blocks = " ".join(f"{t}[{a}-{b}]" for t, a, b in block_index_ranges(runs))  # index order, never sorted (F51)
+        print(
+            f"{len(runs)} runs from {len(manifest['blocks'])} block(s) in index order: {blocks} "
+            f"x {len(manifest.get('seeds', [0]))} seed(s) -> {args.out}"
+        )
         return 0
 
     if args.command == "show":
@@ -1248,8 +1351,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "args":
         _, runs = read_grid(args.grid)
         spec = runs[args.index]
-        _emit_shell({"RUN_NAME": spec.run_name, "MAX_EPOCHS": spec.max_epochs,
-                     "OVERRIDES": " ".join(spec.hydra_overrides())})
+        _emit_shell({"RUN_NAME": spec.run_name, "MAX_EPOCHS": spec.max_epochs, "OVERRIDES": " ".join(spec.hydra_overrides())})
         return 0
 
     if args.command == "preflight":
@@ -1257,8 +1359,9 @@ def main(argv: list[str] | None = None) -> int:
         spec = runs[args.index]
         lock_text = args.lock.read_text(encoding="utf-8") if args.lock else None
         lock_hash = env_hash(lock_text) if lock_text is not None else None
-        verdict = preflight(spec, grid_commit=payload.get("commit"), lock_hash=lock_hash,
-                            python=args.python if args.lock else None, lock_text=lock_text)
+        verdict = preflight(
+            spec, grid_commit=payload.get("commit"), lock_hash=lock_hash, python=args.python if args.lock else None, lock_text=lock_text
+        )
         print(f"preflight {spec.run_name}:")
         print("\n".join(verdict.lines()))
         return 0 if verdict.ok else 1
@@ -1281,16 +1384,24 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "resume":
         decision = resume_decision(args.ckpt_dir, args.max_epochs)
         for candidate in decision.candidates:
-            print(f"# candidate {candidate.path.name}: epoch={candidate.epoch} global_step={candidate.global_step}"
-                  f"{'' if candidate.valid else ' UNREADABLE ' + str(candidate.error)}", file=sys.stderr)
+            print(
+                f"# candidate {candidate.path.name}: epoch={candidate.epoch} global_step={candidate.global_step}"
+                f"{'' if candidate.valid else ' UNREADABLE ' + str(candidate.error)}",
+                file=sys.stderr,
+            )
         print(f"# decision: {decision.kind} -- {decision.reason}", file=sys.stderr)
         if args.shell:
             # F50: with an OnExceptionCheckpoint in the callbacks Lightning turns fit(ckpt_path=None)
             # into ckpt_path="last" and loads any last.ckpt / on_exception.ckpt it finds -- so a
             # "fresh" decision taken because those files are unreadable must move them aside first
             stale = " ".join(str(c.path) for c in decision.candidates if not c.valid) if decision.kind == "fresh" else ""
-            _emit_shell({"DECISION": decision.kind, "RESUME": str(decision.path) if decision.path and decision.kind == "resume" else "",
-                         "STALE": stale})
+            _emit_shell(
+                {
+                    "DECISION": decision.kind,
+                    "RESUME": str(decision.path) if decision.path and decision.kind == "resume" else "",
+                    "STALE": stale,
+                }
+            )
         else:
             print(decision.kind if decision.path is None else f"{decision.kind}:{decision.path}")
         return 0
@@ -1300,15 +1411,31 @@ def main(argv: list[str] | None = None) -> int:
         spec = runs[args.index]
         lock_text = args.lock.read_text(encoding="utf-8") if args.lock else None
         lock_hash = env_hash(lock_text) if lock_text is not None else None
-        verdict = postflight(spec, args.run_dir, args.ckpt_dir, grid_commit=payload.get("commit"),
-                             lock_hash=lock_hash, python=args.python if args.lock else None, lock_text=lock_text)
+        verdict = postflight(
+            spec,
+            args.run_dir,
+            args.ckpt_dir,
+            grid_commit=payload.get("commit"),
+            lock_hash=lock_hash,
+            python=args.python if args.lock else None,
+            lock_text=lock_text,
+        )
         print(f"postflight {spec.run_name} (train.py exit code {args.train_rc} -- informational, not the verdict):")
         print("\n".join(verdict.lines()))
         if verdict.ok:
             progress = read_checkpoint_progress(args.ckpt_dir / "last.ckpt")
-            write_marker(args.ckpt_dir, verdict, spec, {
-                "train_rc": args.train_rc, "epoch": progress.epoch, "global_step": progress.global_step,
-                "digest": checkpoint_digest(args.ckpt_dir / "last.ckpt"), "commit": payload.get("commit")})
+            write_marker(
+                args.ckpt_dir,
+                verdict,
+                spec,
+                {
+                    "train_rc": args.train_rc,
+                    "epoch": progress.epoch,
+                    "global_step": progress.global_step,
+                    "digest": checkpoint_digest(args.ckpt_dir / "last.ckpt"),
+                    "commit": payload.get("commit"),
+                },
+            )
             print("VERIFIED")
             return 0
         decision = resume_decision(args.ckpt_dir, spec.max_epochs)
@@ -1321,8 +1448,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "successor":
         exports = dict(item.split("=", 1) for item in args.export)
-        argv_out = successor_argv(os.environ, script=args.script, requeue_left=args.requeue_left,
-                                  time=args.time, exports=exports, log_dir=args.log_dir)
+        argv_out = successor_argv(
+            os.environ, script=args.script, requeue_left=args.requeue_left, time=args.time, exports=exports, log_dir=args.log_dir
+        )
         allowed, why = successor_allowed(signalled=args.signalled, time_left=args.time_left)
         if not allowed:
             print(f"# {why}", file=sys.stderr)
@@ -1331,6 +1459,7 @@ def main(argv: list[str] | None = None) -> int:
             print("# requeue budget exhausted: no successor", file=sys.stderr)
             return 1
         import shlex
+
         print(" ".join(shlex.quote(a) for a in argv_out))
         return 0
 
@@ -1355,16 +1484,30 @@ def main(argv: list[str] | None = None) -> int:
             indices = []
             for part in args.indices.split(","):
                 if "-" in part:
-                    lo, hi = part.split("-"); indices.extend(range(int(lo), int(hi) + 1))
+                    lo, hi = part.split("-")
+                    indices.extend(range(int(lo), int(hi) + 1))
                 else:
                     indices.append(int(part))
-        argv_out = submit_command(args.grid.resolve(), runs, partition=args.partition, account=args.account,
-                                  time=args.time, script=args.script, log_dir=args.log_dir, exports=exports,
-                                  throttle=args.throttle, cpus_per_gpu=args.cpus_per_gpu,
-                                  mem_per_gpu_gb=args.mem_per_gpu_gb, gpu_type=args.gpu_type, indices=indices,
-                                  signal_s=args.signal_s, exclusive=args.exclusive)
+        argv_out = submit_command(
+            args.grid.resolve(),
+            runs,
+            partition=args.partition,
+            account=args.account,
+            time=args.time,
+            script=args.script,
+            log_dir=args.log_dir,
+            exports=exports,
+            throttle=args.throttle,
+            cpus_per_gpu=args.cpus_per_gpu,
+            mem_per_gpu_gb=args.mem_per_gpu_gb,
+            gpu_type=args.gpu_type,
+            indices=indices,
+            signal_s=args.signal_s,
+            exclusive=args.exclusive,
+        )
         import shlex
-        print(f"# cells: {describe_cells(runs, indices)}", file=sys.stderr)   # F51: verify by name, not by position
+
+        print(f"# cells: {describe_cells(runs, indices)}", file=sys.stderr)  # F51: verify by name, not by position
         print(" ".join(shlex.quote(a) for a in argv_out))
         return 0
 
