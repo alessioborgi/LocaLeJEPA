@@ -58,10 +58,13 @@ IN1K_128 = ["in1k_baselines.yaml", "in1k_local.yaml", "in1k_global_ball.yaml", "
 # whole generator exists to prevent. The Imagenette manifests (target_and_centering,
 # ablation_grid_ep800_d4) are deliberately absent: they are evaluated through
 # make_ablation_eval_config.py from their own grid JSON, not from here.
-VITL = ["in1k_vitl14.yaml", "in1k_vitl14_globalball.yaml", "vitl14_strength_matched_in1k.yaml"]
+VITL = ["in1k_vitl14.yaml", "in1k_vitl14_globalball.yaml", "vitl14_strength_matched_in1k.yaml",
+        "in1k_vitl14_our_settings.yaml"]
 # The ViT-L global ball is in VITL rather than IN1K_128 because this list renders at crop 238 and
 # that one at 128 -- and because `submit_command` builds one homogeneous array per grid, so an
 # 8-GPU run cannot share a manifest with the 4-GPU controls (decision 26).
+# in1k_vitl14_our_settings is decision 34, the ViT-L pair at our settings: listed for the same
+# reason as the rest (F71), appended so the existing entries keep their order.
 TORUS = ["torus.yaml"]
 
 

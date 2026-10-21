@@ -271,3 +271,20 @@ def test_the_paper_arms_are_named_by_the_indomain_and_transfer_configs():
     transfer = {e["name"] for e in yaml.safe_load(RENDERED["configs/eval/transfer_in1k_campaign.yaml"])["backbones"]}
     assert runs <= indomain and {f"{r}_best" for r in runs} <= indomain, sorted(runs - indomain)
     assert runs <= transfer, sorted(runs - transfer)
+
+
+def test_the_vitl_runs_at_our_settings_are_evaluated_at_238_and_only_there():
+    """Decision 34 (positive coverage, F71): the two ViT-L runs at our settings must reach the tables, so every ViT-L
+    config names them, with their `_best` twins where its protocol has twins, at crop 238, and no 128 px config names
+    them. Listing the manifest in VITL is what does it; dropping it from the list fails this, naming the two runs and
+    their `_best` twins."""
+    runs = {r.run_name for r in C.expand(C.load_manifest(REPO / "configs/campaign/in1k_vitl14_our_settings.yaml"))}
+    assert len(runs) == 2
+    for rel, text in RENDERED.items():
+        cfg = yaml.safe_load(text)
+        names = {e["name"] for e in cfg["backbones"]}
+        if "vitl14" in rel:
+            twins = {f"{r}_best" for r in runs} if any(n.endswith("_best") for n in names) else set()
+            assert cfg["crop_size"] == 238 and (runs | twins) <= names, f"{rel}: missing {sorted((runs | twins) - names)}"
+        else:
+            assert not (runs & names), f"{rel}: a 128 px config names {sorted(runs & names)}"

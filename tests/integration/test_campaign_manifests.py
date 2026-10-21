@@ -22,12 +22,12 @@ MANIFESTS = sorted((REPO / "configs" / "campaign").glob("*.yaml"))
 EXPECTED_RUNS = {
     "ablation_grid": 252, "ablation_batch128": 24, "in1k_baselines": 6, "in1k_vitl14": 2,
     "in1k_local": 4, "torus": 11, "calibration_1gpu": 2, "calibration_4gpu": 3, "calibration_8gpu": 1,
-    "smoke_1gpu": 8, "smoke_4gpu": 16, "smoke_8gpu": 2, "ablation_grid_ep800": 252,
+    "smoke_1gpu": 8, "smoke_4gpu": 16, "smoke_8gpu": 4, "ablation_grid_ep800": 252,
     "target_and_centering": 24, "in1k_global_ball": 3, "ablation_grid_ep800_d4": 252,
     "capacity_grid_ep800": 180, "capacity_in1k": 4,
     "in1k_attribution": 2, "in1k_vitl14_globalball": 1, "strength_matched_in1k": 3,
     "separating_controls_in1k": 5, "vitl14_strength_matched_in1k": 1, "seeds_vit_in1k": 10,
-    "local_gaussian_in1k": 1, "paper_arms_in1k": 8,
+    "local_gaussian_in1k": 1, "paper_arms_in1k": 8, "in1k_vitl14_our_settings": 2,
 }
 
 
@@ -354,7 +354,7 @@ NEW_WAVE_MANIFESTS = ("capacity_grid_ep800.yaml", "capacity_in1k.yaml",
                       "in1k_attribution.yaml", "in1k_vitl14_globalball.yaml",
                       "strength_matched_in1k.yaml", "separating_controls_in1k.yaml",
                       "vitl14_strength_matched_in1k.yaml", "seeds_vit_in1k.yaml", "local_gaussian_in1k.yaml",
-                      "paper_arms_in1k.yaml")
+                      "paper_arms_in1k.yaml", "in1k_vitl14_our_settings.yaml")
 # strength_matched_in1k (decision 28) runs depths 6 and 3 through the depth config, so it belongs to the
 # depth guard too. Its depth-12 run takes the BASE config with no depth override, exactly as the K=4 arm
 # it is compared against does -- so no unrehearsed depth enters, and neither guard needs weakening.
@@ -904,6 +904,97 @@ def test_every_paper_arm_tag_resolves_to_a_backbone_family():
     spec.loader.exec_module(sync)
     for run in expand(REPO / "configs" / "campaign" / PAPER_ARMS):
         assert sync.family(run) == run.tag.split("_")[0], run.tag
+
+
+OUR_SETTINGS_VITL = "in1k_vitl14_our_settings.yaml"
+# decision 34: each ViT-L run at our settings -> (its twin at LeJEPA's published ViT-L settings, in in1k_vitl14.yaml;
+# the 128 px ViT-S run of the same arm, in in1k_local.yaml)
+OUR_SETTINGS_TWINS = {
+    "vitl14_control_lam0.1_s0": ("vitl14_sigreg_s0", "vit_control_lam0.1_s0"),
+    "vitl14_local_lam0.1_k4_s0": ("vitl14_local_k4_s0", "vit_local_lam0.1_k4_s0"),
+}
+# "our settings" as the paper defines them (App. experimental details): lr 1e-3, ten warm-up epochs, decay to 1e-3 of
+# the peak rate, clipping at 1.0, lambda 0.1
+OUR_SETTINGS = {"optimizer.lr": 1e-3, "model.warmup_epochs": 10, "model.lr_eta_min_ratio": 1e-3,
+                "trainer.gradient_clip_val": 1.0, "model.lamb": 0.1}
+
+
+def test_the_vitl_runs_at_our_settings_differ_from_their_published_twins_in_lr_clip_and_lambda_ONLY():
+    """Decision 34. Table 2's "our settings" step changes the optimisation settings on a fixed protocol, so each ViT-L
+    run keeps LeJEPA's ViT-L protocol (238 px, 2+6 crops, batch 512, projector 512, 1024 slices) and differs from its
+    published-settings twin, over every configured key, in exactly the three settings the ViT-L configs do not already
+    share with ours: lr 5e-4 -> 1e-3, clipping none -> 1.0, lambda 0.05 -> 0.1. A fourth key would make this row's
+    step a different change from the 128 px rows'.
+
+    Inverted by adding `data.crop_size: 224` to the control block: the diff names it.
+    """
+    runs = {r.run_name: r for r in expand(REPO / "configs" / "campaign" / OUR_SETTINGS_VITL)}
+    assert set(runs) == set(OUR_SETTINGS_TWINS), f"the manifest's runs moved: {sorted(runs)}"
+    for name, (twin_name, _) in OUR_SETTINGS_TWINS.items():
+        diff = _differing(_named("in1k_vitl14.yaml", twin_name), runs[name])
+        assert diff == {"optimizer.lr", "trainer.gradient_clip_val", "model.lamb"}, f"{name} vs {twin_name}: {sorted(diff)}"
+
+
+def test_the_vitl_runs_at_our_settings_take_the_recipe_the_paper_defines_and_the_128px_rows_run():
+    """Decision 34. "Our settings" must be ONE recipe across Table 2: each ViT-L run carries the paper's values, and so
+    does the ViT-S run of the same arm, so the definition cannot drift on either side unseen. lambda is 0.1, the value
+    of LeJEPA (our settings) and of LocaLeJEPA K=4 at 128 px, not the 0.05 the ViT-L configs carry.
+
+    Inverted by giving the local block `optimizer.lr: 5.0e-4`: the run reads 0.0005 against the paper's 0.001.
+    """
+    for name, (_, ref_name) in OUR_SETTINGS_TWINS.items():
+        for run in (_named(OUR_SETTINGS_VITL, name), _named("in1k_local.yaml", ref_name)):
+            cfg = C.compose_config(run.hydra_overrides())
+            for key, value in OUR_SETTINGS.items():
+                got = OmegaConf.select(cfg, key)
+                assert got is not None and math.isclose(float(got), value), f"{run.run_name}: {key} = {got}, not {value}"
+
+
+def test_the_vitl_runs_at_our_settings_sit_at_the_128px_rows_strengths():
+    """Decision 34. At 64 per GPU, K=4 at lambda 0.1 has effective strength 0.1 x 64 / 4 = 1.6, every 128 px K=4 arm's,
+    where the published-settings ViT-L K=4 sits at 0.8. The SIGReg arm sits at the 128 px control's 6.4.
+
+    Inverted by putting the manifest at micro_batch 32 with `data.batch_size: 256` on both blocks: the control reads
+    3.200 against its 128 px twin's 6.400.
+    """
+    for name, (_, ref_name) in OUR_SETTINGS_TWINS.items():
+        got = _effective_strength(_named(OUR_SETTINGS_VITL, name))
+        ref = _effective_strength(_named("in1k_local.yaml", ref_name))
+        assert math.isclose(got, ref), f"{name}: strength {got:.3f} against {ref_name}'s {ref:.3f}"
+    assert math.isclose(_effective_strength(_named(OUR_SETTINGS_VITL, "vitl14_local_lam0.1_k4_s0")), 1.6)
+    assert math.isclose(_effective_strength(_named("in1k_vitl14.yaml", "vitl14_local_k4_s0")), 0.8)
+
+
+def test_the_vitl_runs_at_our_settings_are_the_names_the_table_rows_template():
+    """Decision 34. The names are the 128 px runs' with the family swapped, so the rebuttal table generator's row
+    templates for LeJEPA (our settings) and LocaLeJEPA K=4 name them with f = vitl14. Read from the generator itself,
+    so a rename on either side fails here.
+
+    Inverted by renaming the control block's tag to `vitl14_ours`: the names no longer match the templates, and the
+    assertion lists `vitl14_ours_lam0.1_s0`.
+    """
+    import importlib.util
+    import sys
+
+    spec = importlib.util.spec_from_file_location("_tables_for_d34", REPO / "scripts/make_rebuttal_tables.py")
+    tables = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = tables
+    spec.loader.exec_module(tables)
+    names = {r.run_name for r in expand(REPO / "configs" / "campaign" / OUR_SETTINGS_VITL)}
+    assert names == {tables.ARMS[arm][1].format(f="vitl14", s=0) for arm in ("ours", "k4")}, sorted(names)
+
+
+def test_the_vitl_smoke_cells_at_our_settings_differ_from_their_runs_in_the_run_length_ONLY():
+    """F58: a cell that rehearses a path the wave never takes is worthless. What is new at ViT-L here is clipping, lr 1e-3
+    and lambda 0.1 through the ViT-L configs, so each `smoke_8gpu` cell must compose to its production run's config,
+    over every configured key, except the two keys that shorten it.
+
+    Inverted by deleting `+trainer.gradient_clip_val: 1.0` from the control's cell: the diff names it.
+    """
+    for smoke, name in (("smoke_vitl14_control_s0", "vitl14_control_lam0.1_s0"),
+                        ("smoke_vitl14_local_ours_s0", "vitl14_local_lam0.1_k4_s0")):
+        diff = _differing(_named(OUR_SETTINGS_VITL, name), _named("smoke_8gpu.yaml", smoke))
+        assert diff == {"trainer.max_epochs", "trainer.limit_train_batches"}, f"{smoke} vs {name}: {sorted(diff)}"
 
 
 def test_no_capacity_run_name_can_collide_with_any_other_grid():

@@ -1,0 +1,46 @@
+# The ViT-L/14 pair at OUR settings -- the two cells Table 2 is missing. Decision 34 (2026-10-21).
+#
+# Table 2 compares each 128 px encoder with LeJEPA at its published settings AND with LeJEPA at our settings.
+# ViT-L/14 has no our-settings row: its three runs (`in1k_vitl14`, `in1k_vitl14_globalball`) all train at
+# LeJEPA's published ViT-L settings (decision 13). The paper defines our settings (App. experimental details)
+# as lr 1e-3, ten warm-up epochs, decay to 1e-3 of the peak rate, clipping at 1.0 and lambda 0.1. The ViT-L
+# configs already warm up for ten epochs and decay to peak/1000, so each run here differs from its
+# published-settings twin in exactly three settings (a test diffs every configured key):
+#
+#     optimizer.lr                 5e-4 -> 1e-3
+#     trainer.gradient_clip_val    none -> 1.0     (`+`: no trainer config has the key, F47)
+#     model.lamb                   0.05 -> 0.1
+#
+# Everything else stays LeJEPA's ViT-L protocol -- 238 px, 2+6 crops, batch 512, projector 512, 1024 slices
+# on [-5, 5] -- so "our settings" is the same change here as in the 128 px rows, and the row still differs
+# from them in patch, resolution, crops, batch, projector width and slice count: never capacity evidence.
+# At 64 per GPU, K=4 at lambda 0.1 sits at effective strength 0.1 x 64 / 4 = 1.6, every 128 px K=4 arm's;
+# the published-settings K=4 sits at 0.8.
+#
+# NAMES are the 128 px runs' with the family swapped (`vit_control_lam0.1_s0`, `vit_local_lam0.1_k4_s0`), so
+# the table generator's row templates `{f}_control_lam0.1_s{s}` and `{f}_local_lam0.1_k4_s{s}` reach them
+# (pinned). The SIGReg arm is `control`, as at 128 px: SIGReg at the local arm's recipe (decision 1).
+#
+# lr 1e-3 is twice LeJEPA's ViT-L rate; clipping and the warm-up are in our recipe for that reason. The
+# read-out that answers it early: after six epochs the online probe read 8.62-15.56% on the three healthy
+# ViT-L runs and 0.27% on the matched control that collapsed (`vitl14_strmatch`, App. C).
+#
+# COST, measured on this pipeline: 11.0 min/epoch on b0013 (F85) against 27.7-29 on b0024 (F79),
+# cause unknown -> 18-48 h and ~146-390 GPU-h per run. 24:00:00 with REQUEUE_LEFT=2 covers three walls; the
+# 600 s signal lead chained 3 of 3 (F80). Keep --mem-per-gpu-gb 120 (F57). Two `smoke_8gpu` cells rehearse
+# these runs and differ from them in the run length alone (pinned).
+name: in1k_vitl14_our_settings
+seeds: [0]
+gpus: 8
+micro_batch: 64
+max_epochs: 100
+short: {model.lamb: lam, model.reg_loss.num_clusters: k}
+blocks:
+  - tag: vitl14_control                 # LeJEPA (our settings)
+    experiment: lejepa/vitl14_in1k_sigreg_paper
+    axes: {model.lamb: [0.1]}
+    overrides: {logger: csv, optimizer.lr: 1.0e-3, +trainer.gradient_clip_val: 1.0}
+  - tag: vitl14_local                   # LocaLeJEPA, K=4, at our settings
+    experiment: lejepa/vitl14_in1k_localballreg_paper
+    axes: {model.lamb: [0.1], model.reg_loss.num_clusters: [4]}
+    overrides: {logger: csv, optimizer.lr: 1.0e-3, +trainer.gradient_clip_val: 1.0}

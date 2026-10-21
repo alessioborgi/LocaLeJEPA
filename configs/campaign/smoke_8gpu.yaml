@@ -9,3 +9,8 @@ max_epochs: 2
 blocks:
   - {tag: smoke_vitl14_sigreg, experiment: lejepa/vitl14_in1k_sigreg_paper,       overrides: {logger: csv, trainer.max_epochs: 2, +trainer.limit_train_batches: 20}}
   - {tag: smoke_vitl14_local,  experiment: lejepa/vitl14_in1k_localballreg_paper, overrides: {logger: csv, trainer.max_epochs: 2, +trainer.limit_train_batches: 20}}
+  # Decision 34's pair at OUR settings (in1k_vitl14_our_settings). APPENDED so indices 0-1 do not move. Both experiment
+  # configs are rehearsed above, but clipping has never run at ViT-L, nor lr 1e-3 or lambda 0.1 through these configs.
+  # Each cell differs from its production run in the run length alone; a test pins it (F58).
+  - {tag: smoke_vitl14_control,    experiment: lejepa/vitl14_in1k_sigreg_paper,       overrides: {logger: csv, trainer.max_epochs: 2, +trainer.limit_train_batches: 20, model.lamb: 0.1, optimizer.lr: 1.0e-3, +trainer.gradient_clip_val: 1.0}}
+  - {tag: smoke_vitl14_local_ours, experiment: lejepa/vitl14_in1k_localballreg_paper, overrides: {logger: csv, trainer.max_epochs: 2, +trainer.limit_train_batches: 20, model.lamb: 0.1, model.reg_loss.num_clusters: 4, optimizer.lr: 1.0e-3, +trainer.gradient_clip_val: 1.0}}

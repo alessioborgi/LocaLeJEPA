@@ -45,6 +45,30 @@ class Mutant:
 # Defects of the shape that actually occurs: a sign, a boundary, a dropped call, a swapped
 # constant. Each names the property it is meant to destroy.
 MUTANTS: list[Mutant] = [
+    Mutant("vitl14-ours-forgets-the-clip", "configs/campaign/in1k_vitl14_our_settings.yaml",
+           "    experiment: lejepa/vitl14_in1k_sigreg_paper\n    axes: {model.lamb: [0.1]}\n"
+           "    overrides: {logger: csv, optimizer.lr: 1.0e-3, +trainer.gradient_clip_val: 1.0}",
+           "    experiment: lejepa/vitl14_in1k_sigreg_paper\n    axes: {model.lamb: [0.1]}\n"
+           "    overrides: {logger: csv, optimizer.lr: 1.0e-3}",
+           "decision 34: LeJEPA (our settings) at ViT-L without our clipping is a different change from the 128 px rows'"),
+    Mutant("vitl14-ours-keeps-lejepas-rate", "configs/campaign/in1k_vitl14_our_settings.yaml",
+           "    axes: {model.lamb: [0.1], model.reg_loss.num_clusters: [4]}\n"
+           "    overrides: {logger: csv, optimizer.lr: 1.0e-3, +trainer.gradient_clip_val: 1.0}",
+           "    axes: {model.lamb: [0.1], model.reg_loss.num_clusters: [4]}\n"
+           "    overrides: {logger: csv, optimizer.lr: 5.0e-4, +trainer.gradient_clip_val: 1.0}",
+           "decision 34: the local arm at LeJEPA's ViT-L rate is our settings minus the rate, under our settings' name"),
+    Mutant("vitl14-ours-keeps-lejepas-lambda", "configs/campaign/in1k_vitl14_our_settings.yaml",
+           "axes: {model.lamb: [0.1], model.reg_loss.num_clusters: [4]}",
+           "axes: {model.lamb: [0.05], model.reg_loss.num_clusters: [4]}",
+           "decision 34: at lambda 0.05 the local arm sits at strength 0.8, not the 128 px K=4 arms' 1.6"),
+    Mutant("vitl14-ours-smoke-skips-the-clip", "configs/campaign/smoke_8gpu.yaml",
+           "model.lamb: 0.1, optimizer.lr: 1.0e-3, +trainer.gradient_clip_val: 1.0}}",
+           "model.lamb: 0.1, optimizer.lr: 1.0e-3}}",
+           "decision 34 / F58: the control's smoke cell rehearses an unclipped ViT-L, the one path the run does not take"),
+    Mutant("vitl14-ours-not-evaluated", "scripts/aicr/sync_eval_configs.py",
+           '"vitl14_strength_matched_in1k.yaml",\n        "in1k_vitl14_our_settings.yaml"]',
+           '"vitl14_strength_matched_in1k.yaml"]',
+           "decision 34 / F71: two checkpoints that no eval config names are two silently lost rows"),
     Mutant("local-gaussian-uncentred", "configs/campaign/local_gaussian_in1k.yaml",
            "model/reg_loss: locale_sigreg, model.reg_loss.loss.center: true}",
            "model/reg_loss: locale_sigreg, model.reg_loss.loss.center: false}",
