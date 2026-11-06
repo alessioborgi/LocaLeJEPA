@@ -16,8 +16,11 @@ the depth study (ViT-S/8 at 12 / 6 / 3 blocks). ViT-S/8 cells average the three 
 seeds where three exist (mean ± sample sd); every other cell is a single run. A cell whose run
 has no evaluation yet renders as ``--``, never as a number from another run or another ruler.
 
-**Presentation rule (decision 32).** Mean-subtraction and the ball target appear only together;
-no row separates them, so the centred-SIGReg and centred-local-Gaussian runs are never read here.
+**Which tables read the separating controls (decision 36, ending decision 32's presentation rule).** The four
+tables above keep the rows they had, and mean-subtraction and the ball target appear in them only together.
+A sixth table, ``tab_further_controls``, shows the separating runs beside the further controls (random
+partition, LeJEPA at the strength of K=4, SubReg and SUSReg). ``text_numbers.json`` gains their differences and
+each read-out's verdict by the rule fixed in decision 36.
 
 Which run fills which row comes from a fixed name template per arm, and every name must be a run
 of some campaign manifest (``scripts/aicr/campaign.py``) -- a typo is an error, not an empty
@@ -81,6 +84,16 @@ ARMS = {
     "dynk": (r"LocaLeJEPA ($\lambda{=}0.1$, $K{=}1{\to}10$)", "{f}_dynk_lam0.1_s{s}"),
     "k2_l03": (r"LocaLeJEPA ($\lambda{=}0.3$, $K{=}2$)", "{f}_local_lam0.3_k2_s{s}"),
     "localsigreg": (r"LocaLeJEPA-SIGReg ($\lambda{=}0.1$, $K{=}4$)", "{f}_localsigreg_lam0.1_k4_s{s}"),
+    # decision 36: only tab_further_controls reads these
+    "ours_quarter": (r"LeJEPA (our settings, $\lambda{=}0.025$)", "{f}_control_lam0.025_s{s}"),
+    "centred_k1": (r"Centered Gaussian ($\lambda{=}0.1$, $K{=}1$)", "{f}_centred_lam0.1_s{s}"),
+    "centred_k4": (r"Centered local Gaussian ($\lambda{=}0.1$, $K{=}4$)", "{f}_localgauss_lam0.1_k4_s{s}"),
+    "randpart": (r"LocaLeJEPA, random partition ($\lambda{=}0.1$, $K{=}4$)", "{f}_randpart_lam0.1_k4_s{s}"),
+    "subreg_pub": (r"SubReg, LeJEPA's settings ($\lambda{=}0.02$)", "{f}_in1k_subreg_pub_s{s}"),
+    "subreg_ours": (r"SubReg, our settings ($\lambda{=}0.1$)", "{f}_in1k_subreg_ours_lam0.1_s{s}"),
+    "susreg_pub": (r"SUSReg, LeJEPA's settings ($\lambda{=}0.02$)", "{f}_in1k_susreg_pub_s{s}"),
+    "susreg_ours": (r"SUSReg, our settings ($\lambda{=}0.1$)", "{f}_in1k_susreg_ours_lam0.1_s{s}"),
+    "susreg_ours_l005": (r"SUSReg, our settings ($\lambda{=}0.05$)", "{f}_in1k_susreg_ours_lam0.05_s{s}"),
 }
 VITL_ARMS = {
     "lejepa": (r"LeJEPA", "vitl14_sigreg_s0"),
@@ -88,7 +101,7 @@ VITL_ARMS = {
     "k4": (r"LocaLeJEPA ($\lambda{=}0.05$, $K{=}4$)", "vitl14_local_k4_s0"),
 }
 # the ViT-S/8 cells with three pretraining seeds (decision 29); every other cell is seed 0 only
-THREE_SEEDS = {"lejepa", "ours", "k1", "k1_quarter", "k4"}
+THREE_SEEDS = {"lejepa", "ours", "k1", "k1_quarter", "k4", "ours_quarter", "randpart"}
 
 ALL_128 = ["lejepa", "ours", "rdmreg", "k1", "k1_quarter", "k2", "k4", "dynk", "k2_l03", "localsigreg"]
 NOT_ON_VIT = {"k2", "dynk", "k2_l03", "localsigreg"}       # the paper ran these on H-ViT and D4 only
@@ -106,6 +119,11 @@ MAIN_ROWS = {"vit": ["lejepa", "ours", "rdmreg", "k1", "k4"],
              "vitl14": ["lejepa", "k1", "k4"]}
 TRANSFER_MAIN_ROWS = {f: [a for a in rows if a != "rdmreg"] for f, rows in MAIN_ROWS.items()}
 FULL_ROWS = {f: full_rows(f) for f in FAMILIES}
+_FURTHER_COMMON = ["lejepa", "ours", "ours_quarter", "centred_k1", "k1", "k1_quarter", "k4", "randpart"]
+_BASELINES_36 = ["subreg_pub", "subreg_ours", "susreg_pub", "susreg_ours", "susreg_ours_l005"]
+FURTHER_ROWS = {"vit": _FURTHER_COMMON + ["centred_k4"] + _BASELINES_36,
+               "hvit": _FURTHER_COMMON + ["centred_k4", "localsigreg"],
+               "d4rn50": _FURTHER_COMMON + ["localsigreg"]}
 
 # column = (kind, field, header). kind indomain: field "knn.<k>.top1" / "linear.top1|top5"; kind
 # transfer: "datasets.<d>.top1" or "avg" (the unweighted mean of the seven).
@@ -163,6 +181,19 @@ TABLES = {
                     r"RDMReg are mean $\pm$ SD over three pretraining seeds, and all other rows are single runs. "
                     r"\textbf{Bold} marks the best mean within each encoder family and column."),
     },
+}
+
+TABLES["tab_further_controls"] = {
+    "label": "tab:further-controls", "rows": FURTHER_ROWS, "sd_digits": 2,
+    "cols": [("indomain", "linear.top1"), ("indomain", "knn.20.top1"), ("transfer", "avg")],
+    "head": [r"Method & Linear top-1 (\%) & $k$-NN, $k{=}20$ (\%) & Transfer, 7-dataset avg (\%) \\"],
+    "colspec": "l ccc", "size": r"\small", "tabcolsep": "4pt",
+    "caption": (r"\emph{Separating the Parts of the Gain, and Further Baselines.} ImageNet-1K, final-epoch checkpoints "
+                r"and one linear-probe seed. Rows with $\pm$ are mean $\pm$ SD over three pretraining seeds, and all "
+                r"other rows are single runs at seed 0. The centered rows use the Gaussian target on mean-subtracted "
+                r"neighborhoods. The random partition shuffles the $k$-means labels within each step, which keeps the "
+                r"cluster sizes of that step. SubReg and SUSReg on ViT-S/8 are our adaptation of these methods to this "
+                r"protocol. \textbf{Bold} denotes the best result within each encoder family and column."),
 }
 
 # the depth study (capacity campaign, decision 25 + the strength control): ViT-S/8 seed 0
@@ -604,6 +635,13 @@ DIFFS = [  # (key, minuend arm, subtrahend arm, families, definition)
     ("lejepa_over_rdmreg", "lejepa", "rdmreg", ("vit", "hvit", "d4rn50"),
      "LeJEPA minus RDMReg, both at LeJEPA's published settings (ViT-S: LeJEPA over 3 seeds, RDMReg seed 0)"),
 ]
+DIFFS += [
+    ("randpart_readout", "k4", "randpart", ("vit", "hvit", "d4rn50"), "K-means K=4 minus random K=4 (decision 36, run A)"),
+    ("k4_over_ours_quarter", "k4", "ours_quarter", ("vit", "hvit", "d4rn50"),
+     "LocaLeJEPA K=4 minus LeJEPA (our settings) at lambda 0.025: same settings and same strength (decision 36, run D)"),
+    ("ours_quarter_vs_ours", "ours_quarter", "ours", ("vit", "hvit", "d4rn50"),
+     "LeJEPA (our settings): lambda 0.025 minus lambda 0.1"),
+]
 RULERS = {"knn20": ("indomain", "knn.20.top1"), "linear": ("indomain", "linear.top1"), "transfer": ("transfer", "avg")}
 
 
@@ -643,6 +681,68 @@ def text_numbers(src: Source) -> dict:
     out.update(depth_numbers(src))
     out.update(knn_k_numbers(src))
     out.update(transfer_detail_numbers(src))
+    out.update(further_numbers(src, out))
+    return out
+
+
+def readout_verdict(knn: float, linear: float, limit: float = 1.0) -> str:
+    """Decision 36's rule, fixed before any number existed: "beyond" is strictly more than the limit on both rulers,
+    "within" is at most the limit either way on both, and anything else is reported as mixed."""
+    if knn > limit and linear > limit:
+        return "beyond"
+    if abs(knn) <= limit and abs(linear) <= limit:
+        return "within"
+    return "mixed"
+
+
+# the seed-0 ladder from LeJEPA to K=4: each step is one arm minus the arm before it, so the steps sum to the last row
+LADDER = (("settings", "ours", "lejepa"), ("centring", "centred_k1", "ours"), ("target", "k1", "centred_k1"),
+          ("weight", "k1_quarter", "k1"), ("locality", "k4", "k1_quarter"), ("total", "k4", "lejepa"))
+# seed-0 comparisons between single runs, by the same rule: key, minuend, subtrahend, families, definition
+FURTHER_STEPS = (
+    ("ball_minus_centred_k4", "k4", "centred_k4", ("vit", "hvit"), "K=4: the ball minus the centred local Gaussian, seed 0"),
+    ("centred_minus_uncentred_k4", "centred_k4", "localsigreg", ("hvit",), "K=4: the centred minus the uncentred local Gaussian, seed 0"),
+    ("k4_over_subreg_ours", "k4", "subreg_ours", ("vit",), "K=4 minus SubReg, both at our settings, seed 0"),
+    ("k4_over_susreg_ours", "k4", "susreg_ours", ("vit",), "K=4 minus SUSReg at lambda 0.1, both at our settings, seed 0"),
+    ("k4_over_susreg_ours_l005", "k4", "susreg_ours_l005", ("vit",), "K=4 minus SUSReg at lambda 0.05, both at our settings, seed 0"),
+    ("lejepa_over_subreg_pub", "lejepa", "subreg_pub", ("vit",), "LeJEPA minus SubReg, both at LeJEPA's settings, seed 0"),
+    ("lejepa_over_susreg_pub", "lejepa", "susreg_pub", ("vit",), "LeJEPA minus SUSReg, both at LeJEPA's settings, seed 0"),
+)
+
+
+def further_numbers(src: Source, numbers: dict) -> dict:
+    """Decision 36: the seed-0 ladder, the seed-0 comparisons, and each read-out's verdict. A pair with a missing run is
+    left out, never filled, so a pending result cannot produce a number or a verdict."""
+    def seed0(family: str, arm: str, kind: str, field: str):
+        entry, _ = src.load(kind, family, ARMS[arm][1].format(f=family, s=0))
+        return None if entry is None else field_value(entry, field)
+
+    out: dict[str, dict] = {}
+    steps = [(f"ladder_{step}", a, b, ("vit", "hvit", "d4rn50"), f"the seed-0 ladder, step {step}: {a} minus {b}")
+             for step, a, b in LADDER] + list(FURTHER_STEPS)
+    for key, a, b, families, definition in steps:
+        for family in families:
+            for ruler, (kind, field) in RULERS.items():
+                x, y = seed0(family, a, kind, field), seed0(family, b, kind, field)
+                if x is None or y is None:
+                    continue
+                out[f"{key}/{family}/{ruler}"] = _value_entry(f"{family}: {definition}; {ruler}", x - y, signed=True)
+
+    def verdict(name: str, source: dict, key: str, family: str, definition: str) -> None:
+        pair = [source.get(f"{key}/{family}/{ruler}") for ruler in ("knn20", "linear")]
+        if None in pair:
+            return
+        v = readout_verdict(pair[0]["value"], pair[1]["value"])
+        out[f"readout_{name}/{family}/verdict"] = {"definition": f"{family}: {definition}, by the rule fixed in decision 36",
+                                                   "value": {"beyond": 1.0, "within": 0.0, "mixed": -1.0}[v],
+                                                   "rendered_1dp": v, "rendered_2dp": v}
+
+    for family in ("vit", "hvit", "d4rn50"):
+        verdict("A_randpart", numbers, "randpart_readout", family, "run A, K-means K=4 minus random K=4")
+        verdict("D_same_strength", numbers, "k4_over_ours_quarter", family, "run D, K=4 minus LeJEPA (our settings) at lambda 0.025")
+        verdict("C_target_k1", out, "ladder_target", family, "run C, K=1 ball minus K=1 centred Gaussian")
+    verdict("E_target_k4", out, "ball_minus_centred_k4", "hvit", "run E, K=4 ball minus the centred local Gaussian")
+    verdict("E_centring_k4", out, "centred_minus_uncentred_k4", "hvit", "run E, the centred minus the uncentred local Gaussian")
     return out
 
 

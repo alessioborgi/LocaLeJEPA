@@ -1,0 +1,17 @@
+# The other two ViT-S/8 seeds of decision 36's runs A and D, in the manner of seeds_vit_in1k: the K=4 arm they are read
+# against has three seeds, so these do too. See further_controls_in1k.yaml for the read-outs. ~4 x 36 = ~144 GPU-h at spec.
+name: further_controls_seeds_in1k
+seeds: [1, 2]
+gpus: 4
+micro_batch: 64
+max_epochs: 100
+short: {model.lamb: lam, model.reg_loss.num_clusters: k}
+blocks:
+  - tag: vit_randpart
+    experiment: lejepa/vit_in1k_localballreg_l01_k4
+    axes: {model.lamb: [0.1], model.reg_loss.num_clusters: [4]}
+    overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1, model.reg_loss.random_partition: true}
+  - tag: vit_control
+    experiment: lejepa/vit_in1k_sigreg_localrecipe
+    axes: {model.lamb: [0.025]}
+    overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1}

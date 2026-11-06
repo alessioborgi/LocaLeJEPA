@@ -180,9 +180,17 @@ def test_require_complete_refuses_while_any_cell_is_pending(gen, root, tmp_path)
         gen.main(["--root", str(root), "--out", str(tmp_path / "o"), "--raw", str(tmp_path / "r"), "--require-complete"])
 
 
-def test_the_presentation_rule_no_centred_control_is_ever_read(gen):
-    templates = [t for _, t in gen.ARMS.values()] + [t for _, t in gen.VITL_ARMS.values()]
-    assert not any("centred" in t or "localgauss" in t for t in templates), "decision 32: never separate centring from the ball"
+def test_the_four_published_tables_read_no_separating_control_and_only_the_further_table_does(gen):
+    """Decision 36 ended decision 32's rule for the new table, and the tables already in the paper keep
+    the rows they had, so their numbers cannot move. Inverted by adding a new arm to MAIN_ROWS."""
+    new_arms = {"ours_quarter", "centred_k1", "centred_k4", "randpart", "subreg_pub", "subreg_ours", "susreg_pub",
+                "susreg_ours", "susreg_ours_l005"}
+    for name, spec in gen.TABLES.items():
+        used = {arm for arms in spec["rows"].values() for arm in arms}
+        if name == "tab_further_controls":
+            assert new_arms <= used
+        else:
+            assert not (used & new_arms), f"{name} reads {sorted(used & new_arms)}"
 
 
 def test_every_row_of_every_table_names_real_campaign_runs(gen):
@@ -219,7 +227,7 @@ def test_only_the_files_a_table_reads_are_archived(built):
 # --------------------------------------------------------------------------------------------------
 
 @pytest.mark.parametrize("name", ["tab_in1k_main", "tab_in1k_transfer_main", "tab_in1k_indomain_full",
-                                  "tab_in1k_transfer_full", "tab_depth"])
+                                  "tab_in1k_transfer_full", "tab_depth", "tab_further_controls"])
 def test_the_audit_passes_every_generated_table(audit, built, name):
     out, raw = built
     tex, payload = table(out, name)
@@ -503,7 +511,7 @@ def reader_text(tex: str) -> str:
 
 
 @pytest.mark.parametrize("name", ["tab_in1k_main", "tab_in1k_transfer_main", "tab_in1k_indomain_full",
-                                  "tab_in1k_transfer_full", "tab_depth", "tab_k_ablation_256", "tab_strength_bands"])
+                                  "tab_in1k_transfer_full", "tab_depth", "tab_further_controls", "tab_k_ablation_256", "tab_strength_bands"])
 def test_no_semicolon_and_no_ai_writing_tell_reaches_the_paper(im_built, name):
     out, _ = im_built
     tex, _ = table(out, name)
@@ -512,3 +520,118 @@ def test_no_semicolon_and_no_ai_writing_tell_reaches_the_paper(im_built, name):
     tell = TELLS.search(seen)
     assert tell is None, f"{name}: an AI-writing tell in what the reader sees: {tell.group(0)!r}"
 
+
+# --------------------------------------------------------------------------------------------------
+# decision 36: the further controls, their table and their read-outs
+# --------------------------------------------------------------------------------------------------
+FURTHER_FIXTURE = {  # run: (knn20, linear). Chosen so each read-out lands where a test below expects it.
+    "vit_randpart_lam0.1_k4_s0": (47.9, 59.8), "vit_randpart_lam0.1_k4_s1": (47.7, 60.0), "vit_randpart_lam0.1_k4_s2": (47.8, 59.9),
+    "vit_control_lam0.025_s0": (41.0, 51.7), "vit_control_lam0.025_s1": (41.2, 51.8), "vit_control_lam0.025_s2": (41.1, 51.6),
+    "vit_centred_lam0.1_s0": (45.7, 59.3), "vit_localgauss_lam0.1_k4_s0": (50.3, 62.1),
+    "hvit_control_lam0.1_s0": (39.4, 51.6), "hvit_control_lam0.025_s0": (42.0, 52.0), "hvit_centred_lam0.1_s0": (46.1, 59.9),
+    "hvit_globalball_lam0.1_k1_s0": (45.7, 59.5), "hvit_strmatch_lam0.025_k1_s0": (48.0, 59.9),
+    "hvit_randpart_lam0.1_k4_s0": (50.0, 61.0),        # K-means minus random: +0.6 / +0.94, within
+    "hvit_localgauss_lam0.1_k4_s0": (50.4, 62.0), "hvit_localsigreg_lam0.1_k4_s0": (35.4, 48.2),
+    "d4rn50_sigreg_s0": (34.5, 43.4), "d4rn50_control_lam0.1_s0": (39.7, 48.8), "d4rn50_centred_lam0.1_s0": (44.4, 52.4),
+    "d4rn50_globalball_lam0.1_k1_s0": (43.9, 52.4), "d4rn50_strmatch_lam0.025_k1_s0": (44.5, 52.4),
+    "d4rn50_local_lam0.1_k4_s0": (47.5, 55.2), "d4rn50_randpart_lam0.1_k4_s0": (45.0, 55.0),  # +2.5 / +0.2, mixed
+    "vit_in1k_subreg_ours_lam0.1_s0": (40.0, 50.0), "vit_in1k_susreg_ours_lam0.1_s0": (41.0, 51.0),
+    "vit_in1k_susreg_ours_lam0.05_s0": (42.0, 52.0), "vit_in1k_subreg_pub_s0": (31.0, 43.0), "vit_in1k_susreg_pub_s0": (30.0, 42.0),
+}
+
+
+@pytest.fixture()
+def further_built(gen, root, tmp_path):
+    for run, (k, lin) in FURTHER_FIXTURE.items():
+        write(root / IND / f"{run}.json", indomain(k, lin))
+    out, raw = tmp_path / "out", tmp_path / "raw"
+    assert gen.main(["--root", str(root), "--out", str(out), "--raw", str(raw)]) == 0
+    return out, raw, json.loads((out / "text_numbers.json").read_text())
+
+
+def test_the_further_table_shows_each_new_row_with_its_own_value(further_built):
+    out, _, _ = further_built
+    tex, payload = table(out, "tab_further_controls")
+    assert "50.3" in row(tex, "% row:tab_further_controls/vit/centred_k4")
+    assert "$45.7$" in row(tex, "% row:tab_further_controls/vit/centred_k1")
+    assert r"\pm" in row(tex, "% row:tab_further_controls/vit/randpart"), "ViT-S/8's random partition has three seeds"
+    assert r"\pm" not in row(tex, "% row:tab_further_controls/hvit/randpart"), "one seed on the other encoders"
+    cell = payload["cells"]["tab_further_controls/vit/randpart/1"]
+    assert cell["runs"] == [f"vit_randpart_lam0.1_k4_s{s}" for s in range(3)]
+    assert cell["mean"] == pytest.approx(statistics.fmean(FURTHER_FIXTURE[f"vit_randpart_lam0.1_k4_s{s}"][0] for s in range(3)))
+
+
+def test_a_further_run_without_an_evaluation_renders_as_a_dash(gen, built):
+    """The table exists before its runs do, and a pending run must never read as a number. No fixture run for these."""
+    tex, payload = table(built[0], "tab_further_controls")
+    assert "--" in row(tex, "% row:tab_further_controls/vit/randpart")
+    assert payload["pending_cells"] > 0
+
+
+def test_the_further_table_only_offers_each_arm_where_it_was_run(gen):
+    rows = gen.FURTHER_ROWS
+    assert "centred_k4" in rows["vit"] and "centred_k4" in rows["hvit"] and "centred_k4" not in rows["d4rn50"]
+    assert "localsigreg" not in rows["vit"] and "localsigreg" in rows["hvit"] and "localsigreg" in rows["d4rn50"]
+    assert not any(a.startswith(("subreg", "susreg")) for f in ("hvit", "d4rn50") for a in rows[f])
+
+
+@pytest.mark.parametrize("knn, linear, want", [(1.1, 1.1, "beyond"), (2.3, 2.3, "beyond"), (1.0, 1.1, "mixed"), (1.1, 1.0, "mixed"),
+                                               (1.0, 1.0, "within"), (-1.0, 1.0, "within"), (0.0, 0.0, "within"), (-1.1, 0.0, "mixed"),
+                                               (-2.0, -2.0, "mixed"), (2.0, -2.0, "mixed")])
+def test_the_readout_rule_is_the_one_fixed_in_decision_36(gen, knn, linear, want):
+    """Beyond is STRICTLY more than 1.0 on both rulers, within is at most 1.0 either way on both, anything else is mixed."""
+    assert gen.readout_verdict(knn, linear) == want
+
+
+def test_run_a_reads_kmeans_minus_random_with_each_verdict(further_built):
+    _, _, n = further_built
+    expected = statistics.fmean(k for k, _ in VIT["local_lam0.1_k4"]) - statistics.fmean(
+        FURTHER_FIXTURE[f"vit_randpart_lam0.1_k4_s{s}"][0] for s in range(3))
+    assert n["randpart_readout/vit/knn20"]["value"] == pytest.approx(expected)
+    assert "randpart_readout_seedmin/vit/knn20" in n, "ViT-S/8 has three seeds on both sides: every seed is reported"
+    assert n["readout_A_randpart/vit/verdict"]["rendered_1dp"] == "beyond"
+    assert n["readout_A_randpart/hvit/verdict"]["rendered_1dp"] == "within"
+    assert n["readout_A_randpart/d4rn50/verdict"]["rendered_1dp"] == "mixed"
+
+
+def test_a_pending_run_gives_neither_a_difference_nor_a_verdict(built):
+    n = json.loads((built[0] / "text_numbers.json").read_text())
+    assert not [k for k in n if k.startswith(("randpart_readout", "readout_A", "k4_over_ours_quarter", "readout_D"))]
+
+
+def test_run_d_reads_k4_minus_the_control_at_the_same_strength(further_built):
+    _, _, n = further_built
+    expected = statistics.fmean(k for k, _ in VIT["local_lam0.1_k4"]) - statistics.fmean(
+        FURTHER_FIXTURE[f"vit_control_lam0.025_s{s}"][0] for s in range(3))
+    assert n["k4_over_ours_quarter/vit/knn20"]["value"] == pytest.approx(expected)
+    assert n["readout_D_same_strength/vit/verdict"]["rendered_1dp"] == "beyond"
+
+
+@pytest.mark.parametrize("family", ["vit", "hvit", "d4rn50"])
+def test_the_seed_0_ladder_sums_exactly_to_k4_minus_lejepa(further_built, family):
+    """The steps are settings, centring, target, weight and locality. They must telescope, or the table misstates the split."""
+    _, _, n = further_built
+    for ruler in ("knn20", "linear"):
+        steps = [n[f"ladder_{s}/{family}/{ruler}"]["value"] for s in ("settings", "centring", "target", "weight", "locality")]
+        assert sum(steps) == pytest.approx(n[f"ladder_total/{family}/{ruler}"]["value"])
+
+
+def test_the_ladder_reads_seed_0_on_vit_even_where_three_seeds_exist(further_built):
+    """The separating controls have one seed, so a three-seed mean on one side would compare unlike things."""
+    _, _, n = further_built
+    assert n["ladder_settings/vit/knn20"]["value"] == pytest.approx(VIT["control_lam0.1"][0][0] - VIT["sigreg"][0][0])
+
+
+def test_run_e_gives_hvit_both_comparisons(further_built):
+    _, _, n = further_built
+    assert n["centred_minus_uncentred_k4/hvit/knn20"]["value"] == pytest.approx(50.4 - 35.4)
+    assert n["readout_E_centring_k4/hvit/verdict"]["rendered_1dp"] == "beyond"
+    assert n["ball_minus_centred_k4/hvit/knn20"]["value"] == pytest.approx(50.6 - 50.4)
+    assert n["readout_E_target_k4/hvit/verdict"]["rendered_1dp"] == "within"
+
+
+def test_run_b_compares_each_baseline_at_its_own_settings(further_built):
+    _, _, n = further_built
+    assert n["k4_over_subreg_ours/vit/knn20"]["value"] == pytest.approx(VIT["local_lam0.1_k4"][0][0] - 40.0)
+    assert n["k4_over_susreg_ours_l005/vit/linear"]["value"] == pytest.approx(VIT["local_lam0.1_k4"][0][1] - 52.0)
+    assert n["lejepa_over_subreg_pub/vit/knn20"]["value"] == pytest.approx(VIT["sigreg"][0][0] - 31.0)

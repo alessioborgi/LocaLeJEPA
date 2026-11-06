@@ -22,12 +22,13 @@ MANIFESTS = sorted((REPO / "configs" / "campaign").glob("*.yaml"))
 EXPECTED_RUNS = {
     "ablation_grid": 252, "ablation_batch128": 24, "in1k_baselines": 6, "in1k_vitl14": 2,
     "in1k_local": 4, "torus": 11, "calibration_1gpu": 2, "calibration_4gpu": 3, "calibration_8gpu": 1,
-    "smoke_1gpu": 8, "smoke_4gpu": 16, "smoke_8gpu": 4, "ablation_grid_ep800": 252,
+    "smoke_1gpu": 8, "smoke_4gpu": 20, "smoke_8gpu": 4, "ablation_grid_ep800": 252,
     "target_and_centering": 24, "in1k_global_ball": 3, "ablation_grid_ep800_d4": 252,
     "capacity_grid_ep800": 180, "capacity_in1k": 4,
     "in1k_attribution": 2, "in1k_vitl14_globalball": 1, "strength_matched_in1k": 3,
     "separating_controls_in1k": 5, "vitl14_strength_matched_in1k": 1, "seeds_vit_in1k": 10,
     "local_gaussian_in1k": 1, "paper_arms_in1k": 8, "in1k_vitl14_our_settings": 2,
+    "further_controls_in1k": 12, "further_controls_seeds_in1k": 4,
 }
 
 
@@ -354,7 +355,8 @@ NEW_WAVE_MANIFESTS = ("capacity_grid_ep800.yaml", "capacity_in1k.yaml",
                       "in1k_attribution.yaml", "in1k_vitl14_globalball.yaml",
                       "strength_matched_in1k.yaml", "separating_controls_in1k.yaml",
                       "vitl14_strength_matched_in1k.yaml", "seeds_vit_in1k.yaml", "local_gaussian_in1k.yaml",
-                      "paper_arms_in1k.yaml", "in1k_vitl14_our_settings.yaml")
+                      "paper_arms_in1k.yaml", "in1k_vitl14_our_settings.yaml",
+                      "further_controls_in1k.yaml", "further_controls_seeds_in1k.yaml")
 # strength_matched_in1k (decision 28) runs depths 6 and 3 through the depth config, so it belongs to the
 # depth guard too. Its depth-12 run takes the BASE config with no depth override, exactly as the K=4 arm
 # it is compared against does -- so no unrehearsed depth enters, and neither guard needs weakening.
@@ -1146,3 +1148,139 @@ def test_the_campaign_d4_encoder_builds_at_depth_50_and_survives_sync_batchnorm(
     converted = convert_sync_batchnorm_inplace(encoder)
     assert any(isinstance(m, torch.nn.SyncBatchNorm) for m in converted.modules())
 
+
+# ---------------------------------------------------------------------------------------------------
+# Decision 36: the further controls. Each must differ from the arm it is read against in exactly
+# what the read-out claims it differs in, measured over every configured key.
+# ---------------------------------------------------------------------------------------------------
+FURTHER = "further_controls_in1k.yaml"
+FURTHER_SEEDS = "further_controls_seeds_in1k.yaml"
+RANDPART_PAIRS = [(FURTHER, "vit_randpart_lam0.1_k4_s0", "in1k_local.yaml", "vit_local_lam0.1_k4_s0"),
+                  (FURTHER, "hvit_randpart_lam0.1_k4_s0", "in1k_local.yaml", "hvit_local_lam0.1_k4_s0"),
+                  (FURTHER, "d4rn50_randpart_lam0.1_k4_s0", "in1k_local.yaml", "d4rn50_local_lam0.1_k4_s0"),
+                  (FURTHER_SEEDS, "vit_randpart_lam0.1_k4_s1", "seeds_vit_in1k.yaml", "vit_local_lam0.1_k4_s1"),
+                  (FURTHER_SEEDS, "vit_randpart_lam0.1_k4_s2", "seeds_vit_in1k.yaml", "vit_local_lam0.1_k4_s2")]
+CONTROL_PAIRS = [(FURTHER, "vit_control_lam0.025_s0", "in1k_attribution_or_baselines", "vit_control_lam0.1_s0"),
+                 (FURTHER, "hvit_control_lam0.025_s0", "in1k_attribution_or_baselines", "hvit_control_lam0.1_s0"),
+                 (FURTHER, "d4rn50_control_lam0.025_s0", "in1k_attribution_or_baselines", "d4rn50_control_lam0.1_s0"),
+                 (FURTHER_SEEDS, "vit_control_lam0.025_s1", "in1k_attribution_or_baselines", "vit_control_lam0.1_s1"),
+                 (FURTHER_SEEDS, "vit_control_lam0.025_s2", "in1k_attribution_or_baselines", "vit_control_lam0.1_s2")]
+
+
+def _any_named(run_name: str) -> C.RunSpec:
+    found = [r for m in MANIFESTS for r in expand(m) if r.run_name == run_name]
+    assert len(found) == 1, f"{run_name} is in {len(found)} manifests"
+    return found[0]
+
+
+@pytest.mark.parametrize("manifest, name, ref_manifest, ref", RANDPART_PAIRS, ids=[p[1] for p in RANDPART_PAIRS])
+def test_the_random_partition_differs_from_its_K4_arm_in_the_shuffle_ONLY(manifest, name, ref_manifest, ref):
+    """The read-out is K-means K=4 minus random K=4, so nothing else may move: same lambda, K, recipe, target, centring,
+    geometry and seed. Inverted by deleting the key from the manifest (the diff comes back empty)."""
+    run, arm = _named(manifest, name), _named(ref_manifest, ref)
+    assert _differing(arm, run) == {"model.reg_loss.random_partition"}
+    assert C.compose_config(run.hydra_overrides()).model.reg_loss.random_partition is True
+    assert C.compose_config(arm.hydra_overrides()).model.reg_loss.random_partition is False
+    assert run.seed == arm.seed
+    assert math.isclose(_effective_strength(run), 1.6)
+
+
+@pytest.mark.parametrize("manifest, name, _unused, ref", CONTROL_PAIRS, ids=[p[1] for p in CONTROL_PAIRS])
+def test_lejepa_at_the_strength_of_K4_differs_from_the_control_in_lambda_ONLY(manifest, name, _unused, ref):
+    """Decision 36, run D: same settings AND same strength as K=4. At lambda 0.1 the control sits at 6.4 and K=4 at 1.6."""
+    run, control = _named(manifest, name), _any_named(ref)
+    assert _differing(control, run) == {"model.lamb"}
+    assert math.isclose(_effective_strength(control), 6.4)
+    assert math.isclose(_effective_strength(run), 1.6)
+    assert run.seed == control.seed
+
+
+def test_the_hvit_centred_local_gaussian_differs_from_the_hvit_ball_in_the_target_ONLY():
+    """Decision 36, run E: decision 30's control on the encoder that already has the ball and the uncentred Gaussian.
+    Inverted by `center: false`, which is the arm hvit_localsigreg already is."""
+    run = _named(FURTHER, "hvit_localgauss_lam0.1_k4_s0")
+    ball = _named("in1k_local.yaml", "hvit_local_lam0.1_k4_s0")
+    assert _differing(ball, run) == TARGET_ONLY_KEYS
+    cfg = C.compose_config(run.hydra_overrides())
+    assert cfg.model.reg_loss.loss.center is True
+    assert cfg.model.reg_loss._target_ == "src.losses.local_sigreg_loss"
+    assert math.isclose(_effective_strength(run), 1.6)
+
+
+def _reg_keys(a: C.RunSpec, b: C.RunSpec) -> set[str]:
+    """Differing keys under model.reg_loss are the swap itself; the rest must be what the read-out names."""
+    return {k for k in _differing(a, b) if not k.startswith("model.reg_loss")}
+
+
+@pytest.mark.parametrize("name, ref, lamb", [("vit_in1k_subreg_pub_s0", "vit_sigreg_s0", 0.02),
+                                             ("vit_in1k_subreg_ours_lam0.1_s0", "vit_control_lam0.1_s0", 0.1)])
+def test_subreg_differs_from_its_row_in_the_regularizer_ONLY(name, ref, lamb):
+    run, row = _named(FURTHER, name), _any_named(ref)
+    assert _reg_keys(row, run) == set(), sorted(_differing(row, run))
+    cfg = C.compose_config(run.hydra_overrides())
+    assert cfg.model.reg_loss._target_ == "src.losses.SubReg"
+    assert float(cfg.model.lamb) == lamb
+    assert cfg.model.encoder._target_ == C.compose_config(row.hydra_overrides()).model.encoder._target_
+
+
+@pytest.mark.parametrize("name, ref, extra, lamb", [("vit_in1k_susreg_pub_s0", "vit_sigreg_s0", set(), 0.02),
+                                                    ("vit_in1k_susreg_ours_lam0.1_s0", "vit_control_lam0.1_s0", set(), 0.1),
+                                                    ("vit_in1k_susreg_ours_lam0.05_s0", "vit_control_lam0.1_s0", {"model.lamb"}, 0.05)])
+def test_susreg_differs_from_its_row_in_the_regularizer_and_the_normalized_invariance_ONLY(name, ref, extra, lamb):
+    """SUSReg's own configs normalize the invariance term, so ours does too. The lambda 0.05 row differs in lambda as
+    well, and nothing else."""
+    run, row = _named(FURTHER, name), _any_named(ref)
+    assert _reg_keys(row, run) == {"model.inv_loss.normalize"} | extra, sorted(_differing(row, run))
+    cfg = C.compose_config(run.hydra_overrides())
+    assert cfg.model.reg_loss._target_ == "src.losses.susreg_loss"
+    assert cfg.model.inv_loss.normalize is True
+    assert float(cfg.model.lamb) == lamb
+
+
+def test_the_further_tags_resolve_to_a_backbone_family_and_keep_the_eval_lists_appended():
+    """`sync_eval_configs.family()` raises at module import on an unmatched tag. The new manifests are appended, so the
+    eval entries of every earlier run keep their order."""
+    import importlib.util
+    import sys
+
+    spec = importlib.util.spec_from_file_location("_sync_for_d36", REPO / "scripts/aicr/sync_eval_configs.py")
+    sync = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = sync
+    spec.loader.exec_module(sync)
+    for manifest in (FURTHER, FURTHER_SEEDS):
+        assert manifest in sync.IN1K_128
+        for run in expand(REPO / "configs" / "campaign" / manifest):
+            assert sync.family(run) == run.tag.split("_")[0], run.tag
+    assert sync.IN1K_128[-2:] == [FURTHER, FURTHER_SEEDS]
+
+
+def test_the_further_smoke_cell_for_the_shuffle_really_shuffles():
+    """F58. Without the key it rehearses the K=4 arm again and the new line of src/losses.py never runs before the wave."""
+    cfg = C.compose_config(_named("smoke_4gpu.yaml", "smoke_vit_in1k_randpart_s0").hydra_overrides())
+    assert cfg.model.reg_loss.random_partition is True
+    assert int(cfg.model.reg_loss.num_clusters) == 4
+    assert cfg.model.reg_loss._target_ == "src.losses.local_ballreg_loss"
+
+
+def test_the_further_smoke_cells_for_the_baselines_run_the_baselines():
+    """F58. Without the group override both compose to SIGReg, which every other cell already rehearses."""
+    sub = C.compose_config(_named("smoke_4gpu.yaml", "smoke_vit_in1k_subreg_s0").hydra_overrides())
+    sus = C.compose_config(_named("smoke_4gpu.yaml", "smoke_vit_in1k_susreg_s0").hydra_overrides())
+    assert sub.model.reg_loss._target_ == "src.losses.SubReg"
+    assert sus.model.reg_loss._target_ == "src.losses.susreg_loss"
+    assert sus.model.inv_loss.normalize is True
+
+
+def test_the_further_smoke_cell_for_the_hvit_gaussian_is_centred_on_hvit():
+    cfg = C.compose_config(_named("smoke_4gpu.yaml", "smoke_hvit_in1k_localgauss_s0").hydra_overrides())
+    assert cfg.model.reg_loss._target_ == "src.losses.local_sigreg_loss"
+    assert cfg.model.reg_loss.loss.center is True
+    assert "hvit" in _named("smoke_4gpu.yaml", "smoke_hvit_in1k_localgauss_s0").experiment
+
+
+def test_the_further_smoke_cells_are_appended_so_earlier_indices_do_not_move():
+    """ARRAY INDEX = MANIFEST ORDER (AICR gotcha): an inserted cell would run a different job under a known index."""
+    names = [r.run_name for r in expand(REPO / "configs" / "campaign" / "smoke_4gpu.yaml")]
+    assert names[-4:] == ["smoke_vit_in1k_randpart_s0", "smoke_vit_in1k_subreg_s0", "smoke_vit_in1k_susreg_s0",
+                          "smoke_hvit_in1k_localgauss_s0"]
+    assert names[15] == "smoke_d4rn50_in1k_localsigreg_s0"

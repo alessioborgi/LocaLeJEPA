@@ -9,3 +9,4 @@ min_cluster_size: 4
 weighted: false
 normalize_for_kmeans: true
 kmeans_backend: fast_pytorch_kmeans # "fast_pytorch_kmeans" | "torch"
+random_partition: false # true shuffles the k-means labels within each step: sizes kept, data dependence gone (decision 36)

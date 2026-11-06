@@ -216,6 +216,7 @@ def local_loss(
     weighted: bool = False,
     normalize_for_kmeans: bool = True,
     kmeans_backend: str = "fast_pytorch_kmeans",
+    random_partition: bool = False,
     stats: dict[str, float] | None = None,
 ) -> torch.Tensor:
     """A distribution-matching test applied over k-means neighborhoods in embedding space.
@@ -238,6 +239,10 @@ def local_loss(
                           still computing the test on raw projections
     kmeans_backend      : "fast_pytorch_kmeans" uses the external accelerated
                           package; "torch" uses the in-repo fallback
+    random_partition    : if True, shuffle the k-means labels across the samples before
+                          the neighborhoods are formed. Each step keeps k-means' exact
+                          cluster sizes and loses their data dependence: the control
+                          for "do the neighborhoods need k-means" (decision 36)
     stats               : optional dict the call fills with the realised partition:
                           ``configured_clusters`` (the ``num_clusters`` asked for),
                           ``effective_clusters`` (clusters that survived the size
@@ -280,6 +285,9 @@ def local_loss(
         )
     else:
         raise ValueError(f"Unknown kmeans_backend: {kmeans_backend!r}. Choose 'fast_pytorch_kmeans' or 'torch'.")
+
+    if random_partition:
+        labels = labels[torch.randperm(N, device=labels.device)]
 
     losses: list[torch.Tensor] = []
     weights: list[int] = []

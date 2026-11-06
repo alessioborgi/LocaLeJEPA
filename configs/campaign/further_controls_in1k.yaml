@@ -1,0 +1,93 @@
+# FURTHER CONTROLS. Decision 36 (2026-11-06). Three questions the ImageNet-1K tables leave open, with read-outs fixed in
+# state/05 decision 36 BEFORE any number exists. Rulers: k-NN@20 and linear top-1, final-epoch checkpoints, the strict
+# protocol. "Beyond" means strictly more than 1.0.
+#
+# A. RANDOM PARTITION: do the neighbourhoods need k-means, or would random groups of the same sizes do? K-means runs as
+#    usual, then its labels are shuffled across the samples of that step (model.reg_loss.random_partition), which keeps
+#    each step's exact sizes. It differs from the K=4 ball arm in that one key (pinned by a test). Read-out: K-means K=4
+#    minus random K=4.
+#      beyond +1.0 on both rulers -> data-dependent neighbourhoods carry signal on that encoder
+#      within 1.0 on both         -> k-means adds nothing measurable, and the word "locality" must change
+#      anything else              -> reported as mixed
+#    Prediction, recorded first: random K=4 sits near K=1 at lambda 0.025 (ViT-S/8 47.71 / 59.79), against K=4 at
+#    50.06 / 62.13. Limit: the shuffle removes semantics, variance effects and feedback together.
+#      vit_randpart_lam0.1_k4_s{0,1,2}, hvit_randpart_lam0.1_k4_s0, d4rn50_randpart_lam0.1_k4_s0
+#      vs  *_local_lam0.1_k4_* (seeds 1 and 2 of ViT-S/8 are in further_controls_seeds_in1k)
+#
+# D. LeJEPA (OUR SETTINGS) AT THE STRENGTH OF K=4: the same settings AND the same strength. At lambda 0.1 the control
+#    sits at effective strength 6.4 and K=4 at 1.6. lambda 0.025 gives the control 0.025 x 64 / 1 = 1.6. It differs from
+#    the control in lambda only (pinned). Read-out: K=4 minus this row is the margin at the same settings and strength.
+#      vit_control_lam0.025_s{0,1,2}, hvit_control_lam0.025_s0, d4rn50_control_lam0.025_s0
+#
+# E. H-ViT CENTRED LOCAL GAUSSIAN. The uncentred local Gaussian is on H-ViT and D4, the centred one on ViT-S/8, so no
+#    encoder has both. This gives H-ViT the ball and both local Gaussians. It is local_gaussian_in1k's override on the
+#    H-ViT ball arm, and differs from that arm in the target keys only (pinned). Read-out: centred minus uncentred local
+#    Gaussian, and ball minus centred Gaussian, by the +/-1.0 rule.
+#      hvit_localgauss_lam0.1_k4_s0  vs  hvit_localsigreg_lam0.1_k4_s0  and  hvit_local_lam0.1_k4_s0
+#
+# B. SubReg AND SUSReg AT ImageNet-1K. Plain ViT-S/8, seed 0, labelled as OUR ADAPTATION: the nvit_in1k_* configs are not
+#    comparable (other encoder, Adam, 800 epochs). Each runs at the LeJEPA row's settings (`pub`: lejepa/vit_in1k_sigreg,
+#    lambda 0.02) and at ours (`ours`: the control, lambda 0.1), and SUSReg also at lambda 0.05 at ours, so one weight
+#    cannot be the reason it trails. SUSReg takes the normalized invariance term, as its own configs do. Each differs from
+#    its reference row in the regularizer keys only, plus lambda where stated (pinned). The tag carries `in1k` because
+#    vit_subreg_s0 and friends already exist on Imagenette (F56). Read-out: rows in the table, K=4 minus each at the same
+#    settings, reported whatever they show.
+#
+# GEOMETRY identical to every arm compared against: 4 GPUs, batch 256, accumulate 1 -> N=64 per shard.
+# REHEARSAL: random_partition has never run, SubReg and SUSReg have never run under 4-GPU DDP at ImageNet scale, and
+# H-ViT has never run the centred local Gaussian, so smoke_4gpu gains four cells that run BEFORE this wave.
+# COST, measured on the same shapes: ViT-S and H-ViT ~9 h per 100 epochs at spec (~36 GPU-h), D4 ~29 h (~117 GPU-h, two walls).
+# This manifest: 12 runs, ~10 x 36 + 2 x 117 = ~594 GPU-h at spec.
+name: further_controls_in1k
+seeds: [0]
+gpus: 4
+micro_batch: 64
+max_epochs: 100
+short: {model.lamb: lam, model.reg_loss.num_clusters: k}
+blocks:
+  # A. random partition
+  - tag: vit_randpart
+    experiment: lejepa/vit_in1k_localballreg_l01_k4
+    axes: {model.lamb: [0.1], model.reg_loss.num_clusters: [4]}
+    overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1, model.reg_loss.random_partition: true}
+  - tag: hvit_randpart
+    experiment: lejepa/hvit_in1k_localballreg_l01_k4
+    axes: {model.lamb: [0.1], model.reg_loss.num_clusters: [4]}
+    overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1, model.reg_loss.random_partition: true}
+  - tag: d4rn50_randpart
+    experiment: lejepa/d4rn50_in1k_localballreg_l01_k4
+    axes: {model.lamb: [0.1], model.reg_loss.num_clusters: [4]}
+    overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1, model.reg_loss.random_partition: true}
+  # D. LeJEPA (our settings) at lambda 0.025
+  - tag: vit_control
+    experiment: lejepa/vit_in1k_sigreg_localrecipe
+    axes: {model.lamb: [0.025]}
+    overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1}
+  - tag: hvit_control
+    experiment: lejepa/hvit_in1k_sigreg_localrecipe
+    axes: {model.lamb: [0.025]}
+    overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1}
+  - tag: d4rn50_control
+    experiment: lejepa/d4rn50_in1k_sigreg_localrecipe
+    axes: {model.lamb: [0.025]}
+    overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1}
+  # E. H-ViT centred local Gaussian
+  - tag: hvit_localgauss
+    experiment: lejepa/hvit_in1k_localballreg_l01_k4
+    axes: {model.lamb: [0.1], model.reg_loss.num_clusters: [4]}
+    overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1, model/reg_loss: locale_sigreg, model.reg_loss.loss.center: true}
+  # B. SubReg and SUSReg, plain ViT-S/8
+  - tag: vit_in1k_subreg_pub
+    experiment: lejepa/vit_in1k_sigreg
+    overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1, model/reg_loss: subreg}
+  - tag: vit_in1k_subreg_ours
+    experiment: lejepa/vit_in1k_sigreg_localrecipe
+    axes: {model.lamb: [0.1]}
+    overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1, model/reg_loss: subreg}
+  - tag: vit_in1k_susreg_pub
+    experiment: lejepa/vit_in1k_sigreg
+    overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1, model/reg_loss: susreg, model.inv_loss.normalize: true}
+  - tag: vit_in1k_susreg_ours
+    experiment: lejepa/vit_in1k_sigreg_localrecipe
+    axes: {model.lamb: [0.1, 0.05]}
+    overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1, model/reg_loss: susreg, model.inv_loss.normalize: true}
