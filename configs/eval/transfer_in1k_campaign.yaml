@@ -218,3 +218,9 @@ backbones:
   - name: vit_control_lam0.025_s2
     experiment: lejepa/vit_in1k_sigreg_localrecipe
     checkpoint: checkpoints/vit_control_lam0.025_s2/last.ckpt
+  - name: vit_in1k_subreg_ours_lam0.025_s0
+    experiment: lejepa/vit_in1k_sigreg_localrecipe
+    checkpoint: checkpoints/vit_in1k_subreg_ours_lam0.025_s0/last.ckpt
+  - name: vit_in1k_susreg_ours_lam0.025_s0
+    experiment: lejepa/vit_in1k_sigreg_localrecipe
+    checkpoint: checkpoints/vit_in1k_susreg_ours_lam0.025_s0/last.ckpt

@@ -1,0 +1,28 @@
+# FURTHER CONTROLS, B': SubReg and SUSReg ALSO at the strength of K=4. Decision 36, addition of 2026-11-07, with its
+# read-out fixed in state/05 before any number. Run D (further_controls_in1k.yaml) puts LeJEPA (our settings) at K=4's
+# effective strength: 0.025 x 64 / 1 = 1.6, the same as 0.1 x 64 / 4. These two put SubReg and SUSReg there too, so
+# one rule covers every global regularizer. Each is the `ours` row of further_controls_in1k.yaml with lambda 0.025 and
+# nothing else (pinned). Read-out: rows in the table, K=4 minus each at the same settings, reported whatever they show.
+#   vit_in1k_subreg_ours_lam0.025_s0  vs  vit_in1k_subreg_ours_lam0.1_s0   (lambda only)
+#   vit_in1k_susreg_ours_lam0.025_s0  vs  vit_in1k_susreg_ours_lam0.1_s0   (lambda only)
+# A NEW manifest, not two more entries in further_controls_in1k.yaml: that array was running when these were added, and
+# a running array reads its manifest by index.
+# GEOMETRY identical to every arm compared against: 4 GPUs, batch 256, accumulate 1 -> N=64 per shard.
+# REHEARSAL: nothing new. Both shapes ran to completion at ImageNet-1K under 4-GPU DDP in further_controls_in1k, after
+# smoke cells 17 and 18; only lambda changes.
+# COST: 2 x ~36 GPU-h at spec.
+name: further_controls_matched_in1k
+seeds: [0]
+gpus: 4
+micro_batch: 64
+max_epochs: 100
+short: {model.lamb: lam, model.reg_loss.num_clusters: k}
+blocks:
+  - tag: vit_in1k_subreg_ours
+    experiment: lejepa/vit_in1k_sigreg_localrecipe
+    axes: {model.lamb: [0.025]}
+    overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1, model/reg_loss: subreg}
+  - tag: vit_in1k_susreg_ours
+    experiment: lejepa/vit_in1k_sigreg_localrecipe
+    axes: {model.lamb: [0.025]}
+    overrides: {logger: csv, data.batch_size: 256, trainer.accumulate_grad_batches: 1, model/reg_loss: susreg, model.inv_loss.normalize: true}

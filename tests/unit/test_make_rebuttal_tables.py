@@ -184,7 +184,7 @@ def test_the_four_published_tables_read_no_separating_control_and_only_the_furth
     """Decision 36 ended decision 32's rule for the new table, and the tables already in the paper keep
     the rows they had, so their numbers cannot move. Inverted by adding a new arm to MAIN_ROWS."""
     new_arms = {"ours_quarter", "centred_k1", "centred_k4", "randpart", "subreg_pub", "subreg_ours", "susreg_pub",
-                "susreg_ours", "susreg_ours_l005"}
+                "susreg_ours", "susreg_ours_l005", "subreg_ours_l0025", "susreg_ours_l0025"}
     for name, spec in gen.TABLES.items():
         used = {arm for arms in spec["rows"].values() for arm in arms}
         if name == "tab_further_controls":
@@ -537,6 +537,7 @@ FURTHER_FIXTURE = {  # run: (knn20, linear). Chosen so each read-out lands where
     "d4rn50_local_lam0.1_k4_s0": (47.5, 55.2), "d4rn50_randpart_lam0.1_k4_s0": (45.0, 55.0),  # +2.5 / +0.2, mixed
     "vit_in1k_subreg_ours_lam0.1_s0": (40.0, 50.0), "vit_in1k_susreg_ours_lam0.1_s0": (41.0, 51.0),
     "vit_in1k_susreg_ours_lam0.05_s0": (42.0, 52.0), "vit_in1k_subreg_pub_s0": (31.0, 43.0), "vit_in1k_susreg_pub_s0": (30.0, 42.0),
+    "vit_in1k_subreg_ours_lam0.025_s0": (43.0, 53.0), "vit_in1k_susreg_ours_lam0.025_s0": (44.0, 54.0),
 }
 
 
@@ -635,3 +636,30 @@ def test_run_b_compares_each_baseline_at_its_own_settings(further_built):
     assert n["k4_over_subreg_ours/vit/knn20"]["value"] == pytest.approx(VIT["local_lam0.1_k4"][0][0] - 40.0)
     assert n["k4_over_susreg_ours_l005/vit/linear"]["value"] == pytest.approx(VIT["local_lam0.1_k4"][0][1] - 52.0)
     assert n["lejepa_over_subreg_pub/vit/knn20"]["value"] == pytest.approx(VIT["sigreg"][0][0] - 31.0)
+
+
+def test_run_b_reads_each_baseline_at_the_strength_of_k4_from_its_own_run(further_built):
+    """Addition B': SubReg and SUSReg at lambda 0.025. Inverted by pointing either read-out or row at the lambda 0.1 or
+    0.05 run, which the fixture gives other values."""
+    out, _, n = further_built
+    assert n["k4_over_subreg_ours_l0025/vit/knn20"]["value"] == pytest.approx(VIT["local_lam0.1_k4"][0][0] - 43.0)
+    assert n["k4_over_subreg_ours_l0025/vit/linear"]["value"] == pytest.approx(VIT["local_lam0.1_k4"][0][1] - 53.0)
+    assert n["k4_over_susreg_ours_l0025/vit/knn20"]["value"] == pytest.approx(VIT["local_lam0.1_k4"][0][0] - 44.0)
+    assert n["k4_over_susreg_ours_l0025/vit/linear"]["value"] == pytest.approx(VIT["local_lam0.1_k4"][0][1] - 54.0)
+    tex, _ = table(out, "tab_further_controls")
+    assert "$43.0$" in row(tex, "% row:tab_further_controls/vit/subreg_ours_l0025")
+    assert "$54.0$" in row(tex, "% row:tab_further_controls/vit/susreg_ours_l0025")
+
+
+def test_a_pending_baseline_at_the_strength_of_k4_gives_no_number(gen, root, tmp_path):
+    """A pair with a missing run is left out, never filled: before the lambda 0.025 runs are evaluated, neither
+    read-out exists, and the lambda 0.1 one is unaffected."""
+    for run, (k, lin) in FURTHER_FIXTURE.items():
+        if "lam0.025_s0" in run and "_in1k_su" in run:
+            continue
+        write(root / IND / f"{run}.json", indomain(k, lin))
+    out = tmp_path / "out"
+    assert gen.main(["--root", str(root), "--out", str(out), "--raw", str(tmp_path / "raw")]) == 0
+    n = json.loads((out / "text_numbers.json").read_text())
+    assert not any(k.startswith(("k4_over_subreg_ours_l0025/", "k4_over_susreg_ours_l0025/")) for k in n)
+    assert n["k4_over_subreg_ours/vit/knn20"]["value"] == pytest.approx(VIT["local_lam0.1_k4"][0][0] - 40.0)

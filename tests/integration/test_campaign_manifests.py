@@ -28,7 +28,7 @@ EXPECTED_RUNS = {
     "in1k_attribution": 2, "in1k_vitl14_globalball": 1, "strength_matched_in1k": 3,
     "separating_controls_in1k": 5, "vitl14_strength_matched_in1k": 1, "seeds_vit_in1k": 10,
     "local_gaussian_in1k": 1, "paper_arms_in1k": 8, "in1k_vitl14_our_settings": 2,
-    "further_controls_in1k": 12, "further_controls_seeds_in1k": 4,
+    "further_controls_in1k": 12, "further_controls_seeds_in1k": 4, "further_controls_matched_in1k": 2,
 }
 
 
@@ -356,7 +356,8 @@ NEW_WAVE_MANIFESTS = ("capacity_grid_ep800.yaml", "capacity_in1k.yaml",
                       "strength_matched_in1k.yaml", "separating_controls_in1k.yaml",
                       "vitl14_strength_matched_in1k.yaml", "seeds_vit_in1k.yaml", "local_gaussian_in1k.yaml",
                       "paper_arms_in1k.yaml", "in1k_vitl14_our_settings.yaml",
-                      "further_controls_in1k.yaml", "further_controls_seeds_in1k.yaml")
+                      "further_controls_in1k.yaml", "further_controls_seeds_in1k.yaml",
+                      "further_controls_matched_in1k.yaml")
 # strength_matched_in1k (decision 28) runs depths 6 and 3 through the depth config, so it belongs to the
 # depth guard too. Its depth-12 run takes the BASE config with no depth override, exactly as the K=4 arm
 # it is compared against does -- so no unrehearsed depth enters, and neither guard needs weakening.
@@ -1155,6 +1156,7 @@ def test_the_campaign_d4_encoder_builds_at_depth_50_and_survives_sync_batchnorm(
 # ---------------------------------------------------------------------------------------------------
 FURTHER = "further_controls_in1k.yaml"
 FURTHER_SEEDS = "further_controls_seeds_in1k.yaml"
+FURTHER_MATCHED = "further_controls_matched_in1k.yaml"
 RANDPART_PAIRS = [(FURTHER, "vit_randpart_lam0.1_k4_s0", "in1k_local.yaml", "vit_local_lam0.1_k4_s0"),
                   (FURTHER, "hvit_randpart_lam0.1_k4_s0", "in1k_local.yaml", "hvit_local_lam0.1_k4_s0"),
                   (FURTHER, "d4rn50_randpart_lam0.1_k4_s0", "in1k_local.yaml", "d4rn50_local_lam0.1_k4_s0"),
@@ -1247,11 +1249,38 @@ def test_the_further_tags_resolve_to_a_backbone_family_and_keep_the_eval_lists_a
     sync = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = sync
     spec.loader.exec_module(sync)
-    for manifest in (FURTHER, FURTHER_SEEDS):
+    for manifest in (FURTHER, FURTHER_SEEDS, FURTHER_MATCHED):
         assert manifest in sync.IN1K_128
         for run in expand(REPO / "configs" / "campaign" / manifest):
             assert sync.family(run) == run.tag.split("_")[0], run.tag
-    assert sync.IN1K_128[-2:] == [FURTHER, FURTHER_SEEDS]
+    assert sync.IN1K_128[-3:] == [FURTHER, FURTHER_SEEDS, FURTHER_MATCHED]
+
+
+@pytest.mark.parametrize("name, ref", [("vit_in1k_subreg_ours_lam0.025_s0", "vit_in1k_subreg_ours_lam0.1_s0"),
+                                       ("vit_in1k_susreg_ours_lam0.025_s0", "vit_in1k_susreg_ours_lam0.1_s0")])
+def test_subreg_and_susreg_at_the_strength_of_K4_differ_from_their_ours_row_in_lambda_ONLY(name, ref):
+    """Decision 36, addition B': the rule of run D for every global regularizer. At lambda 0.1 the `ours` rows sit at
+    effective strength 6.4 and K=4 at 1.6; lambda 0.025 puts them at 1.6. SUSReg keeps the normalized invariance term,
+    SubReg keeps the plain one."""
+    run, row = _named(FURTHER_MATCHED, name), _named(FURTHER, ref)
+    assert _differing(row, run) == {"model.lamb"}, sorted(_differing(row, run))
+    assert math.isclose(_effective_strength(row), 6.4)
+    assert math.isclose(_effective_strength(run), 1.6)
+    assert run.seed == row.seed == 0
+    cfg = C.compose_config(run.hydra_overrides())
+    assert cfg.model.inv_loss.normalize is ("susreg" in name)
+
+
+def test_the_running_further_manifests_keep_their_runs_in_order():
+    """ARRAY INDEX = MANIFEST ORDER (AICR gotcha): the wave and seeds arrays of decision 36 were running when addition B'
+    came, and a successor reads its manifest by index. So B' is a manifest of its own and these two lists stay fixed."""
+    assert [r.run_name for r in expand(REPO / "configs" / "campaign" / FURTHER)] == [
+        "vit_randpart_lam0.1_k4_s0", "hvit_randpart_lam0.1_k4_s0", "d4rn50_randpart_lam0.1_k4_s0",
+        "vit_control_lam0.025_s0", "hvit_control_lam0.025_s0", "d4rn50_control_lam0.025_s0",
+        "hvit_localgauss_lam0.1_k4_s0", "vit_in1k_subreg_pub_s0", "vit_in1k_subreg_ours_lam0.1_s0",
+        "vit_in1k_susreg_pub_s0", "vit_in1k_susreg_ours_lam0.1_s0", "vit_in1k_susreg_ours_lam0.05_s0"]
+    assert [r.run_name for r in expand(REPO / "configs" / "campaign" / FURTHER_SEEDS)] == [
+        "vit_randpart_lam0.1_k4_s1", "vit_randpart_lam0.1_k4_s2", "vit_control_lam0.025_s1", "vit_control_lam0.025_s2"]
 
 
 def test_the_further_smoke_cell_for_the_shuffle_really_shuffles():

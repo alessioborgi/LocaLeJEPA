@@ -94,6 +94,9 @@ ARMS = {
     "susreg_pub": (r"SUSReg, LeJEPA's settings ($\lambda{=}0.02$)", "{f}_in1k_susreg_pub_s{s}"),
     "susreg_ours": (r"SUSReg, our settings ($\lambda{=}0.1$)", "{f}_in1k_susreg_ours_lam0.1_s{s}"),
     "susreg_ours_l005": (r"SUSReg, our settings ($\lambda{=}0.05$)", "{f}_in1k_susreg_ours_lam0.05_s{s}"),
+    # decision 36, addition B' (2026-11-07): SubReg and SUSReg also at the strength of K=4, as run D is for LeJEPA
+    "subreg_ours_l0025": (r"SubReg, our settings ($\lambda{=}0.025$)", "{f}_in1k_subreg_ours_lam0.025_s{s}"),
+    "susreg_ours_l0025": (r"SUSReg, our settings ($\lambda{=}0.025$)", "{f}_in1k_susreg_ours_lam0.025_s{s}"),
 }
 VITL_ARMS = {
     "lejepa": (r"LeJEPA", "vitl14_sigreg_s0"),
@@ -120,7 +123,8 @@ MAIN_ROWS = {"vit": ["lejepa", "ours", "rdmreg", "k1", "k4"],
 TRANSFER_MAIN_ROWS = {f: [a for a in rows if a != "rdmreg"] for f, rows in MAIN_ROWS.items()}
 FULL_ROWS = {f: full_rows(f) for f in FAMILIES}
 _FURTHER_COMMON = ["lejepa", "ours", "ours_quarter", "centred_k1", "k1", "k1_quarter", "k4", "randpart"]
-_BASELINES_36 = ["subreg_pub", "subreg_ours", "susreg_pub", "susreg_ours", "susreg_ours_l005"]
+_BASELINES_36 = ["subreg_pub", "subreg_ours", "subreg_ours_l0025", "susreg_pub", "susreg_ours", "susreg_ours_l005",
+                 "susreg_ours_l0025"]
 FURTHER_ROWS = {"vit": _FURTHER_COMMON + ["centred_k4"] + _BASELINES_36,
                "hvit": _FURTHER_COMMON + ["centred_k4", "localsigreg"],
                "d4rn50": _FURTHER_COMMON + ["localsigreg"]}
@@ -702,9 +706,11 @@ LADDER = (("settings", "ours", "lejepa"), ("centring", "centred_k1", "ours"), ("
 FURTHER_STEPS = (
     ("ball_minus_centred_k4", "k4", "centred_k4", ("vit", "hvit"), "K=4: the ball minus the centred local Gaussian, seed 0"),
     ("centred_minus_uncentred_k4", "centred_k4", "localsigreg", ("hvit",), "K=4: the centred minus the uncentred local Gaussian, seed 0"),
-    ("k4_over_subreg_ours", "k4", "subreg_ours", ("vit",), "K=4 minus SubReg, both at our settings, seed 0"),
+    ("k4_over_subreg_ours", "k4", "subreg_ours", ("vit",), "K=4 minus SubReg at lambda 0.1, both at our settings, seed 0"),
+    ("k4_over_subreg_ours_l0025", "k4", "subreg_ours_l0025", ("vit",), "K=4 minus SubReg at lambda 0.025, both at our settings, seed 0"),
     ("k4_over_susreg_ours", "k4", "susreg_ours", ("vit",), "K=4 minus SUSReg at lambda 0.1, both at our settings, seed 0"),
     ("k4_over_susreg_ours_l005", "k4", "susreg_ours_l005", ("vit",), "K=4 minus SUSReg at lambda 0.05, both at our settings, seed 0"),
+    ("k4_over_susreg_ours_l0025", "k4", "susreg_ours_l0025", ("vit",), "K=4 minus SUSReg at lambda 0.025, both at our settings, seed 0"),
     ("lejepa_over_subreg_pub", "lejepa", "subreg_pub", ("vit",), "LeJEPA minus SubReg, both at LeJEPA's settings, seed 0"),
     ("lejepa_over_susreg_pub", "lejepa", "susreg_pub", ("vit",), "LeJEPA minus SUSReg, both at LeJEPA's settings, seed 0"),
 )
